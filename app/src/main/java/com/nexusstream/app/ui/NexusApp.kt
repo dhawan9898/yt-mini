@@ -59,6 +59,12 @@ import com.nexusstream.app.ui.youtube.SearchScreen
 import com.nexusstream.app.ui.youtube.PlaylistScreen
 import com.nexusstream.app.ui.youtube.ChannelScreen
 import com.nexusstream.app.ui.youtube.AllSubscriptionsScreen
+import com.nexusstream.app.ui.youtube.DownloadsScreen
+import com.nexusstream.app.ui.youtube.HistoryScreen
+import com.nexusstream.app.ui.youtube.LikedVideosScreen
+import com.nexusstream.app.ui.youtube.LocalPlaylistScreen
+import com.nexusstream.app.ui.youtube.PlaylistsScreen
+import com.nexusstream.app.ui.youtube.WatchLaterScreen
 import com.nexusstream.app.ui.components.MiniPlayerHooks
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.key
@@ -71,6 +77,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nexusstream.app.data.DownloadRepository
 import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.MediaItemModel
@@ -121,6 +128,7 @@ fun NexusApp() {
             openChannel = { url, name, avatar -> push(Route.Channel(url, name, avatar)) },
             openPlaylist = { url, title -> push(Route.Playlist(url, title)) },
             openAllSubscriptions = { push(Route.AllSubscriptions) },
+            open = { route -> push(route) },
             back = { if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) }
         )
     }
@@ -155,7 +163,10 @@ fun NexusApp() {
         }
     }
 
-    LaunchedEffect(Unit) { LibraryRepository.init(context) }
+    LaunchedEffect(Unit) {
+        LibraryRepository.init(context)
+        DownloadRepository.init(context)
+    }
 
     val activeService = playbackService
     val playbackState = activeService?.playbackState?.collectAsState()?.value
@@ -263,6 +274,12 @@ fun NexusApp() {
                                                 is Route.Channel -> ChannelScreen(route, nav, playVideo, miniPlayer)
                                                 is Route.Playlist -> PlaylistScreen(route, nav, playVideo, miniPlayer)
                                                 is Route.AllSubscriptions -> AllSubscriptionsScreen(nav, miniPlayer)
+                                                is Route.History -> HistoryScreen(nav, playVideo, miniPlayer)
+                                                is Route.WatchLater -> WatchLaterScreen(nav, playVideo, miniPlayer)
+                                                is Route.Liked -> LikedVideosScreen(nav, playVideo, miniPlayer)
+                                                is Route.Downloads -> DownloadsScreen(nav, playVideo, miniPlayer)
+                                                is Route.Playlists -> PlaylistsScreen(nav, miniPlayer)
+                                                is Route.LocalPlaylist -> LocalPlaylistScreen(route, nav, playVideo, miniPlayer)
                                             }
                                         }
                                     }

@@ -8,6 +8,12 @@ sealed interface Route {
     data class Channel(val url: String, val name: String, val avatarUrl: String) : Route
     data class Playlist(val url: String, val title: String) : Route
     data object AllSubscriptions : Route
+    data object History : Route
+    data object WatchLater : Route
+    data object Liked : Route
+    data object Downloads : Route
+    data object Playlists : Route
+    data class LocalPlaylist(val id: String) : Route
 }
 
 /** Navigation actions handed to YouTube screens. */
@@ -16,6 +22,8 @@ class YouTubeNav(
     val openChannel: (url: String, name: String, avatarUrl: String) -> Unit,
     val openPlaylist: (url: String, title: String) -> Unit,
     val openAllSubscriptions: () -> Unit,
+    /** Opens any other page (library lists, downloads, local playlists). */
+    val open: (Route) -> Unit,
     val back: () -> Unit
 ) {
     /** Opens the channel an item belongs to; does nothing when its channel URL is unknown. */

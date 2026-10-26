@@ -49,7 +49,9 @@ internal fun YouTubeVideoCard(
     onClick: () -> Unit,
     /** Inset, rounded thumbnail (used for "Up next"); the home feed is edge to edge. */
     inset: Boolean = false,
-    onChannelClick: (() -> Unit)? = null
+    onChannelClick: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
+    removeLabel: String = "Remove"
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -119,7 +121,13 @@ internal fun YouTubeVideoCard(
     }
 
     if (showMenu) {
-        VideoMenuSheet(item = item, onDismiss = { showMenu = false }, onOpenChannel = onChannelClick)
+        VideoMenuSheet(
+            item = item,
+            onDismiss = { showMenu = false },
+            onOpenChannel = onChannelClick,
+            onRemove = onRemove,
+            removeLabel = removeLabel
+        )
     }
 }
 
@@ -128,7 +136,9 @@ internal fun YouTubeVideoCard(
 internal fun CompactVideoRow(
     item: MediaItemModel,
     onClick: () -> Unit,
-    onChannelClick: (() -> Unit)? = null
+    onChannelClick: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
+    removeLabel: String = "Remove"
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -168,7 +178,13 @@ internal fun CompactVideoRow(
     }
 
     if (showMenu) {
-        VideoMenuSheet(item = item, onDismiss = { showMenu = false }, onOpenChannel = onChannelClick)
+        VideoMenuSheet(
+            item = item,
+            onDismiss = { showMenu = false },
+            onOpenChannel = onChannelClick,
+            onRemove = onRemove,
+            removeLabel = removeLabel
+        )
     }
 }
 

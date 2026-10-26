@@ -180,7 +180,9 @@ fun VideoWatchScreen(
 
     val subscriptions by LibraryRepository.subscriptions.collectAsState()
     val isSubscribed = subscriptions.any { it.name == mediaItem.artistOrChannel }
-    var isLiked by remember { mutableStateOf(false) }
+    val likedItems by LibraryRepository.liked.collectAsState()
+    val isLiked = likedItems.any { it.id == mediaItem.id }
+    var showSaveSheet by remember { mutableStateOf(false) }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var isCommentsExpanded by remember { mutableStateOf(false) }
 
@@ -424,7 +426,7 @@ fun VideoWatchScreen(
                     }
                     Spacer(modifier = Modifier.weight(1f))
 
-                    IconButton(onClick = { isLiked = !isLiked }) {
+                    IconButton(onClick = { LibraryRepository.toggleLike(mediaItem) }) {
                         Icon(
                             imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                             contentDescription = "Like",
@@ -455,7 +457,7 @@ fun VideoWatchScreen(
                             else -> Icon(Icons.Outlined.FileDownload, "Download", tint = Color.White, modifier = Modifier.size(24.dp))
                         }
                     }
-                    IconButton(onClick = { LibraryRepository.toggleSave(mediaItem) }) {
+                    IconButton(onClick = { showSaveSheet = true }) {
                         Icon(
                             imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                             contentDescription = if (isSaved) "Saved" else "Save",
@@ -561,6 +563,10 @@ fun VideoWatchScreen(
             }
         }
     }
+    }
+
+    if (showSaveSheet) {
+        AddToPlaylistSheet(item = mediaItem, onDismiss = { showSaveSheet = false })
     }
 
     if (showOptions) {

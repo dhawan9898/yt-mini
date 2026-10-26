@@ -14,13 +14,16 @@ import org.json.JSONObject
 /** Watch URL for a live YouTube item (ids are YouTube video ids). */
 val MediaItemModel.watchUrl: String get() = "https://www.youtube.com/watch?v=$id"
 
+/** A user-created playlist, stored on this device. Items keep the order they were added in. */
+data class Playlist(val id: String, val name: String, val items: List<MediaItemModel>)
+
 /**
  * Small on-device library: saved items, play history and finished downloads,
  * persisted in SharedPreferences. Call [init] once at app start.
  */
 object LibraryRepository {
     private const val PREFS = "nexus_library"
-    private const val MAX_HISTORY = 50
+    private const val MAX_HISTORY = 300
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -66,12 +69,13 @@ object LibraryRepository {
     }
 
     private fun persistSubscriptions() {
+        val store = prefs ?: return
         val json = JSONArray(_subscriptions.value.map {
             JSONObject()
                 .put("name", it.name).put("avatar", it.avatarUrl)
                 .put("url", it.channelUrl).put("seen", it.lastSeenMs)
         })
-        prefs?.edit()?.putString("subscriptions", json.toString())?.apply()
+        store.edit().putString("subscriptions", json.toString()).apply()
     }
 
     // ---- search history ----
@@ -120,12 +124,166 @@ object LibraryRepository {
         (0 until arr.length()).map { arr.getString(it) }
     }.getOrDefault(emptyList())
 
+    // ---- playlists ----
+    private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
+    val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
+
+    fun createPlaylist(name: String): Playlist {
+        val playlist = Playlist(java.util.UUID.randomUUID().toString(), name.trim().ifEmpty { "New playlist" }, emptyList())
+        _playlists.value = _playlists.value + playlist
+        persistPlaylists()
+        return playlist
+    }
+
+    fun renamePlaylist(id: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        updatePlaylist(id) { it.copy(name = trimmed) }
+    }
+
+    fun deletePlaylist(id: String) {
+        _playlists.value = _playlists.value.filter { it.id != id }
+        persistPlaylists()
+    }
+
+    fun isInPlaylist(playlistId: String, itemId: String): Boolean =
+        _playlists.value.firstOrNull { it.id == playlistId }?.items?.any { it.id == itemId } == true
+
+    /** Adds the item to the end of the playlist, or removes it if it is already there. */
+    fun togglePlaylistItem(playlistId: String, item: MediaItemModel) {
+        updatePlaylist(playlistId) { playlist ->
+            if (playlist.items.any { it.id == item.id }) {
+                playlist.copy(items = playlist.items.filter { it.id != item.id })
+            } else {
+                playlist.copy(items = playlist.items + item)
+            }
+        }
+    }
+
+    fun removeFromPlaylist(playlistId: String, itemId: String) {
+        updatePlaylist(playlistId) { it.copy(items = it.items.filter { item -> item.id != itemId }) }
+    }
+
+    /** Moves the item at [from] to position [to] (both clamped to the list). */
+    fun movePlaylistItem(playlistId: String, from: Int, to: Int) {
+        updatePlaylist(playlistId) { playlist ->
+            if (from !in playlist.items.indices) return@updatePlaylist playlist
+            val items = playlist.items.toMutableList()
+            val moved = items.removeAt(from)
+            items.add(to.coerceIn(0, items.size), moved)
+            playlist.copy(items = items)
+        }
+    }
+
+    private fun updatePlaylist(id: String, change: (Playlist) -> Playlist) {
+        _playlists.value = _playlists.value.map { if (it.id == id) change(it) else it }
+        persistPlaylists()
+    }
+
+    private fun persistPlaylists() {
+        val store = prefs ?: return
+        val json = JSONArray(_playlists.value.map { playlist ->
+            JSONObject()
+                .put("id", playlist.id)
+                .put("name", playlist.name)
+                .put("items", JSONArray(playlist.items.map(::toJson)))
+        })
+        store.edit().putString("playlists", json.toString()).apply()
+    }
+
+    private fun readPlaylists(json: String?): List<Playlist> = runCatching {
+        val arr = JSONArray(json ?: "[]")
+        (0 until arr.length()).map { arr.getJSONObject(it) }.map { o ->
+            Playlist(o.getString("id"), o.getString("name"), read(o.getJSONArray("items").toString()))
+        }
+    }.getOrDefault(emptyList())
+
+    // ---- liked videos ----
+    private val _liked = MutableStateFlow<List<MediaItemModel>>(emptyList())
+    val liked: StateFlow<List<MediaItemModel>> = _liked.asStateFlow()
+
+    fun isLiked(id: String): Boolean = _liked.value.any { it.id == id }
+
+    fun toggleLike(item: MediaItemModel) {
+        _liked.value = if (isLiked(item.id)) _liked.value.filter { it.id != item.id } else listOf(item) + _liked.value
+        persist("liked", _liked.value)
+    }
+
+    // ---- history management ----
+    private val _historyPaused = MutableStateFlow(false)
+    val historyPaused: StateFlow<Boolean> = _historyPaused.asStateFlow()
+
+    fun setHistoryPaused(paused: Boolean) {
+        _historyPaused.value = paused
+        prefs?.edit()?.putBoolean("history_paused", paused)?.apply()
+    }
+
+    fun removeFromHistory(id: String) {
+        _history.value = _history.value.filter { it.id != id }
+        persist("history", _history.value)
+    }
+
+    fun clearHistory() {
+        _history.value = emptyList()
+        persist("history", _history.value)
+    }
+
+    // ---- imports (Google Takeout) ----
+
+    /** Adds channels that are not subscribed yet; returns how many were new. */
+    fun importSubscriptions(subs: List<ChannelSub>): Int {
+        val existing = _subscriptions.value.map { it.name }.toSet()
+        val fresh = subs.filter { it.name !in existing }.distinctBy { it.name }
+        if (fresh.isEmpty()) return 0
+        _subscriptions.value = _subscriptions.value + fresh
+        persistSubscriptions()
+        return fresh.size
+    }
+
+    /** Adds imported watch history behind the existing entries; returns how many were new. */
+    fun importHistory(items: List<MediaItemModel>): Int {
+        val existing = _history.value.map { it.id }.toSet()
+        val fresh = items.filter { it.id !in existing }.distinctBy { it.id }
+        if (fresh.isEmpty()) return 0
+        _history.value = (_history.value + fresh).take(MAX_HISTORY)
+        persist("history", _history.value)
+        return fresh.size
+    }
+
+    /** Resets all in-memory state; used by unit tests (nothing is persisted without [init]). */
+    internal fun resetForTest() {
+        prefs = null
+        _saved.value = emptyList()
+        _history.value = emptyList()
+        _downloads.value = emptyList()
+        _subscriptions.value = emptyList()
+        _playlists.value = emptyList()
+        _liked.value = emptyList()
+        _historyPaused.value = false
+        _searchHistory.value = emptyList()
+        _hidden.value = Hidden()
+    }
+
+    /** Item list <-> JSON, shared with other repositories that persist media items. */
+    internal fun encodeItems(items: List<MediaItemModel>): String = JSONArray(items.map(::toJson)).toString()
+    internal fun decodeItems(json: String?): List<MediaItemModel> = read(json)
+
+    // ---- small key/value store for other repositories (e.g. unfinished downloads) ----
+    fun loadBlob(key: String): String? = prefs?.getString("blob_$key", null)
+
+    fun saveBlob(key: String, value: String) {
+        prefs?.edit()?.putString("blob_$key", value)?.apply()
+    }
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         _saved.value = read(p.getString("saved", null))
         _history.value = read(p.getString("history", null))
+        _liked.value = read(p.getString("liked", null))
+        _playlists.value = readPlaylists(p.getString("playlists", null))
+        _historyPaused.value = p.getBoolean("history_paused", false)
         _subscriptions.value = runCatching {
             val arr = JSONArray(p.getString("subscriptions", "[]"))
             (0 until arr.length()).map { arr.getJSONObject(it) }
@@ -155,6 +313,7 @@ object LibraryRepository {
     }
 
     fun recordPlayed(item: MediaItemModel) {
+        if (_historyPaused.value) return
         _history.value = (listOf(item) + _history.value.filter { it.id != item.id }).take(MAX_HISTORY)
         persist("history", _history.value)
     }

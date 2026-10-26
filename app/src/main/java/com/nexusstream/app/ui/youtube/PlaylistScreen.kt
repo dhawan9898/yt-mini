@@ -172,7 +172,7 @@ private fun PlaylistHeader(page: PlaylistPage, onPlayAll: () -> Unit, onShuffle:
 }
 
 @Composable
-private fun PillButton(
+internal fun PillButton(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     filled: Boolean,

@@ -126,6 +126,7 @@ fun YTMusicHomeScreen(
     }
     val history by LibraryRepository.history.collectAsState()
     val savedItems by LibraryRepository.saved.collectAsState()
+    val likedItems by LibraryRepository.liked.collectAsState()
     val downloadedItems by LibraryRepository.downloads.collectAsState()
     val listenAgain = remember(history) {
         MusicShelf(
@@ -224,8 +225,8 @@ fun YTMusicHomeScreen(
                     }
                 }
             } else if (selectedTab == 2) {
-                val library = remember(downloadedItems, savedItems) {
-                    (downloadedItems + savedItems).distinctBy { it.id }
+                val library = remember(downloadedItems, likedItems, savedItems) {
+                    (downloadedItems + likedItems + savedItems).distinctBy { it.id }
                 }
                 if (library.isEmpty()) {
                     OriginalEmptyState(

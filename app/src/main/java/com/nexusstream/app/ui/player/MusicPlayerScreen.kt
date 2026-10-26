@@ -101,7 +101,7 @@ fun MusicPlayerScreen(
     val item = state.currentItem ?: return
     var panel by remember { mutableStateOf(PlayerPanel.NONE) }
     var showOptions by remember { mutableStateOf(false) }
-    val savedItems by LibraryRepository.saved.collectAsState()
+    val savedItems by LibraryRepository.liked.collectAsState()
     val isLiked = savedItems.any { it.id == item.id }
 
     BackHandler(onBack = onCollapse)
@@ -262,7 +262,7 @@ fun MusicPlayerScreen(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = { LibraryRepository.toggleSave(item) }) {
+            IconButton(onClick = { LibraryRepository.toggleLike(item) }) {
                 Icon(
                     Icons.Rounded.ThumbUp, "Like",
                     tint = if (isLiked) Color.White else OriginalColors.TextSecondary

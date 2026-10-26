@@ -14,7 +14,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -50,12 +52,21 @@ import com.nexusstream.app.ui.components.PlayerOptionsSheet
 fun VideoMenuSheet(
     item: MediaItemModel,
     onDismiss: () -> Unit,
-    onOpenChannel: (() -> Unit)?
+    onOpenChannel: (() -> Unit)?,
+    /** Extra "remove" action for lists (history, playlists...); null hides it. */
+    onRemove: (() -> Unit)? = null,
+    removeLabel: String = "Remove"
 ) {
     val context = LocalContext.current
     val saved by LibraryRepository.saved.collectAsState()
     val isSaved = saved.any { it.id == item.id }
     var showDownload by remember { mutableStateOf(false) }
+    var showPlaylists by remember { mutableStateOf(false) }
+
+    if (showPlaylists) {
+        AddToPlaylistSheet(item = item, onDismiss = onDismiss)
+        return
+    }
 
     if (showDownload) {
         // Reuses the quality sheet with no playback state: only the Download section shows.
@@ -82,6 +93,7 @@ fun VideoMenuSheet(
                 LibraryRepository.toggleSave(item)
                 onDismiss()
             }
+            MenuRow(Icons.Outlined.PlaylistAdd, "Save to playlist") { showPlaylists = true }
             MenuRow(Icons.Outlined.FileDownload, "Download") { showDownload = true }
             MenuRow(Icons.Outlined.Share, "Share") {
                 val send = Intent(Intent.ACTION_SEND).apply {
@@ -95,6 +107,12 @@ fun VideoMenuSheet(
                 MenuRow(Icons.Outlined.Person, "Go to channel") {
                     onDismiss()
                     onOpenChannel()
+                }
+            }
+            if (onRemove != null) {
+                MenuRow(Icons.Outlined.Delete, removeLabel) {
+                    onRemove()
+                    onDismiss()
                 }
             }
             MenuRow(Icons.Outlined.VisibilityOff, "Not interested") {

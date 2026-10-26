@@ -229,8 +229,44 @@ fun PlayerOptionsSheet(
                         }
                     )
                 }
-                downloadState is DownloadState.Downloading -> item {
-                    Hint("Downloading... ${(downloadState.progress * 100).toInt()}%")
+                downloadState is DownloadState.Downloading -> {
+                    item { Hint("Downloading... ${(downloadState.progress * 100).toInt()}%") }
+                    item { OptionRow("Pause download", false) { DownloadRepository.pause(item.id) } }
+                    item {
+                        OptionRow("Cancel download", false) {
+                            DownloadRepository.cancel(context, item.id)
+                            onDismiss()
+                        }
+                    }
+                }
+                downloadState is DownloadState.Paused -> {
+                    item {
+                        OptionRow("Resume download (${(downloadState.progress * 100).toInt()}%)", false) {
+                            DownloadRepository.resume(context, item.id)
+                            onDismiss()
+                        }
+                    }
+                    item {
+                        OptionRow("Cancel download", false) {
+                            DownloadRepository.cancel(context, item.id)
+                            onDismiss()
+                        }
+                    }
+                }
+                downloadState is DownloadState.Error && DownloadRepository.pending.value.any { it.item.id == item.id } -> {
+                    item { Hint("Download failed: ${downloadState.message}") }
+                    item {
+                        OptionRow("Resume download", false) {
+                            DownloadRepository.resume(context, item.id)
+                            onDismiss()
+                        }
+                    }
+                    item {
+                        OptionRow("Cancel download", false) {
+                            DownloadRepository.cancel(context, item.id)
+                            onDismiss()
+                        }
+                    }
                 }
                 else -> when (val options = downloadOptions) {
                     is FeedState.Loading -> item {

@@ -105,6 +105,8 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for unit tests (the Android one is a stub on the JVM).
+    testImplementation("org.json:json:20240303")
 
     // Coil Image Loading
     implementation("io.coil-kt:coil-compose:2.7.0")

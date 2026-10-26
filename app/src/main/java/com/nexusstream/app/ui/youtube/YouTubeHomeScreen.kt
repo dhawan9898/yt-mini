@@ -45,6 +45,29 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.nexusstream.app.data.TakeoutParsing
+import com.nexusstream.app.data.DownloadRepository
+import coil.compose.AsyncImage
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.outlined.WatchLater
+import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.outlined.PlaylistPlay
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.clickable
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.widget.Toast
+import android.net.Uri
+import android.content.Context
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +78,7 @@ import com.nexusstream.app.data.Paged
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaContentType
 import com.nexusstream.app.model.MediaItemModel
+import com.nexusstream.app.ui.Route
 import com.nexusstream.app.ui.YouTubeNav
 import com.nexusstream.app.ui.components.BottomNavEntry
 import com.nexusstream.app.ui.components.FeedState
@@ -316,47 +340,163 @@ private fun YouTubeHeader(onSearch: () -> Unit) {
     }
 }
 
-/** You tab: downloads, Watch later and history stored on this device. */
+/**
+ * You tab: recent history, then your library (history, playlists, downloads, Watch later, liked)
+ * and an import from a Google Takeout export. Everything is stored on this device.
+ */
 @Composable
 private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val saved by LibraryRepository.saved.collectAsState()
     val downloads by LibraryRepository.downloads.collectAsState()
     val history by LibraryRepository.history.collectAsState()
+    val liked by LibraryRepository.liked.collectAsState()
+    val playlists by LibraryRepository.playlists.collectAsState()
+    val pendingDownloads by DownloadRepository.pending.collectAsState()
 
-    if (saved.isEmpty() && downloads.isEmpty() && history.isEmpty()) {
-        OriginalEmptyState(
-            title = "Your library",
-            message = "Watch history, Watch later and downloads will show up here."
-        )
-        return
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val message = withContext(Dispatchers.IO) { importTakeoutFile(context, uri) }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     LazyColumn(
         contentPadding = PaddingValues(vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        listOf(
-            "Downloads" to downloads,
-            "Watch later" to saved,
-            "History" to history
-        ).filter { it.second.isNotEmpty() }.forEach { (title, list) ->
-            item(key = "you_header_$title") {
-                Text(
-                    text = title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
+        if (history.isNotEmpty()) {
+            item(key = "history_header") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "History",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "View all",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF3EA6FF),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { nav.open(Route.History) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    )
+                }
             }
-            items(list, key = { "you_${title}_${it.id}" }) { video ->
-                YouTubeVideoCard(
-                    item = video,
-                    onClick = { onSelectVideo(video, list) },
-                    onChannelClick = video.channelUrl.takeIf { it.isNotBlank() }?.let { { nav.openChannelOf(video) } }
-                )
+            item(key = "history_strip") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(history.take(10), key = { "hs_${it.id}" }) { video ->
+                        Column(
+                            modifier = Modifier
+                                .width(160.dp)
+                                .clickable { onSelectVideo(video, history) }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(OriginalColors.Chip)
+                            ) {
+                                if (video.artworkUrl.isNotEmpty()) {
+                                    AsyncImage(
+                                        model = video.artworkUrl,
+                                        contentDescription = video.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = video.title,
+                                fontSize = 13.sp,
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = video.artistOrChannel,
+                                fontSize = 12.sp,
+                                color = OriginalColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
+            item(key = "history_gap") { Spacer(modifier = Modifier.height(8.dp)) }
+        }
+
+        item(key = "row_history") { LibraryRow(Icons.Outlined.History, "History", history.size) { nav.open(Route.History) } }
+        item(key = "row_playlists") { LibraryRow(Icons.Outlined.PlaylistPlay, "Playlists", playlists.size) { nav.open(Route.Playlists) } }
+        item(key = "row_downloads") {
+            LibraryRow(Icons.Outlined.FileDownload, "Downloads", downloads.size + pendingDownloads.size) { nav.open(Route.Downloads) }
+        }
+        item(key = "row_watch_later") { LibraryRow(Icons.Outlined.WatchLater, "Watch later", saved.size) { nav.open(Route.WatchLater) } }
+        item(key = "row_liked") { LibraryRow(Icons.Outlined.ThumbUp, "Liked videos", liked.size) { nav.open(Route.Liked) } }
+        item(key = "row_import") {
+            LibraryRow(Icons.Outlined.FileUpload, "Import from Google Takeout", null) { picker.launch("*/*") }
+        }
+    }
+}
+
+@Composable
+private fun LibraryRow(icon: ImageVector, title: String, count: Int?, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.width(20.dp))
+        Text(text = title, fontSize = 16.sp, color = Color.White, modifier = Modifier.weight(1f))
+        if (count != null) {
+            Text(text = count.toString(), fontSize = 14.sp, color = OriginalColors.TextSecondary)
+        }
+    }
+}
+
+/**
+ * Imports a file from a Google Takeout export: watch-history.json (a JSON list) or
+ * subscriptions.csv. Runs off the main thread; returns a message to show the user.
+ */
+private fun importTakeoutFile(context: Context, uri: Uri): String {
+    val text = runCatching {
+        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+    }.getOrNull() ?: return "Couldn't read that file."
+    val trimmed = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
+    return if (trimmed.startsWith("[")) {
+        val items = TakeoutParsing.parseWatchHistory(trimmed)
+        if (items.isEmpty()) {
+            "No watch history found in that file."
+        } else {
+            "Imported ${LibraryRepository.importHistory(items)} videos into watch history."
+        }
+    } else {
+        val subs = TakeoutParsing.parseSubscriptionsCsv(trimmed)
+        if (subs.isEmpty()) {
+            "Choose subscriptions.csv or watch-history.json from your Google Takeout export."
+        } else {
+            "Imported ${LibraryRepository.importSubscriptions(subs)} new subscriptions."
         }
     }
 }
