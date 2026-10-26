@@ -98,13 +98,22 @@ fun YTMusicHomeScreen(
     var selectedMood by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf(0) }
     var reloadKey by remember { mutableStateOf(0) }
-    var shelves by remember { mutableStateOf<FeedState<List<MusicShelf>>>(FeedState.Loading) }
+    var shelves by remember {
+        mutableStateOf<FeedState<List<MusicShelf>>>(
+            YouTubeRepository.cachedMusicShelves("")?.let { FeedState.Data(it) } ?: FeedState.Loading
+        )
+    }
     var searchState by remember { mutableStateOf<FeedState<List<MediaItemModel>>>(FeedState.Loading) }
 
     // Live shelves, refetched when the mood changes or on retry.
     LaunchedEffect(selectedMood, reloadKey) {
-        shelves = FeedState.Loading
-        shelves = YouTubeRepository.musicShelves(selectedMood).toFeedState()
+        val cached = if (reloadKey == 0) YouTubeRepository.cachedMusicShelves(selectedMood) else null
+        if (cached != null) {
+            shelves = FeedState.Data(cached)
+        } else {
+            shelves = FeedState.Loading
+            shelves = YouTubeRepository.musicShelves(selectedMood, refresh = reloadKey > 0).toFeedState()
+        }
     }
     // Live song search, debounced.
     LaunchedEffect(searchQuery, reloadKey) {

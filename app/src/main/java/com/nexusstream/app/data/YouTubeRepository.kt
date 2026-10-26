@@ -112,16 +112,38 @@ object YouTubeRepository {
         return StreamInfo.getInfo(youtube, watchUrl).also { cachedInfo = watchUrl to it }
     }
 
+    private const val CACHE_TTL_MS = 5 * 60 * 1000L
+    private class Cached<T>(val at: Long, val value: T) {
+        fun fresh() = System.currentTimeMillis() - at < CACHE_TTL_MS
+    }
+    private val feedCache = java.util.concurrent.ConcurrentHashMap<String, Cached<List<MediaItemModel>>>()
+    private val shelfCache = java.util.concurrent.ConcurrentHashMap<String, Cached<List<MusicShelf>>>()
+
+    /** Cached home feed for [category] if it is still fresh (lets screens skip the loading state). */
+    fun cachedVideoFeed(category: String): List<MediaItemModel>? =
+        feedCache[category]?.takeIf { it.fresh() }?.value
+
+    /** Cached music shelves for [mood] if still fresh. */
+    fun cachedMusicShelves(mood: String): List<MusicShelf>? =
+        shelfCache[mood]?.takeIf { it.fresh() }?.value
+
     /** Last video feed loaded, used for "Up next" suggestions on the watch screen. */
     @Volatile
     var lastVideoFeed: List<MediaItemModel> = emptyList()
         private set
 
     /** Home feed (category = "All") or a topic feed for [category]. */
-    suspend fun videoFeed(category: String): Result<List<MediaItemModel>> = io {
+    suspend fun videoFeed(category: String, refresh: Boolean = false): Result<List<MediaItemModel>> = io {
+        if (!refresh) cachedVideoFeed(category)?.let { cached ->
+            lastVideoFeed = cached
+            return@io cached
+        }
         val query = if (category == "All") "trending videos today" else category
         searchItems(query, YoutubeSearchQueryHandlerFactory.VIDEOS, minSeconds = 61)
-            .also { lastVideoFeed = it }
+            .also {
+                lastVideoFeed = it
+                feedCache[category] = Cached(System.currentTimeMillis(), it)
+            }
     }
 
     suspend fun searchVideos(query: String): Result<List<MediaItemModel>> = io {
@@ -134,7 +156,8 @@ object YouTubeRepository {
     }
 
     /** Home shelves for YT Music; [mood] (blank for none) narrows every shelf to that mood. */
-    suspend fun musicShelves(mood: String): Result<List<MusicShelf>> = io {
+    suspend fun musicShelves(mood: String, refresh: Boolean = false): Result<List<MusicShelf>> = io {
+        if (!refresh) cachedMusicShelves(mood)?.let { return@io it }
         val shelves = listOf(
             Triple("Quick Picks", "Songs trending right now", "top hits this week"),
             Triple("Top Charts", "Most played worldwide", "top 50 global songs"),
@@ -166,6 +189,7 @@ object YouTubeRepository {
             songShelves.awaitAll() + albums.await()
         }.filter { it.items.isNotEmpty() }
             .also { check(it.isNotEmpty()) { "No music results" } }
+            .also { shelfCache[mood] = Cached(System.currentTimeMillis(), it) }
     }
 
     /** Resolves fresh direct stream URLs for a watch URL. Call right before playback. */

@@ -43,6 +43,9 @@ jobs:
           echo "Computed Version Name: ${VERSION_NAME}"
           echo "Computed Version Code: ${BUILD_NUMBER}"
 
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
       - name: Build Android Release APK
         run: |
           ./gradlew assembleRelease \

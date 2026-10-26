@@ -12,6 +12,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 
+/** Status of an offline download. */
+sealed class DownloadState {
+    object NotDownloaded : DownloadState()
+    data class Downloading(val progress: Float) : DownloadState()
+    data class Downloaded(val localPath: String) : DownloadState()
+    data class Error(val message: String) : DownloadState()
+}
+
 /**
  * Downloads streams into app-private storage and registers them in [LibraryRepository].
  * Finished items are stored with a file:// URL so they play offline through the normal player path.

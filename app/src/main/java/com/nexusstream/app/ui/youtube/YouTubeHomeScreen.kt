@@ -111,18 +111,29 @@ fun YouTubeHomeScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
     var reloadKey by remember { mutableStateOf(0) }
-    var feed by remember { mutableStateOf<FeedState<List<MediaItemModel>>>(FeedState.Loading) }
+    var feed by remember {
+        mutableStateOf<FeedState<List<MediaItemModel>>>(
+            YouTubeRepository.cachedVideoFeed("All")?.let { FeedState.Data(it) } ?: FeedState.Loading
+        )
+    }
 
-    // Live data: refetch on category / search / retry. Search is debounced.
+    // Live data: refetch on category / search / retry. Search is debounced; fresh cached
+    // feeds are shown instantly, and Retry (reloadKey > 0) always refetches.
     LaunchedEffect(selectedCategory, searchQuery, reloadKey) {
         val query = searchQuery.trim()
         if (isSearchActive && query.isEmpty()) return@LaunchedEffect
-        feed = FeedState.Loading
-        if (query.isNotEmpty()) delay(450)
-        feed = if (query.isNotEmpty()) {
-            YouTubeRepository.searchVideos(query).toFeedState()
+        if (query.isNotEmpty()) {
+            feed = FeedState.Loading
+            delay(450)
+            feed = YouTubeRepository.searchVideos(query).toFeedState()
         } else {
-            YouTubeRepository.videoFeed(selectedCategory).toFeedState()
+            val cached = if (reloadKey == 0) YouTubeRepository.cachedVideoFeed(selectedCategory) else null
+            if (cached != null) {
+                feed = FeedState.Data(cached)
+            } else {
+                feed = FeedState.Loading
+                feed = YouTubeRepository.videoFeed(selectedCategory, refresh = reloadKey > 0).toFeedState()
+            }
         }
     }
     val filteredList = (feed as? FeedState.Data)?.value.orEmpty()
