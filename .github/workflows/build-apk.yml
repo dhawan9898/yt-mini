@@ -1,0 +1,79 @@
+name: Build and Release NexusStream APK
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Make Gradle Wrapper Executable
+        run: chmod +x gradlew || true
+
+      - name: Determine New Semantic Version
+        id: versioning
+        run: |
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          VERSION_NAME="1.0.${BUILD_NUMBER}"
+          echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
+          echo "VERSION_CODE=${BUILD_NUMBER}" >> $GITHUB_ENV
+          echo "Computed Version Name: ${VERSION_NAME}"
+          echo "Computed Version Code: ${BUILD_NUMBER}"
+
+      - name: Build Android Release APK
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.version.code=${{ env.VERSION_CODE }} \
+            -Pandroid.injected.version.name=${{ env.VERSION_NAME }} \
+            --no-daemon --stacktrace
+
+      - name: Locate and Rename APK
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Searching in build/outputs/apk..."
+            APK_PATH=$(find . -name "*.apk" | head -n 1)
+          fi
+          echo "Found APK at: $APK_PATH"
+          cp "$APK_PATH" "./NexusStream-v${{ env.VERSION_NAME }}.apk"
+
+      - name: Create GitHub Release and Upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ env.VERSION_NAME }}"
+          name: "NexusStream v${{ env.VERSION_NAME }}"
+          body: |
+            ## NexusStream Production Release v${{ env.VERSION_NAME }}
+            
+            ### Highlights
+            - **Unified Client Experience**: YouTube & YouTube Music unified seamlessly with Liquid Glass aesthetics.
+            - **Ad-Free Stream Pipeline**: Native interceptor removes advertisements and banners across all streams.
+            - **No Playables & Isolated Shorts**: Clean Home feed focused entirely on recommended videos.
+            - **Seamless Audio & Video Hand-off**: Continuous background playback via AndroidX Media3 `MediaSessionService`.
+            - **Synchronized Lyrics Sweep**: Karaoke-style real-time syllable sweeps.
+            
+            Built automatically by CI/CD on commit `${{ github.sha }}`.
+          files: |
+            NexusStream-v${{ env.VERSION_NAME }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
