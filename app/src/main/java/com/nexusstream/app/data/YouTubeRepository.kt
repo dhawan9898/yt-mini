@@ -256,7 +256,7 @@ object YouTubeRepository {
     suspend fun comments(watchUrl: String): Result<CommentsPage> = io {
         val info = CommentsInfo.getInfo(youtube, watchUrl)
         CommentsPage(
-            totalCount = info.commentCount,
+            totalCount = info.commentsCount,
             items = info.relatedItems.map { c ->
                 CommentModel(
                     author = c.uploaderName.orEmpty(),
