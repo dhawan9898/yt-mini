@@ -56,6 +56,10 @@ object AppSettings {
     private val _wifiOnlyDownloads = MutableStateFlow(false)
     val wifiOnlyDownloads: StateFlow<Boolean> = _wifiOnlyDownloads.asStateFlow()
 
+    /** Show dislike counts from the Return YouTube Dislike service (off: no request is made). */
+    private val _showDislikeCounts = MutableStateFlow(false)
+    val showDislikeCounts: StateFlow<Boolean> = _showDislikeCounts.asStateFlow()
+
     private val _contentCountry = MutableStateFlow("US")
     val contentCountry: StateFlow<String> = _contentCountry.asStateFlow()
 
@@ -71,6 +75,7 @@ object AppSettings {
         _captionsByDefault.value = p.getBoolean("captions_default", false)
         _wifiOnlyDownloads.value = p.getBoolean("wifi_only_downloads", false)
         _contentCountry.value = p.getString("country", "US") ?: "US"
+        _showDislikeCounts.value = p.getBoolean("dislike_counts", false)
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -106,5 +111,33 @@ object AppSettings {
     fun setContentCountry(country: String) {
         _contentCountry.value = country
         prefs?.edit()?.putString("country", country)?.apply()
+    }
+
+    fun setShowDislikeCounts(enabled: Boolean) {
+        _showDislikeCounts.value = enabled
+        prefs?.edit()?.putBoolean("dislike_counts", enabled)?.apply()
+    }
+
+    /** All settings as JSON, for backups. */
+    fun exportJson(): org.json.JSONObject = org.json.JSONObject()
+        .put("theme", _themeMode.value.name)
+        .put("defaultHeight", _defaultVideoHeight.value)
+        .put("dataSaver", _dataSaver.value)
+        .put("autoplay", _autoplay.value)
+        .put("captions", _captionsByDefault.value)
+        .put("wifiOnly", _wifiOnlyDownloads.value)
+        .put("country", _contentCountry.value)
+        .put("dislikeCounts", _showDislikeCounts.value)
+
+    /** Applies settings from a backup; missing or unknown values are left as they are. */
+    fun importJson(json: org.json.JSONObject) {
+        runCatching { ThemeMode.valueOf(json.optString("theme")) }.getOrNull()?.let { setThemeMode(it) }
+        if (json.has("defaultHeight")) setDefaultVideoHeight(json.optInt("defaultHeight"))
+        if (json.has("dataSaver")) setDataSaver(json.optBoolean("dataSaver"))
+        if (json.has("autoplay")) setAutoplay(json.optBoolean("autoplay"))
+        if (json.has("captions")) setCaptionsByDefault(json.optBoolean("captions"))
+        if (json.has("wifiOnly")) setWifiOnlyDownloads(json.optBoolean("wifiOnly"))
+        json.optString("country").takeIf { c -> ContentRegions.countries.any { it.first == c } }?.let { setContentCountry(it) }
+        if (json.has("dislikeCounts")) setShowDislikeCounts(json.optBoolean("dislikeCounts"))
     }
 }

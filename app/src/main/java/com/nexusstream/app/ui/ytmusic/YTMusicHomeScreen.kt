@@ -46,6 +46,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.ui.youtube.PlaylistResultRow
+import com.nexusstream.app.ui.youtube.ChannelResultRow
+import com.nexusstream.app.ui.YouTubeNav
+import com.nexusstream.app.data.SearchType
+import com.nexusstream.app.data.SearchResult
 import com.nexusstream.app.ui.components.OriginalEmptyState
 import com.nexusstream.app.model.MediaContentType
 import com.nexusstream.app.data.LibraryRepository
@@ -92,6 +97,7 @@ fun YTMusicHomeScreen(
     onExpandPlayer: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onClosePlayer: () -> Unit,
+    nav: YouTubeNav,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -104,7 +110,8 @@ fun YTMusicHomeScreen(
             YouTubeRepository.cachedMusicShelves("")?.let { FeedState.Data(it) } ?: FeedState.Loading
         )
     }
-    var searchState by remember { mutableStateOf<FeedState<List<MediaItemModel>>>(FeedState.Loading) }
+    var searchType by remember { mutableStateOf(SearchType.SONGS) }
+    var searchState by remember { mutableStateOf<FeedState<List<SearchResult>>>(FeedState.Loading) }
 
     // Live shelves, refetched when the mood changes or on retry.
     LaunchedEffect(selectedMood, reloadKey) {
@@ -116,13 +123,13 @@ fun YTMusicHomeScreen(
             shelves = YouTubeRepository.musicShelves(selectedMood, refresh = reloadKey > 0).toFeedState()
         }
     }
-    // Live song search, debounced.
-    LaunchedEffect(searchQuery, reloadKey) {
+    // Live search (songs, albums, artists, playlists), debounced.
+    LaunchedEffect(searchQuery, searchType, reloadKey) {
         val query = searchQuery.trim()
         if (query.isEmpty()) return@LaunchedEffect
         searchState = FeedState.Loading
         delay(450)
-        searchState = YouTubeRepository.searchSongs(query).toFeedState()
+        searchState = YouTubeRepository.search(query, searchType).map { it.items }.toFeedState()
     }
     val history by LibraryRepository.history.collectAsState()
     val savedItems by LibraryRepository.saved.collectAsState()
@@ -136,15 +143,10 @@ fun YTMusicHomeScreen(
         )
     }
 
-    // Albums open by loading their tracks; everything else plays directly.
-    val scope = rememberCoroutineScope()
+    // Albums open their own page; everything else plays directly.
     val playOrOpen: (MediaItemModel, List<MediaItemModel>) -> Unit = { track, queue ->
         if (track.isCollection) {
-            scope.launch {
-                YouTubeRepository.playlistTracks(track.sourceUrl).onSuccess { tracks ->
-                    onSelectTrack(tracks.first(), tracks)
-                }
-            }
+            nav.openMusicPlaylist(track.sourceUrl, track.title)
         } else {
             onSelectTrack(track, queue)
         }
@@ -244,18 +246,48 @@ fun YTMusicHomeScreen(
                     }
                 }
             } else if (isSearchActive && searchQuery.isNotBlank()) {
-                when (val state = searchState) {
-                    is FeedState.Loading -> OriginalLoading()
-                    is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
-                    is FeedState.Data -> LazyColumn(
-                        contentPadding = PaddingValues(vertical = 8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(state.value, key = { "ytm_search_${it.id}" }) { track ->
-                            YTMusicSearchResultRow(
-                                item = track,
-                                onClick = { playOrOpen(track, state.value) }
-                            )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    OriginalFilterChips(
+                        labels = SearchType.music.map { it.label },
+                        selected = searchType.label,
+                        onSelect = { label -> searchType = SearchType.music.first { it.label == label } },
+                        unselectedColor = OriginalColors.MusicChip
+                    )
+                    when (val state = searchState) {
+                        is FeedState.Loading -> OriginalLoading()
+                        is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
+                        is FeedState.Data -> {
+                            val tracks = remember(state.value) {
+                                state.value.filterIsInstance<SearchResult.Video>().map { it.item }
+                            }
+                            LazyColumn(
+                                contentPadding = PaddingValues(vertical = 8.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(
+                                    state.value,
+                                    key = { result ->
+                                        when (result) {
+                                            is SearchResult.Video -> "ytm_v_${result.item.id}"
+                                            is SearchResult.Channel -> "ytm_c_${result.channel.url}"
+                                            is SearchResult.Playlist -> "ytm_p_${result.playlist.url}"
+                                        }
+                                    }
+                                ) { result ->
+                                    when (result) {
+                                        is SearchResult.Video -> YTMusicSearchResultRow(
+                                            item = result.item,
+                                            onClick = { onSelectTrack(result.item, tracks) }
+                                        )
+                                        is SearchResult.Channel -> ChannelResultRow(result.channel) {
+                                            nav.openMusicChannel(result.channel.url, result.channel.name, result.channel.avatarUrl)
+                                        }
+                                        is SearchResult.Playlist -> PlaylistResultRow(result.playlist) {
+                                            nav.openMusicPlaylist(result.playlist.url, result.playlist.title)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

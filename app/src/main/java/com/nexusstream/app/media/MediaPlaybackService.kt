@@ -524,6 +524,17 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         )
     }
 
+    /** Replaces everything after the current item in the queue (used by "Start radio"). */
+    fun setUpNext(items: List<MediaItemModel>) {
+        val state = _playbackState.value
+        val current = state.currentItem ?: return
+        val head = state.queue.take(state.queueIndex + 1).ifEmpty { listOf(current) }
+        _playbackState.value = state.copy(
+            queue = head + items.filter { it.id != current.id },
+            queueIndex = head.lastIndex
+        )
+    }
+
     /** Related videos to play when the queue runs out (ignored when autoplay is off). */
     fun setAutoplayQueue(related: List<MediaItemModel>) {
         autoplayQueue = related

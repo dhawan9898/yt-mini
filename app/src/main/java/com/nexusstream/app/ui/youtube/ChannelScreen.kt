@@ -86,7 +86,7 @@ fun ChannelScreen(
 
     LaunchedEffect(route.url, reloadKey) {
         page = FeedState.Loading
-        YouTubeRepository.channelPage(route.url).fold(
+        YouTubeRepository.channelPage(route.url, route.music).fold(
             onSuccess = {
                 videos = it.videos.items
                 videoCursor = it.videos
@@ -130,7 +130,7 @@ fun ChannelScreen(
     }
 
     val title = (page as? FeedState.Data)?.value?.name ?: route.name
-    PageScaffold(title = title, onBack = nav.back, miniPlayer = miniPlayer) {
+    PageScaffold(title = title, onBack = nav.back, miniPlayer = miniPlayer, music = route.music) {
         when (val state = page) {
             is FeedState.Loading -> OriginalLoading()
             is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })

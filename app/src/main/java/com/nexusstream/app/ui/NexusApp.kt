@@ -140,6 +140,8 @@ fun NexusApp() {
             openChannel = { url, name, avatar -> push(Route.Channel(url, name, avatar)) },
             openPlaylist = { url, title -> push(Route.Playlist(url, title)) },
             openAllSubscriptions = { push(Route.AllSubscriptions) },
+            openMusicChannel = { url, name, avatar -> push(Route.Channel(url, name, avatar, music = true)) },
+            openMusicPlaylist = { url, title -> push(Route.Playlist(url, title, music = true)) },
             open = { route -> push(route) },
             back = { if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) }
         )
@@ -203,7 +205,7 @@ fun NexusApp() {
 
     // Feeds "Listen again" and the You tab's history.
     LaunchedEffect(currentItem?.id) {
-        currentItem?.let { LibraryRepository.recordPlayed(it) }
+        currentItem?.takeIf { !it.isShort }?.let { LibraryRepository.recordPlayed(it) }
     }
 
     BackHandler(enabled = backStack.isNotEmpty() && currentScreen == AppScreen.HOME) { nav.back() }
@@ -223,6 +225,20 @@ fun NexusApp() {
     }
     val expandPlayer: () -> Unit = {
         currentScreen = if (playbackState?.playbackMode == PlaybackMode.VIDEO) AppScreen.WATCH else AppScreen.PLAYER
+    }
+
+    val miniPlayer = MiniPlayerHooks(
+        item = currentItem,
+        isPlaying = playbackState?.isPlaying == true,
+        onExpand = expandPlayer,
+        onTogglePlay = { activeService?.togglePlayPause() },
+        onClose = closePlayer
+    )
+    // Music tracks (albums, artist pages) play as audio in the now-playing screen.
+    val playTrack: (MediaItemModel, List<MediaItemModel>) -> Unit = { item, queue ->
+        val idx = queue.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+        activeService?.playQueue(queue, idx, startInVideoMode = false)
+        currentScreen = AppScreen.PLAYER
     }
 
     // A video opened from a notification, a YouTube link or shared text.
@@ -303,44 +319,17 @@ fun NexusApp() {
                                 }
                             }
                             mode == AppMode.YOUTUBE_VIDEO -> {
-                                val miniPlayer = MiniPlayerHooks(
-                                    item = currentItem,
+                                // Home stays composed underneath the pages so its tab and scroll state survive.
+                                YouTubeHomeScreen(
+                                    currentPlayingItem = currentItem,
                                     isPlaying = playbackState?.isPlaying == true,
-                                    onExpand = expandPlayer,
-                                    onTogglePlay = { activeService?.togglePlayPause() },
-                                    onClose = closePlayer
+                                    onSelectVideo = playVideo,
+                                    onExpandPlayer = expandPlayer,
+                                    onTogglePlayPause = { activeService?.togglePlayPause() },
+                                    onClosePlayer = closePlayer,
+                                    nav = nav,
+                                    playbackService = activeService
                                 )
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    // Home stays composed underneath so its tab and scroll state survive.
-                                    YouTubeHomeScreen(
-                                        currentPlayingItem = currentItem,
-                                        isPlaying = playbackState?.isPlaying == true,
-                                        onSelectVideo = playVideo,
-                                        onExpandPlayer = expandPlayer,
-                                        onTogglePlayPause = { activeService?.togglePlayPause() },
-                                        onClosePlayer = closePlayer,
-                                        nav = nav
-                                    )
-                                    backStack.forEachIndexed { index, route ->
-                                        key(index, route) {
-                                            when (route) {
-                                                is Route.Search -> SearchScreen(nav, playVideo, miniPlayer)
-                                                is Route.Channel -> ChannelScreen(route, nav, playVideo, miniPlayer)
-                                                is Route.Playlist -> PlaylistScreen(route, nav, playVideo, miniPlayer)
-                                                is Route.AllSubscriptions -> AllSubscriptionsScreen(nav, miniPlayer)
-                                                is Route.History -> HistoryScreen(nav, playVideo, miniPlayer)
-                                                is Route.WatchLater -> WatchLaterScreen(nav, playVideo, miniPlayer)
-                                                is Route.Liked -> LikedVideosScreen(nav, playVideo, miniPlayer)
-                                                is Route.Downloads -> DownloadsScreen(nav, playVideo, miniPlayer)
-                                                is Route.Playlists -> PlaylistsScreen(nav, miniPlayer)
-                                                is Route.LocalPlaylist -> LocalPlaylistScreen(route, nav, playVideo, miniPlayer)
-                                                is Route.Notifications -> NotificationsScreen(nav, playVideo, miniPlayer)
-                                                is Route.NotificationSettings -> NotificationSettingsScreen(nav, miniPlayer)
-                                                is Route.Settings -> SettingsScreen(nav, miniPlayer)
-                                            }
-                                        }
-                                    }
-                                }
                             }
                             mode == AppMode.YT_MUSIC -> {
                                 YTMusicHomeScreen(
@@ -353,8 +342,32 @@ fun NexusApp() {
                                     },
                                     onExpandPlayer = { currentScreen = AppScreen.PLAYER },
                                     onTogglePlayPause = { activeService?.togglePlayPause() },
-                                    onClosePlayer = closePlayer
+                                    onClosePlayer = closePlayer,
+                                    nav = nav
                                 )
+                            }
+                        }
+                    }
+
+                    // Pages (search, channel, album...) stack above either home screen.
+                    if (currentScreen == AppScreen.HOME) {
+                        backStack.forEachIndexed { index, route ->
+                            key(index, route) {
+                                when (route) {
+                                    is Route.Search -> SearchScreen(nav, playVideo, miniPlayer)
+                                    is Route.Channel -> ChannelScreen(route, nav, if (route.music) playTrack else playVideo, miniPlayer)
+                                    is Route.Playlist -> PlaylistScreen(route, nav, if (route.music) playTrack else playVideo, miniPlayer)
+                                    is Route.AllSubscriptions -> AllSubscriptionsScreen(nav, miniPlayer)
+                                    is Route.History -> HistoryScreen(nav, playVideo, miniPlayer)
+                                    is Route.WatchLater -> WatchLaterScreen(nav, playVideo, miniPlayer)
+                                    is Route.Liked -> LikedVideosScreen(nav, playVideo, miniPlayer)
+                                    is Route.Downloads -> DownloadsScreen(nav, playVideo, miniPlayer)
+                                    is Route.Playlists -> PlaylistsScreen(nav, miniPlayer)
+                                    is Route.LocalPlaylist -> LocalPlaylistScreen(route, nav, playVideo, miniPlayer)
+                                    is Route.Notifications -> NotificationsScreen(nav, playVideo, miniPlayer)
+                                    is Route.NotificationSettings -> NotificationSettingsScreen(nav, miniPlayer)
+                                    is Route.Settings -> SettingsScreen(nav, miniPlayer)
+                                }
                             }
                         }
                     }

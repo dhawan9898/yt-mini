@@ -35,7 +35,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 shrinking is opt-in (./gradlew assembleRelease -Pminify=true) until it has been tried
+            // on a device; the default release build is unchanged.
+            isMinifyEnabled = project.findProperty("minify") == "true"
+            isShrinkResources = project.findProperty("minify") == "true"
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -105,12 +108,25 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 
+    // Installs the baseline profile (src/main/baseline-prof.txt) for faster startup
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
+
     testImplementation("junit:junit:4.13.2")
     // Real org.json for unit tests (the Android one is a stub on the JVM).
     testImplementation("org.json:json:20240303")
 
+    // Google Cast (default media receiver). MediaRouteButton needs AppCompat resources.
+    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+    implementation("androidx.mediarouter:mediarouter:1.7.0")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+
     // Background work: upload checks, reminders, downloads
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Instrumented UI tests (run on a device / emulator: ./gradlew connectedDebugAndroidTest)
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // Coil Image Loading
     implementation("io.coil-kt:coil-compose:2.7.0")

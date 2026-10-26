@@ -49,6 +49,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.media.MediaPlaybackService
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.outlined.Settings
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -112,6 +115,7 @@ fun YouTubeHomeScreen(
     onTogglePlayPause: () -> Unit,
     onClosePlayer: () -> Unit,
     nav: YouTubeNav,
+    playbackService: MediaPlaybackService?,
     modifier: Modifier = Modifier
 ) {
     var selectedCategory by remember { mutableStateOf("All") }
@@ -172,6 +176,7 @@ fun YouTubeHomeScreen(
     val navEntries = remember {
         listOf(
             BottomNavEntry("Home", Icons.Outlined.Home, Icons.Filled.Home),
+            BottomNavEntry("Shorts", Icons.Outlined.Bolt, Icons.Filled.Bolt),
             BottomNavEntry("Subscriptions", Icons.Outlined.Subscriptions, Icons.Filled.Subscriptions),
             BottomNavEntry("You", Icons.Outlined.AccountCircle, Icons.Filled.AccountCircle)
         )
@@ -184,11 +189,14 @@ fun YouTubeHomeScreen(
     ) {
         val inbox by LibraryRepository.inbox.collectAsState()
         val inboxSeenAt by LibraryRepository.inboxSeenAtMs.collectAsState()
-        YouTubeHeader(
-            unreadCount = inbox.count { it.publishedAtMs > inboxSeenAt },
-            onNotifications = { nav.open(Route.Notifications) },
-            onSearch = nav.openSearch
-        )
+        // Shorts is full screen: no header or chips there.
+        if (selectedTab != 1) {
+            YouTubeHeader(
+                unreadCount = inbox.count { it.publishedAtMs > inboxSeenAt },
+                onNotifications = { nav.open(Route.Notifications) },
+                onSearch = nav.openSearch
+            )
+        }
 
         if (selectedTab == 0) {
             OriginalFilterChips(
@@ -207,8 +215,12 @@ fun YouTubeHomeScreen(
                 .fillMaxWidth()
         ) {
             when (selectedTab) {
-                1 -> SubscriptionsTab(nav = nav, onSelectVideo = onSelectVideo)
-                2 -> YouTab(nav = nav, onSelectVideo = onSelectVideo)
+                1 -> ShortsScreen(
+                    playbackService = playbackService,
+                    onOpenChannel = { nav.openChannelOf(it) }
+                )
+                2 -> SubscriptionsTab(nav = nav, onSelectVideo = onSelectVideo)
+                3 -> YouTab(nav = nav, onSelectVideo = onSelectVideo)
                 else -> PullToRefreshBox(
                     isRefreshing = refreshing,
                     onRefresh = {
@@ -275,7 +287,7 @@ fun YouTubeHomeScreen(
             }
         }
 
-        if (currentPlayingItem != null) {
+        if (currentPlayingItem != null && selectedTab != 1) {
             OriginalMiniPlayer(
                 item = currentPlayingItem,
                 isPlaying = isPlaying,

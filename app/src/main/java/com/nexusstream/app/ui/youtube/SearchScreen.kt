@@ -241,9 +241,9 @@ fun SearchScreen(
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 OriginalFilterChips(
-                    labels = SearchType.entries.map { it.label },
+                    labels = SearchType.video.map { it.label },
                     selected = type.label,
-                    onSelect = { label -> type = SearchType.entries.first { it.label == label } },
+                    onSelect = { label -> type = SearchType.video.first { it.label == label } },
                     unselectedColor = OriginalColors.Chip
                 )
                 if (type == SearchType.ALL || type == SearchType.VIDEOS) {

@@ -48,11 +48,22 @@ class Paged<T>(
 }
 
 /** What a search can be narrowed to. */
-enum class SearchType(val label: String, val filter: String) {
+enum class SearchType(val label: String, val filter: String, val isMusic: Boolean = false) {
     ALL("All", YoutubeSearchQueryHandlerFactory.ALL),
     VIDEOS("Videos", YoutubeSearchQueryHandlerFactory.VIDEOS),
     CHANNELS("Channels", YoutubeSearchQueryHandlerFactory.CHANNELS),
-    PLAYLISTS("Playlists", YoutubeSearchQueryHandlerFactory.PLAYLISTS)
+    PLAYLISTS("Playlists", YoutubeSearchQueryHandlerFactory.PLAYLISTS),
+    SONGS("Songs", YoutubeSearchQueryHandlerFactory.MUSIC_SONGS, true),
+    ALBUMS("Albums", YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS, true),
+    ARTISTS("Artists", YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS, true),
+    MUSIC_PLAYLISTS("Playlists", YoutubeSearchQueryHandlerFactory.MUSIC_PLAYLISTS, true);
+
+    companion object {
+        /** Filters shown on the YouTube search screen. */
+        val video: List<SearchType> = listOf(ALL, VIDEOS, CHANNELS, PLAYLISTS)
+        /** Filters shown on the YT Music search screen. */
+        val music: List<SearchType> = listOf(SONGS, ALBUMS, ARTISTS, MUSIC_PLAYLISTS)
+    }
 }
 
 data class ChannelResult(
@@ -147,6 +158,9 @@ data class AudioOption(
 
 /** A language / audio track of a video. */
 data class AudioTrack(val id: String?, val name: String, val isOriginal: Boolean)
+
+/** A stream URL (and its media type) that can be sent to a Cast receiver. */
+data class CastTarget(val url: String, val mimeType: String)
 
 /** A caption track. [mimeType] is a media type ExoPlayer can load (WebVTT or TTML). */
 data class SubtitleOption(
@@ -325,7 +339,54 @@ object YouTubeRepository {
 
     /** Typed, paged search (videos, channels, playlists). */
     suspend fun search(query: String, type: SearchType): Result<Paged<SearchResult>> = io {
-        searchPaged(query, type.filter) { toSearchResult(it) }
+        searchPaged(query, type.filter) { toSearchResult(it, type.isMusic) }
+    }
+
+    private val shortsCache = java.util.concurrent.atomic.AtomicReference<Paged<MediaItemModel>?>(null)
+
+    /** The cached Shorts feed, if loaded earlier in this process. */
+    fun cachedShorts(): Paged<MediaItemModel>? = shortsCache.get()
+
+    /**
+     * A feed of short vertical videos. Uses search results flagged as Shorts by YouTube and,
+     * when there are few of those, any very short (up to about a minute) video.
+     */
+    suspend fun shortsFeed(refresh: Boolean = false): Result<Paged<MediaItemModel>> = io {
+        if (!refresh) shortsCache.get()?.let { return@io it }
+        val base = searchPaged("#shorts", YoutubeSearchQueryHandlerFactory.VIDEOS) { shortOnly(it) }
+        shortsCache.set(base)
+        base
+    }
+
+    private fun shortOnly(item: InfoItem): MediaItemModel? =
+        (item as? StreamInfoItem)
+            ?.takeIf { it.duration in 1..61 || (it.isShortFormContent && it.duration > 0) }
+            ?.let { toModel(it, false)?.copy(isShort = true) }
+
+    /** "Start radio": songs related to [item], for a music queue. */
+    suspend fun radio(item: MediaItemModel): Result<List<MediaItemModel>> = io {
+        val related = details(item.watchUrlOrSource()).getOrThrow().related
+        related.map { it.copy(contentType = MediaContentType.MUSIC_TRACK) }
+            .also { check(it.isNotEmpty()) { "No related songs found" } }
+    }
+
+    private fun MediaItemModel.watchUrlOrSource(): String = sourceUrl.ifEmpty { "https://www.youtube.com/watch?v=$id" }
+
+    /** A single file a Cast receiver can play: the best combined video (up to 720p), else audio. */
+    suspend fun castTarget(watchUrl: String, audioOnly: Boolean): Result<CastTarget> = io {
+        val info = streamInfo(watchUrl)
+        val video = if (audioOnly) null else info.videoStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height in 1..720 }
+            .maxByOrNull { it.height }
+        if (video != null) {
+            CastTarget(video.content, video.format?.mimeType ?: "video/mp4")
+        } else {
+            val audio = info.audioStreams
+                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+                .maxByOrNull(::audioScore)
+                ?: error("Nothing this video offers can be cast")
+            CastTarget(audio.content, audio.format?.mimeType ?: "audio/mp4")
+        }
     }
 
     /** Autocomplete suggestions for a partially typed query. */
@@ -334,7 +395,7 @@ object YouTubeRepository {
     }
 
     /** Channel header plus first page of videos. [channelUrl] is a youtube.com/channel/... URL. */
-    suspend fun channelPage(channelUrl: String): Result<ChannelPage> = io {
+    suspend fun channelPage(channelUrl: String, music: Boolean = false): Result<ChannelPage> = io {
         val info = ChannelInfo.getInfo(youtube, channelUrl)
         val avatar = bestImage(info.avatars)
         val canonicalUrl = "https://www.youtube.com/channel/${info.id}"
@@ -344,8 +405,8 @@ object YouTubeRepository {
         val videos = videosTab?.let { tab ->
             tabPaged(tab) { item ->
                 (item as? StreamInfoItem)
-                    ?.takeIf { it.duration > 0 && !it.isShortFormContent }
-                    ?.let { toModel(it, false, info.name, avatar, canonicalUrl) }
+                    ?.takeIf { it.duration > 0 && (music || !it.isShortFormContent) }
+                    ?.let { toModel(it, music, info.name, avatar, canonicalUrl) }
             }
         } ?: Paged(emptyList(), null)
 
@@ -368,9 +429,9 @@ object YouTubeRepository {
     }
 
     /** Playlist header plus first page of videos. */
-    suspend fun playlistPage(playlistUrl: String): Result<PlaylistPage> = io {
+    suspend fun playlistPage(playlistUrl: String, music: Boolean = false): Result<PlaylistPage> = io {
         val info = PlaylistInfo.getInfo(youtube, playlistUrl)
-        fun map(item: StreamInfoItem): MediaItemModel? = if (item.duration > 0) toModel(item, false) else null
+        fun map(item: StreamInfoItem): MediaItemModel? = if (item.duration > 0) toModel(item, music) else null
         val videos = pagedOf(
             info.relatedItems.mapNotNull { map(it) },
             if (info.hasNextPage()) info.nextPage else null
@@ -709,10 +770,10 @@ object YouTubeRepository {
             ?.takeIf { it.duration > 60 && !it.isShortFormContent }
             ?.let { toModel(it, false) }
 
-    private fun toSearchResult(item: InfoItem): SearchResult? = when (item) {
+    private fun toSearchResult(item: InfoItem, music: Boolean = false): SearchResult? = when (item) {
         is StreamInfoItem ->
-            if ((item.duration > 0 || item.streamType == StreamType.LIVE_STREAM) && !item.isShortFormContent) {
-                toModel(item, false)?.let { SearchResult.Video(it) }
+            if ((item.duration > 0 || item.streamType == StreamType.LIVE_STREAM) && (music || !item.isShortFormContent)) {
+                toModel(item, music)?.let { SearchResult.Video(it) }
             } else {
                 null
             }

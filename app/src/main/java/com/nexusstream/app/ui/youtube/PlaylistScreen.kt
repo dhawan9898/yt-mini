@@ -73,7 +73,7 @@ fun PlaylistScreen(
 
     LaunchedEffect(route.url, reloadKey) {
         page = FeedState.Loading
-        YouTubeRepository.playlistPage(route.url).fold(
+        YouTubeRepository.playlistPage(route.url, route.music).fold(
             onSuccess = {
                 videos = it.videos.items
                 cursor = it.videos
@@ -96,7 +96,7 @@ fun PlaylistScreen(
         }
     }
 
-    PageScaffold(title = route.title, onBack = nav.back, miniPlayer = miniPlayer) {
+    PageScaffold(title = route.title, onBack = nav.back, miniPlayer = miniPlayer, music = route.music) {
         when (val state = page) {
             is FeedState.Loading -> OriginalLoading()
             is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })

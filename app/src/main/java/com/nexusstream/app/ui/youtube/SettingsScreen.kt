@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -71,12 +73,43 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     val captions by AppSettings.captionsByDefault.collectAsState()
     val wifiOnly by AppSettings.wifiOnlyDownloads.collectAsState()
     val country by AppSettings.contentCountry.collectAsState()
+    val dislikeCounts by AppSettings.showDislikeCounts.collectAsState()
     val historyPaused by LibraryRepository.historyPaused.collectAsState()
     val history by LibraryRepository.history.collectAsState()
     val downloads by LibraryRepository.downloads.collectAsState()
     val pending by DownloadRepository.pending.collectAsState()
 
     var confirmClearHistory by remember { mutableStateOf(false) }
+    var pendingRestore by remember { mutableStateOf<String?>(null) }
+
+    // Backup: a JSON file you choose where to save / read; there is no cloud sync.
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(LibraryRepository.exportBackup().toByteArray()) }
+                            ?: error("Couldn't open the file")
+                    }.isSuccess
+                }
+                Toast.makeText(context, if (ok) "Backup saved" else "Couldn't save the backup", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val text = withContext(Dispatchers.IO) {
+                    runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } }.getOrNull()
+                }
+                if (text == null) {
+                    Toast.makeText(context, "Couldn't read that file", Toast.LENGTH_LONG).show()
+                } else {
+                    pendingRestore = text // confirmed below before anything is replaced
+                }
+            }
+        }
+    }
     var checking by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<ReleaseInfo?>(null) }
@@ -120,6 +153,14 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
             }
             item(key = "saver") {
                 SwitchRow("Data saver", "Limit video to 480p and audio to 96 kbps", dataSaver) { AppSettings.setDataSaver(it) }
+            }
+
+            item(key = "dislikes") {
+                SwitchRow(
+                    "Show dislike counts",
+                    "Asks returnyoutubedislike.com for the count (only the video id is sent)",
+                    dislikeCounts
+                ) { AppSettings.setShowDislikeCounts(it) }
             }
 
             // ---- Downloads ----
@@ -194,6 +235,19 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 }
             }
 
+            // ---- Backup ----
+            item(key = "h_backup") { SettingsHeader("Backup") }
+            item(key = "export") {
+                ActionRow("Export backup", "Playlists, history, subscriptions, likes and settings to a file") {
+                    exportLauncher.launch("nexusstream-backup.json")
+                }
+            }
+            item(key = "import") {
+                ActionRow("Restore backup", "Replaces your current library with a backup file") {
+                    importLauncher.launch(arrayOf("*/*"))
+                }
+            }
+
             // ---- About ----
             item(key = "h_about") { SettingsHeader("About") }
             item(key = "version") { ActionRow("Version", versionName) {} }
@@ -264,6 +318,20 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+
+    pendingRestore?.let { json ->
+        ConfirmDialog(
+            title = "Restore this backup?",
+            message = "Your current playlists, history, subscriptions, likes and settings will be replaced.",
+            confirmLabel = "Restore",
+            onConfirm = {
+                val ok = LibraryRepository.importBackup(json)
+                Toast.makeText(context, if (ok) "Backup restored" else "That isn't a NexusStream backup", Toast.LENGTH_LONG).show()
+                pendingRestore = null
+            },
+            onDismiss = { pendingRestore = null }
+        )
     }
 
     if (confirmClearHistory) {

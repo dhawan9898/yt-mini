@@ -50,6 +50,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.data.DislikeApi
+import com.nexusstream.app.data.AppSettings
+import com.nexusstream.app.cast.CastEffect
+import com.nexusstream.app.cast.CastButton
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.filled.ThumbDown
 import com.nexusstream.app.ui.components.OriginalFilterChips
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyListScope
@@ -189,6 +195,14 @@ fun VideoWatchScreen(
 
     val subscriptions by LibraryRepository.subscriptions.collectAsState()
     val isSubscribed = subscriptions.any { it.name == mediaItem.artistOrChannel }
+    val dislikedIds by LibraryRepository.disliked.collectAsState()
+    val isDisliked = mediaItem.id in dislikedIds
+    val showDislikeCounts by AppSettings.showDislikeCounts.collectAsState()
+    var dislikeCount by remember(mediaItem.id, showDislikeCounts) { mutableStateOf<Long?>(null) }
+    LaunchedEffect(mediaItem.id, showDislikeCounts) {
+        // Only asks the Return YouTube Dislike service when the setting is on.
+        dislikeCount = if (showDislikeCounts) DislikeApi.fetch(mediaItem.id).getOrNull() else null
+    }
     val likedItems by LibraryRepository.liked.collectAsState()
     val isLiked = likedItems.any { it.id == mediaItem.id }
     var showSaveSheet by remember { mutableStateOf(false) }
@@ -214,6 +228,8 @@ fun VideoWatchScreen(
     var relatedOnlyChannel by remember(mediaItem.id) { mutableStateOf(false) }
 
     FullscreenEffect(showFullscreen, lockLandscape = isFullscreen)
+    // Cast: while a session is connected the video plays on the receiver.
+    CastEffect(item = mediaItem, playbackService = playbackService, audioOnly = false)
     // The status bar sits over the black video area, whatever the theme is.
     SystemBarIcons(lightIcons = true, includeNavigationBar = false)
     BackHandler(enabled = isFullscreen) { isFullscreen = false }
@@ -272,7 +288,8 @@ fun VideoWatchScreen(
                         modifier = Modifier.size(28.dp)
                     )
                 }
-                Row(modifier = Modifier.align(Alignment.TopEnd)) {
+                Row(modifier = Modifier.align(Alignment.TopEnd), verticalAlignment = Alignment.CenterVertically) {
+                    CastButton()
                     IconButton(onClick = { PipController.enter?.invoke() }) {
                         Icon(
                             imageVector = Icons.Outlined.PictureInPictureAlt,
@@ -451,6 +468,21 @@ fun VideoWatchScreen(
                             contentDescription = "Like",
                             tint = OriginalColors.TextPrimary,
                             modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    IconButton(onClick = { LibraryRepository.toggleDislike(mediaItem) }) {
+                        Icon(
+                            imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                            contentDescription = "Dislike",
+                            tint = OriginalColors.TextPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    dislikeCount?.let { count ->
+                        Text(
+                            text = YouTubeRepository.formatCount(count),
+                            fontSize = 12.sp,
+                            color = OriginalColors.TextSecondary
                         )
                     }
                     IconButton(onClick = {
@@ -745,8 +777,20 @@ private fun CommentsList(page: CommentsPage) {
         }
     }
 
+    // YouTube's own order ("Top") or the loaded comments by like count.
+    var mostLiked by remember { mutableStateOf(false) }
+    val shown = remember(items, mostLiked) { if (mostLiked) items.sortedByDescending { it.likes } else items }
+
     LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
-        items(items) { comment -> CommentRow(comment) }
+        item(key = "sort") {
+            OriginalFilterChips(
+                labels = listOf("Top", "Most liked"),
+                selected = if (mostLiked) "Most liked" else "Top",
+                onSelect = { mostLiked = it == "Most liked" },
+                unselectedColor = OriginalColors.Chip
+            )
+        }
+        items(shown) { comment -> CommentRow(comment) }
         if (loadingMore) {
             item(key = "loading_more") {
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {

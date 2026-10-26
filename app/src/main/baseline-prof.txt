@@ -1,0 +1,13 @@
+# Baseline profile: tells ART to precompile the app's startup path at install time.
+# Hand-written (not generated from a benchmark run), so it is deliberately small and uses only
+# plain class / method entries.
+Lcom/nexusstream/app/MainActivity;
+HSPLcom/nexusstream/app/MainActivity;-><init>()V
+HSPLcom/nexusstream/app/MainActivity;->onCreate(Landroid/os/Bundle;)V
+Lcom/nexusstream/app/ui/NexusAppKt;
+Lcom/nexusstream/app/ui/theme/ThemeState;
+Lcom/nexusstream/app/ui/components/OriginalColors;
+Lcom/nexusstream/app/data/LibraryRepository;
+Lcom/nexusstream/app/data/AppSettings;
+Lcom/nexusstream/app/data/YouTubeRepository;
+Lcom/nexusstream/app/media/MediaPlaybackService;

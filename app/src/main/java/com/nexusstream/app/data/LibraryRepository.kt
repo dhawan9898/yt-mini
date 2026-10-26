@@ -74,15 +74,31 @@ object LibraryRepository {
         persistSubscriptions()
     }
 
+    private fun subscriptionsToJson(list: List<ChannelSub>): JSONArray = JSONArray(list.map {
+        JSONObject()
+            .put("name", it.name).put("avatar", it.avatarUrl)
+            .put("url", it.channelUrl).put("seen", it.lastSeenMs)
+            .put("level", it.notifyLevel.name).put("notified", it.lastNotifiedMs)
+    })
+
+    private fun subscriptionsFromJson(json: String?): List<ChannelSub> = runCatching {
+        val arr = JSONArray(json ?: "[]")
+        (0 until arr.length()).map { arr.getJSONObject(it) }.map {
+            ChannelSub(
+                name = it.getString("name"),
+                avatarUrl = it.optString("avatar"),
+                channelUrl = it.optString("url"),
+                lastSeenMs = it.optLong("seen"),
+                notifyLevel = runCatching { NotifyLevel.valueOf(it.optString("level")) }
+                    .getOrDefault(NotifyLevel.PERSONALIZED),
+                lastNotifiedMs = it.optLong("notified")
+            )
+        }
+    }.getOrDefault(emptyList())
+
     private fun persistSubscriptions() {
         val store = prefs ?: return
-        val json = JSONArray(_subscriptions.value.map {
-            JSONObject()
-                .put("name", it.name).put("avatar", it.avatarUrl)
-                .put("url", it.channelUrl).put("seen", it.lastSeenMs)
-                .put("level", it.notifyLevel.name).put("notified", it.lastNotifiedMs)
-        })
-        store.edit().putString("subscriptions", json.toString()).apply()
+        store.edit().putString("subscriptions", subscriptionsToJson(_subscriptions.value).toString()).apply()
     }
 
     fun setNotifyLevel(name: String, level: NotifyLevel) {
@@ -289,6 +305,20 @@ object LibraryRepository {
     fun toggleLike(item: MediaItemModel) {
         _liked.value = if (isLiked(item.id)) _liked.value.filter { it.id != item.id } else listOf(item) + _liked.value
         persist("liked", _liked.value)
+        // Liking and disliking are mutually exclusive.
+        if (isLiked(item.id) && isDisliked(item.id)) toggleDislike(item)
+    }
+
+    // ---- disliked videos (a personal mark; the count shown comes from a separate service) ----
+    private val _disliked = MutableStateFlow<Set<String>>(emptySet())
+    val disliked: StateFlow<Set<String>> = _disliked.asStateFlow()
+
+    fun isDisliked(id: String): Boolean = id in _disliked.value
+
+    fun toggleDislike(item: MediaItemModel) {
+        _disliked.value = if (isDisliked(item.id)) _disliked.value - item.id else _disliked.value + item.id
+        persistStrings("disliked", _disliked.value.toList())
+        if (isDisliked(item.id) && isLiked(item.id)) toggleLike(item)
     }
 
     // ---- history management ----
@@ -343,6 +373,7 @@ object LibraryRepository {
         _subscriptions.value = emptyList()
         _playlists.value = emptyList()
         _liked.value = emptyList()
+        _disliked.value = emptySet()
         _historyPaused.value = false
         _notificationsEnabled.value = true
         _breakMinutes.value = 0
@@ -356,6 +387,58 @@ object LibraryRepository {
     /** Item list <-> JSON, shared with other repositories that persist media items. */
     internal fun encodeItems(items: List<MediaItemModel>): String = JSONArray(items.map(::toJson)).toString()
     internal fun decodeItems(json: String?): List<MediaItemModel> = read(json)
+
+    // ---- backup / restore (local file; there is no cloud sync) ----
+
+    /** Everything worth moving to another device, as JSON (downloads are files and are not included). */
+    fun exportBackup(): String = JSONObject()
+        .put("app", "NexusStream")
+        .put("format", 1)
+        .put("saved", JSONArray(encodeItems(_saved.value)))
+        .put("liked", JSONArray(encodeItems(_liked.value)))
+        .put("history", JSONArray(encodeItems(_history.value)))
+        .put("disliked", JSONArray(_disliked.value.toList()))
+        .put("playlists", JSONArray(_playlists.value.map { playlist ->
+            JSONObject()
+                .put("id", playlist.id)
+                .put("name", playlist.name)
+                .put("items", JSONArray(encodeItems(playlist.items)))
+        }))
+        .put("subscriptions", subscriptionsToJson(_subscriptions.value))
+        .put("searchHistory", JSONArray(_searchHistory.value))
+        .put("hiddenVideos", JSONArray(_hidden.value.videoIds.toList()))
+        .put("hiddenChannels", JSONArray(_hidden.value.channels.toList()))
+        .put("settings", AppSettings.exportJson())
+        .toString()
+
+    /** Replaces the library with a backup made by [exportBackup]. Returns false if it is not one. */
+    fun importBackup(json: String): Boolean {
+        val root = runCatching { JSONObject(json) }.getOrNull() ?: return false
+        if (root.optString("app") != "NexusStream") return false
+
+        _saved.value = read(root.optJSONArray("saved")?.toString())
+        persist("saved", _saved.value)
+        _liked.value = read(root.optJSONArray("liked")?.toString())
+        persist("liked", _liked.value)
+        _history.value = read(root.optJSONArray("history")?.toString())
+        persist("history", _history.value)
+        _disliked.value = readStrings(root.optJSONArray("disliked")?.toString()).toSet()
+        persistStrings("disliked", _disliked.value.toList())
+        _playlists.value = readPlaylists(root.optJSONArray("playlists")?.toString())
+        persistPlaylists()
+        _subscriptions.value = subscriptionsFromJson(root.optJSONArray("subscriptions")?.toString())
+        persistSubscriptions()
+        _searchHistory.value = readStrings(root.optJSONArray("searchHistory")?.toString())
+        persistStrings("search_history", _searchHistory.value)
+        _hidden.value = Hidden(
+            videoIds = readStrings(root.optJSONArray("hiddenVideos")?.toString()).toSet(),
+            channels = readStrings(root.optJSONArray("hiddenChannels")?.toString()).toSet()
+        )
+        persistStrings("hidden_videos", _hidden.value.videoIds.toList())
+        persistStrings("hidden_channels", _hidden.value.channels.toList())
+        root.optJSONObject("settings")?.let { AppSettings.importJson(it) }
+        return true
+    }
 
     // ---- small key/value store for other repositories (e.g. unfinished downloads) ----
     fun loadBlob(key: String): String? = prefs?.getString("blob_$key", null)
@@ -371,6 +454,7 @@ object LibraryRepository {
         _saved.value = read(p.getString("saved", null))
         _history.value = read(p.getString("history", null))
         _liked.value = read(p.getString("liked", null))
+        _disliked.value = readStrings(p.getString("disliked", null)).toSet()
         _playlists.value = readPlaylists(p.getString("playlists", null))
         _historyPaused.value = p.getBoolean("history_paused", false)
         _notificationsEnabled.value = p.getBoolean("notifications_enabled", true)
@@ -378,21 +462,7 @@ object LibraryRepository {
         _bedtimeMinute.value = p.getInt("bedtime_minute", -1)
         _inbox.value = read(p.getString("inbox", null))
         _inboxSeenAtMs.value = p.getLong("inbox_seen", 0L)
-        _subscriptions.value = runCatching {
-            val arr = JSONArray(p.getString("subscriptions", "[]"))
-            (0 until arr.length()).map { arr.getJSONObject(it) }
-                .map {
-                    ChannelSub(
-                        name = it.getString("name"),
-                        avatarUrl = it.optString("avatar"),
-                        channelUrl = it.optString("url"),
-                        lastSeenMs = it.optLong("seen"),
-                        notifyLevel = runCatching { NotifyLevel.valueOf(it.optString("level")) }
-                            .getOrDefault(NotifyLevel.PERSONALIZED),
-                        lastNotifiedMs = it.optLong("notified")
-                    )
-                }
-        }.getOrDefault(emptyList())
+        _subscriptions.value = subscriptionsFromJson(p.getString("subscriptions", null))
         _searchHistory.value = readStrings(p.getString("search_history", null))
         _hidden.value = Hidden(
             videoIds = readStrings(p.getString("hidden_videos", null)).toSet(),

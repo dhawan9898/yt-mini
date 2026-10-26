@@ -5,8 +5,8 @@ import com.nexusstream.app.model.MediaItemModel
 /** Pages that open on top of the YouTube home screen (a back stack of these is kept in [NexusApp]). */
 sealed interface Route {
     data object Search : Route
-    data class Channel(val url: String, val name: String, val avatarUrl: String) : Route
-    data class Playlist(val url: String, val title: String) : Route
+    data class Channel(val url: String, val name: String, val avatarUrl: String, val music: Boolean = false) : Route
+    data class Playlist(val url: String, val title: String, val music: Boolean = false) : Route
     data object AllSubscriptions : Route
     data object History : Route
     data object WatchLater : Route
@@ -25,6 +25,9 @@ class YouTubeNav(
     val openChannel: (url: String, name: String, avatarUrl: String) -> Unit,
     val openPlaylist: (url: String, title: String) -> Unit,
     val openAllSubscriptions: () -> Unit,
+    /** YT Music: an artist page / an album or playlist page whose tracks play as audio. */
+    val openMusicChannel: (url: String, name: String, avatarUrl: String) -> Unit,
+    val openMusicPlaylist: (url: String, title: String) -> Unit,
     /** Opens any other page (library lists, downloads, local playlists). */
     val open: (Route) -> Unit,
     val back: () -> Unit

@@ -59,6 +59,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.cast.CastEffect
+import com.nexusstream.app.cast.CastButton
+import kotlinx.coroutines.launch
+import com.nexusstream.app.ui.components.toFeedState
+import com.nexusstream.app.ui.components.FeedState
+import com.nexusstream.app.model.LyricLine
+import com.nexusstream.app.data.YouTubeRepository
+import com.nexusstream.app.data.LyricsRepository
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
@@ -102,10 +112,20 @@ fun MusicPlayerScreen(
     val item = state.currentItem ?: return
     var panel by remember { mutableStateOf(PlayerPanel.NONE) }
     var showOptions by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    // Lyrics are looked up the first time the Lyrics tab is opened for a song.
+    var lyrics by remember(item.id) { mutableStateOf<FeedState<List<LyricLine>>?>(null) }
+    LaunchedEffect(panel, item.id) {
+        if (panel == PlayerPanel.LYRICS && lyrics == null) {
+            lyrics = FeedState.Loading
+            lyrics = LyricsRepository.fetch(item.title, item.artistOrChannel).toFeedState()
+        }
+    }
     val savedItems by LibraryRepository.liked.collectAsState()
     val isLiked = savedItems.any { it.id == item.id }
 
     BackHandler(onBack = onCollapse)
+    CastEffect(item = item, playbackService = playbackService, audioOnly = true)
     // The now-playing screen is always dark: keep light status / navigation icons.
     SystemBarIcons(lightIcons = true)
 
@@ -163,9 +183,7 @@ fun MusicPlayerScreen(
                     onSelect = { playbackService.togglePlaybackMode(if (it) PlaybackMode.VIDEO else PlaybackMode.AUDIO_ONLY) }
                 )
             }
-            IconButton(onClick = { /* Cast */ }) {
-                Icon(Icons.Rounded.Cast, "Cast", tint = Color.White)
-            }
+            CastButton()
             IconButton(onClick = { showOptions = true }) {
                 Icon(Icons.Rounded.MoreVert, "Quality and download", tint = Color.White)
             }
@@ -186,13 +204,30 @@ fun MusicPlayerScreen(
                             state.queue, index,
                             startInVideoMode = state.playbackMode == PlaybackMode.VIDEO
                         )
+                    },
+                    onStartRadio = {
+                        scope.launch {
+                            YouTubeRepository.radio(item).onSuccess { related -> playbackService.setUpNext(related) }
+                        }
                     }
                 )
-                PlayerPanel.LYRICS -> LyricsPanel(
-                    lyrics = item.lyrics,
-                    currentPositionMs = state.currentPositionMs,
-                    onSeek = { playbackService.seekTo(it) }
-                )
+                PlayerPanel.LYRICS -> when (val l = lyrics) {
+                    null, is FeedState.Loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+                    }
+                    is FeedState.Error -> LyricsPanel(
+                        lyrics = emptyList(),
+                        message = "Couldn't load lyrics (${l.message})",
+                        currentPositionMs = state.currentPositionMs,
+                        onSeek = {}
+                    )
+                    is FeedState.Data -> LyricsPanel(
+                        lyrics = l.value,
+                        message = "No synced lyrics found for this song",
+                        currentPositionMs = state.currentPositionMs,
+                        onSeek = { playbackService.seekTo(it) }
+                    )
+                }
                 PlayerPanel.NONE -> Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -477,12 +512,25 @@ private fun PanelTab(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun UpNextList(
     queue: List<com.nexusstream.app.model.MediaItemModel>,
     currentIndex: Int,
-    onSelect: (Int) -> Unit
+    onSelect: (Int) -> Unit,
+    onStartRadio: () -> Unit
 ) {
     LazyColumn(
         contentPadding = PaddingValues(vertical = 8.dp),
         modifier = Modifier.fillMaxSize()
     ) {
+        item(key = "start_radio") {
+            Text(
+                text = "Start radio from this song",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF3EA6FF),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onStartRadio)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            )
+        }
         itemsIndexed(queue, key = { index, q -> "q_${index}_${q.id}" }) { index, q ->
             val isCurrent = index == currentIndex
             Row(
@@ -522,13 +570,14 @@ private fun UpNextList(
 @Composable
 private fun LyricsPanel(
     lyrics: List<com.nexusstream.app.model.LyricLine>,
+    message: String,
     currentPositionMs: Long,
     onSeek: (Long) -> Unit
 ) {
     if (lyrics.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = "Lyrics aren't available for this song",
+                text = message,
                 fontSize = 14.sp,
                 color = DarkPalette.textSecondary,
                 textAlign = TextAlign.Center

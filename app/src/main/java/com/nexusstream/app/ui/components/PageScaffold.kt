@@ -51,6 +51,8 @@ fun PageScaffold(
     onBack: () -> Unit,
     miniPlayer: MiniPlayerHooks,
     modifier: Modifier = Modifier,
+    /** YT Music pages use the music background. */
+    music: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     /** Replaces the title text (e.g. with a search field). */
     header: (@Composable RowScope.() -> Unit)? = null,
@@ -59,7 +61,7 @@ fun PageScaffold(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(OriginalColors.YouTubeBackground)
+            .background(if (music) OriginalColors.MusicBackground else OriginalColors.YouTubeBackground)
             .statusBarsPadding()
     ) {
         Row(
