@@ -317,7 +317,7 @@ private fun YouTubeHeader(
 }
 
 @Composable
-private fun YouTubeVideoCard(
+internal fun YouTubeVideoCard(
     item: MediaItemModel,
     onClick: () -> Unit
 ) {

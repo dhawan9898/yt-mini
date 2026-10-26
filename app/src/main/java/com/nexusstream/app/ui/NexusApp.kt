@@ -66,7 +66,7 @@ import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
 import com.nexusstream.app.ui.components.OriginalColors
-import com.nexusstream.app.ui.player.PlayerScreen
+import com.nexusstream.app.ui.player.MusicPlayerScreen
 import com.nexusstream.app.ui.theme.NexusTheme
 import com.nexusstream.app.ui.theme.liquidGlassSurface
 import com.nexusstream.app.ui.youtube.YouTubeHomeScreen
@@ -176,9 +176,9 @@ fun NexusApp() {
                             }
                             screen == AppScreen.PLAYER -> {
                                 if (activeService != null) {
-                                    PlayerScreen(
+                                    MusicPlayerScreen(
                                         playbackService = activeService,
-                                        onCollapseSheet = { currentScreen = AppScreen.HOME }
+                                        onCollapse = { currentScreen = AppScreen.HOME }
                                     )
                                 }
                             }
