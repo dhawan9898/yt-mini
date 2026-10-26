@@ -108,7 +108,7 @@ object YouTubeRepository {
 
     // ---- internals ----
 
-    private suspend fun <T> io(block: () -> T): Result<T> = withContext(Dispatchers.IO) {
+    private suspend fun <T> io(block: suspend () -> T): Result<T> = withContext(Dispatchers.IO) {
         runCatching {
             check(initialized)
             block()
