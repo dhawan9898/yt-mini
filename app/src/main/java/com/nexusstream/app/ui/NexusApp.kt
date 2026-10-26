@@ -55,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import kotlinx.coroutines.delay
 import com.nexusstream.app.ui.youtube.NotificationsScreen
 import com.nexusstream.app.ui.youtube.NotificationSettingsScreen
@@ -73,6 +74,7 @@ import com.nexusstream.app.ui.youtube.HistoryScreen
 import com.nexusstream.app.ui.youtube.LikedVideosScreen
 import com.nexusstream.app.ui.youtube.LocalPlaylistScreen
 import com.nexusstream.app.ui.youtube.PlaylistsScreen
+import com.nexusstream.app.ui.youtube.SettingsScreen
 import com.nexusstream.app.ui.youtube.WatchLaterScreen
 import com.nexusstream.app.ui.components.MiniPlayerHooks
 import androidx.compose.runtime.mutableStateListOf
@@ -86,6 +88,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nexusstream.app.data.AppSettings
 import com.nexusstream.app.data.DownloadRepository
 import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.media.MediaPlaybackService
@@ -182,6 +185,11 @@ fun NexusApp() {
     val notificationsEnabled by LibraryRepository.notificationsEnabled.collectAsState()
     val bedtimeMinute by LibraryRepository.bedtimeMinute.collectAsState()
     val breakMinutes by LibraryRepository.breakMinutes.collectAsState()
+    val country by AppSettings.contentCountry.collectAsState()
+    LaunchedEffect(country) {
+        YouTubeRepository.warmUp()
+        YouTubeRepository.applyRegion(country)
+    }
     LaunchedEffect(notificationsEnabled) {
         if (notificationsEnabled) BackgroundJobs.scheduleUploadChecks(context) else BackgroundJobs.cancelUploadChecks(context)
     }
@@ -328,6 +336,7 @@ fun NexusApp() {
                                                 is Route.LocalPlaylist -> LocalPlaylistScreen(route, nav, playVideo, miniPlayer)
                                                 is Route.Notifications -> NotificationsScreen(nav, playVideo, miniPlayer)
                                                 is Route.NotificationSettings -> NotificationSettingsScreen(nav, miniPlayer)
+                                                is Route.Settings -> SettingsScreen(nav, miniPlayer)
                                             }
                                         }
                                     }
@@ -356,8 +365,8 @@ fun NexusApp() {
         if (showBreakDialog) {
             AlertDialog(
                 onDismissRequest = { showBreakDialog = false },
-                containerColor = Color(0xFF212121),
-                title = { Text("Time for a break", color = Color.White) },
+                containerColor = OriginalColors.Sheet,
+                title = { Text("Time for a break", color = OriginalColors.TextPrimary) },
                 text = {
                     Text(
                         "You've been watching for $breakMinutes minutes.",
@@ -418,7 +427,7 @@ private fun DualEngineModeSwitcherBar(
                     .fillMaxHeight()
                     .offset(x = tabWidth * thumbFraction)
                     .clip(CircleShape)
-                    .background(Color.White)
+                    .background(OriginalColors.TextPrimary)
             )
 
             Row(modifier = Modifier.fillMaxSize()) {
@@ -450,7 +459,7 @@ private fun PillTab(
     modifier: Modifier = Modifier
 ) {
     val contentColor by animateColorAsState(
-        targetValue = if (selected) Color.Black else Color.White.copy(alpha = 0.7f),
+        targetValue = if (selected) OriginalColors.OnInverse else OriginalColors.TextPrimary.copy(alpha = 0.7f),
         label = "PillTabColor"
     )
     Row(
@@ -460,6 +469,7 @@ private fun PillTab(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                role = Role.Tab,
                 onClick = onClick
             ),
         horizontalArrangement = Arrangement.Center,

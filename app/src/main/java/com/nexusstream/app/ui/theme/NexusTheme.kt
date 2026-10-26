@@ -20,6 +20,16 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import com.nexusstream.app.data.AppSettings
+import androidx.core.view.WindowCompat
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material3.lightColorScheme
+import android.content.ContextWrapper
+import android.content.Context
+import android.app.Activity
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -181,9 +191,15 @@ private fun robotoTypography(): Typography {
 fun NexusTheme(
     dominantColor: Color = Color(0xFF6C5CE7),
     secondaryColor: Color = Color(0xFFFF7675),
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
+    // Light / dark / follow the system, from Settings.
+    val mode by AppSettings.themeMode.collectAsState()
+    val systemDark = isSystemInDarkTheme()
+    val palette = paletteFor(mode, systemDark)
+    SideEffect { ThemeState.palette = palette }
+    SystemBarIcons(lightIcons = palette.isDark)
+
     val glassColors = GlassColors(
         primaryTint = dominantColor,
         secondaryTint = secondaryColor,
@@ -196,16 +212,29 @@ fun NexusTheme(
         textSecondary = Color(0xFFA1A1AA)
     )
 
-    val colorScheme = darkColorScheme(
-        primary = dominantColor,
-        secondary = secondaryColor,
-        background = glassColors.backgroundDeep,
-        surface = Color(0xFF141419),
-        onPrimary = Color.White,
-        onSecondary = Color.White,
-        onBackground = glassColors.textPrimary,
-        onSurface = glassColors.textPrimary
-    )
+    val colorScheme = if (palette.isDark) {
+        darkColorScheme(
+            primary = dominantColor,
+            secondary = secondaryColor,
+            background = palette.background,
+            surface = palette.surface,
+            onPrimary = Color.White,
+            onSecondary = Color.White,
+            onBackground = palette.text,
+            onSurface = palette.text
+        )
+    } else {
+        lightColorScheme(
+            primary = dominantColor,
+            secondary = secondaryColor,
+            background = palette.background,
+            surface = palette.surface,
+            onPrimary = Color.White,
+            onSecondary = Color.White,
+            onBackground = palette.text,
+            onSurface = palette.text
+        )
+    }
 
     CompositionLocalProvider(
         LocalGlassColors provides glassColors
@@ -216,6 +245,33 @@ fun NexusTheme(
             content = content
         )
     }
+}
+
+/**
+ * Status / navigation bar icons: light icons for dark surfaces, dark icons for light ones.
+ * Screens that are always dark (video, now playing) can call this too; it restores the theme's
+ * setting when they leave.
+ */
+@Composable
+fun SystemBarIcons(lightIcons: Boolean, includeNavigationBar: Boolean = true) {
+    val view = LocalView.current
+    val themeLightIcons = ThemeState.palette.isDark
+    DisposableEffect(lightIcons) {
+        val window = view.context.findThemeActivity()?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.isAppearanceLightStatusBars = !lightIcons
+        if (includeNavigationBar) controller?.isAppearanceLightNavigationBars = !lightIcons
+        onDispose {
+            controller?.isAppearanceLightStatusBars = !themeLightIcons
+            if (includeNavigationBar) controller?.isAppearanceLightNavigationBars = !themeLightIcons
+        }
+    }
+}
+
+private tailrec fun Context.findThemeActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findThemeActivity()
+    else -> null
 }
 
 object NexusThemeTokens {

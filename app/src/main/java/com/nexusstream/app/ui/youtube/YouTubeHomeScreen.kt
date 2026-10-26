@@ -16,7 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -45,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.outlined.Settings
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.nexusstream.app.data.TakeoutParsing
@@ -123,7 +128,7 @@ fun YouTubeHomeScreen(
     }
     val hidden by LibraryRepository.hidden.collectAsState()
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
+    val listState = rememberLazyGridState()
 
     // Loads page one. Cached feeds (kept until the app process ends) show instantly;
     // Retry and pull-to-refresh set forceRefresh to bypass the cache.
@@ -229,10 +234,12 @@ fun YouTubeHomeScreen(
                             if (visible.isEmpty()) {
                                 OriginalEmptyState("Nothing here", "No videos found. Pull down to refresh.")
                             } else {
-                                LazyColumn(
+                                LazyVerticalGrid(
                                     state = listState,
+                                    columns = GridCells.Adaptive(minSize = 340.dp),
                                     contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxSize()
                                 ) {
                                     items(visible, key = { "yt_${it.id}" }) { video ->
@@ -244,7 +251,7 @@ fun YouTubeHomeScreen(
                                         )
                                     }
                                     if (loadingMore) {
-                                        item(key = "loading_more") {
+                                        item(key = "loading_more", span = { GridItemSpan(maxLineSpan) }) {
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -252,7 +259,7 @@ fun YouTubeHomeScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 CircularProgressIndicator(
-                                                    color = Color.White,
+                                                    color = OriginalColors.TextPrimary,
                                                     strokeWidth = 2.dp,
                                                     modifier = Modifier.size(24.dp)
                                                 )
@@ -321,7 +328,7 @@ private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearc
                 Icon(
                     imageVector = Icons.Rounded.PlayArrow,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = OriginalColors.TextPrimary,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -330,7 +337,7 @@ private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearc
                 text = "Premium",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = OriginalColors.TextPrimary,
                 letterSpacing = (-1.2).sp
             )
         }
@@ -338,7 +345,7 @@ private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearc
         Row {
             IconButton(onClick = onNotifications) {
                 Box {
-                    Icon(Icons.Outlined.Notifications, "Notifications", tint = Color.White, modifier = Modifier.size(26.dp))
+                    Icon(Icons.Outlined.Notifications, "Notifications", tint = OriginalColors.TextPrimary, modifier = Modifier.size(26.dp))
                     if (unreadCount > 0) {
                         Box(
                             modifier = Modifier
@@ -351,14 +358,14 @@ private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearc
                                 text = if (unreadCount > 9) "9+" else unreadCount.toString(),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = OriginalColors.TextPrimary
                             )
                         }
                     }
                 }
             }
             IconButton(onClick = onSearch) {
-                Icon(Icons.Outlined.Search, "Search", tint = Color.White, modifier = Modifier.size(26.dp))
+                Icon(Icons.Outlined.Search, "Search", tint = OriginalColors.TextPrimary, modifier = Modifier.size(26.dp))
             }
         }
     }
@@ -404,7 +411,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
                         text = "History",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = OriginalColors.TextPrimary,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
@@ -450,7 +457,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
                             Text(
                                 text = video.title,
                                 fontSize = 13.sp,
-                                color = Color.White,
+                                color = OriginalColors.TextPrimary,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -475,6 +482,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
         }
         item(key = "row_watch_later") { LibraryRow(Icons.Outlined.WatchLater, "Watch later", saved.size) { nav.open(Route.WatchLater) } }
         item(key = "row_liked") { LibraryRow(Icons.Outlined.ThumbUp, "Liked videos", liked.size) { nav.open(Route.Liked) } }
+        item(key = "row_settings") { LibraryRow(Icons.Outlined.Settings, "Settings", null) { nav.open(Route.Settings) } }
         item(key = "row_import") {
             LibraryRow(Icons.Outlined.FileUpload, "Import from Google Takeout", null) { picker.launch("*/*") }
         }
@@ -490,9 +498,9 @@ private fun LibraryRow(icon: ImageVector, title: String, count: Int?, onClick: (
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+        Icon(icon, contentDescription = null, tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
         Spacer(modifier = Modifier.width(20.dp))
-        Text(text = title, fontSize = 16.sp, color = Color.White, modifier = Modifier.weight(1f))
+        Text(text = title, fontSize = 16.sp, color = OriginalColors.TextPrimary, modifier = Modifier.weight(1f))
         if (count != null) {
             Text(text = count.toString(), fontSize = 14.sp, color = OriginalColors.TextSecondary)
         }

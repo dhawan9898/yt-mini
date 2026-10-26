@@ -58,7 +58,7 @@ internal fun YouTubeVideoCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(onClickLabel = "Play ${item.title}", onClick = onClick)
     ) {
         Thumbnail(item, inset)
 
@@ -100,7 +100,7 @@ internal fun YouTubeVideoCard(
                     text = item.title,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Normal,
-                    color = Color.White,
+                    color = OriginalColors.TextPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 22.sp
@@ -113,7 +113,7 @@ internal fun YouTubeVideoCard(
                 Icon(
                     imageVector = Icons.Rounded.MoreHoriz,
                     contentDescription = "Options",
-                    tint = Color.White,
+                    tint = OriginalColors.TextPrimary,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -145,7 +145,7 @@ internal fun CompactVideoRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(onClickLabel = "Play ${item.title}", onClick = onClick)
             .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.Top
     ) {
@@ -157,7 +157,7 @@ internal fun CompactVideoRow(
             Text(
                 text = item.title,
                 fontSize = 14.sp,
-                color = Color.White,
+                color = OriginalColors.TextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 19.sp
@@ -173,7 +173,7 @@ internal fun CompactVideoRow(
             )
         }
         IconButton(onClick = { showMenu = true }) {
-            Icon(Icons.Rounded.MoreHoriz, "Options", tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(Icons.Rounded.MoreHoriz, "Options", tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
         }
     }
 
@@ -207,7 +207,17 @@ private fun Thumbnail(item: MediaItemModel, inset: Boolean, rounded: Boolean = f
             )
         }
         // Some sources (channel RSS) don't report a duration; hide the badge rather than show 0:00.
-        if (item.durationMs > 0) {
+        if (item.isLive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .background(OriginalColors.Red, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(text = "LIVE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        } else if (item.durationMs > 0) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

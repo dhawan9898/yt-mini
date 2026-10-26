@@ -75,8 +75,8 @@ fun PlayerOptionsSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF212121),
-        contentColor = Color.White
+        containerColor = OriginalColors.Sheet,
+        contentColor = OriginalColors.TextPrimary
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxHeight(0.85f),
@@ -271,7 +271,7 @@ fun PlayerOptionsSheet(
                 else -> when (val options = downloadOptions) {
                     is FeedState.Loading -> item {
                         CircularProgressIndicator(
-                            color = Color.White,
+                            color = OriginalColors.TextPrimary,
                             strokeWidth = 2.dp,
                             modifier = Modifier
                                 .padding(16.dp)
@@ -337,10 +337,10 @@ private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
             text = label,
             fontSize = 15.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = Color.White
+            color = OriginalColors.TextPrimary
         )
         if (selected) {
-            Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
         }
     }
 }

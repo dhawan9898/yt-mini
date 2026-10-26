@@ -31,6 +31,7 @@ import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.extractor.stream.VideoStream
 import kotlin.math.abs
 
@@ -170,7 +171,9 @@ data class DownloadOption(val label: String, val url: String, val extension: Str
 data class ResolvedStream(
     val audioOptions: List<AudioOption>,
     val videoOptions: List<VideoOption>,
-    val subtitles: List<SubtitleOption> = emptyList()
+    val subtitles: List<SubtitleOption> = emptyList(),
+    /** Set for live streams: the HLS playlist to play (the option lists are then empty). */
+    val hlsUrl: String? = null
 ) {
     /** Highest rendition not above [maxHeight]; null selects the default (720p cap, saves data). */
     fun pickVideo(maxHeight: Int?): VideoOption? {
@@ -221,13 +224,38 @@ object YouTubeRepository {
 
     private val youtube get() = ServiceList.YouTube
 
+    private var appliedCountry: String = "US"
+
     private val initialized: Boolean by lazy {
+        val country = AppSettings.contentCountry.value
+        appliedCountry = country
         NewPipe.init(
             NewPipeDownloader.instance,
-            Localization("en", "US"),
-            ContentCountry("US")
+            Localization(ContentRegions.languageFor(country), country),
+            ContentCountry(country)
         )
         true
+    }
+
+    /** Loads the extractor in the background so the first screen does not pay for it. */
+    suspend fun warmUp() {
+        io { initialized }
+    }
+
+    /** Switches the content country / language (Settings) and drops caches filled for the old one. */
+    suspend fun applyRegion(country: String): Result<Unit> = io {
+        check(initialized)
+        if (country != appliedCountry) {
+            appliedCountry = country
+            NewPipe.setupLocalization(
+                Localization(ContentRegions.languageFor(country), country),
+                ContentCountry(country)
+            )
+            feedCache.clear()
+            shelfCache.clear()
+            subFeedCache = null
+            cachedInfo = null
+        }
     }
 
     /** The most recent StreamInfo, shared by playback, downloads and the watch page. */
@@ -502,7 +530,8 @@ object YouTubeRepository {
             channelAvatarUrl = bestImage(info.uploaderAvatars),
             publishDate = info.textualUploadDate.orEmpty(),
             sourceUrl = watchUrl,
-            channelUrl = info.uploaderUrl.orEmpty()
+            channelUrl = info.uploaderUrl.orEmpty(),
+            isLive = info.streamType == StreamType.LIVE_STREAM
         )
     }
 
@@ -682,7 +711,11 @@ object YouTubeRepository {
 
     private fun toSearchResult(item: InfoItem): SearchResult? = when (item) {
         is StreamInfoItem ->
-            if (item.duration > 0 && !item.isShortFormContent) toModel(item, false)?.let { SearchResult.Video(it) } else null
+            if ((item.duration > 0 || item.streamType == StreamType.LIVE_STREAM) && !item.isShortFormContent) {
+                toModel(item, false)?.let { SearchResult.Video(it) }
+            } else {
+                null
+            }
         is ChannelInfoItem -> SearchResult.Channel(
             ChannelResult(
                 name = item.name,
@@ -779,7 +812,8 @@ object YouTubeRepository {
             channelAvatarUrl = channelAvatar ?: bestImage(item.uploaderAvatars),
             publishDate = item.textualUploadDate.orEmpty(),
             sourceUrl = item.url,
-            channelUrl = channelUrl ?: item.uploaderUrl.orEmpty()
+            channelUrl = channelUrl ?: item.uploaderUrl.orEmpty(),
+            isLive = item.streamType == StreamType.LIVE_STREAM
         )
     }
 

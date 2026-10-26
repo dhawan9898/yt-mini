@@ -18,7 +18,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -114,7 +118,7 @@ fun SearchScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
+    val listState = rememberLazyGridState()
 
     LaunchedEffect(Unit) { focus.requestFocus() }
 
@@ -177,7 +181,7 @@ fun SearchScreen(
                     submitted = null
                     focus.requestFocus()
                 }) {
-                    Icon(Icons.Rounded.Close, "Clear", tint = Color.White)
+                    Icon(Icons.Rounded.Close, "Clear", tint = OriginalColors.TextPrimary)
                 }
             }
         }
@@ -205,7 +209,7 @@ fun SearchScreen(
                         Text(
                             text = text,
                             fontSize = 16.sp,
-                            color = Color.White,
+                            color = OriginalColors.TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -271,19 +275,28 @@ fun SearchScreen(
                         if (visible.isEmpty()) {
                             OriginalEmptyState("No results", "Try different keywords or filters.")
                         } else {
-                            LazyColumn(
+                            LazyVerticalGrid(
                                 state = listState,
+                                columns = GridCells.Adaptive(minSize = 340.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 contentPadding = PaddingValues(bottom = 12.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(visible, key = { result ->
-                                    when (result) {
-                                        is SearchResult.Video -> "v_${result.item.id}"
-                                        is SearchResult.Channel -> "c_${result.channel.url}"
-                                        is SearchResult.Playlist -> "p_${result.playlist.url}"
+                                items(
+                                    visible,
+                                    key = { result ->
+                                        when (result) {
+                                            is SearchResult.Video -> "v_${result.item.id}"
+                                            is SearchResult.Channel -> "c_${result.channel.url}"
+                                            is SearchResult.Playlist -> "p_${result.playlist.url}"
+                                        }
+                                    },
+                                    // Channels and playlists use the whole row; videos share it.
+                                    span = { result ->
+                                        if (result is SearchResult.Video) GridItemSpan(1) else GridItemSpan(maxLineSpan)
                                     }
-                                }) { result ->
+                                ) { result ->
                                     when (result) {
                                         is SearchResult.Video -> YouTubeVideoCard(
                                             item = result.item,
@@ -332,8 +345,8 @@ private fun RowScope.SearchField(
             value = query,
             onValueChange = onChange,
             singleLine = true,
-            textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
-            cursorBrush = SolidColor(Color.White),
+            textStyle = TextStyle(color = OriginalColors.TextPrimary, fontSize = 15.sp),
+            cursorBrush = SolidColor(OriginalColors.TextPrimary),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSearch() }),
             modifier = Modifier
@@ -355,7 +368,7 @@ internal fun ChannelResultRow(channel: ChannelResult, onClick: () -> Unit) {
         Avatar(channel.avatarUrl, channel.name, 72.dp)
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(channel.name, fontSize = 16.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(channel.name, fontSize = 16.sp, color = OriginalColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (channel.subscribers.isNotBlank()) {
                 Text("${channel.subscribers} subscribers", fontSize = 13.sp, color = OriginalColors.TextSecondary)
             }
@@ -410,7 +423,7 @@ internal fun PlaylistResultRow(playlist: PlaylistResult, onClick: () -> Unit) {
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(playlist.title, fontSize = 14.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(playlist.title, fontSize = 14.sp, color = OriginalColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (playlist.owner.isNotBlank()) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(playlist.owner, fontSize = 12.sp, color = OriginalColors.TextSecondary, maxLines = 1)

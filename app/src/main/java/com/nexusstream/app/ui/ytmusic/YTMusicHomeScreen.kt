@@ -202,7 +202,7 @@ fun YTMusicHomeScreen(
                             text = "Moods & genres",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = OriginalColors.TextPrimary
                         )
                     }
                     items(genres, key = { "genre_$it" }) { genre ->
@@ -220,7 +220,7 @@ fun YTMusicHomeScreen(
                                 .padding(horizontal = 16.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
-                            Text(text = genre, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                            Text(text = genre, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextPrimary)
                         }
                     }
                 }
@@ -299,7 +299,7 @@ fun YTMusicHomeScreen(
             entries = navEntries,
             selectedIndex = selectedTab,
             onSelect = { selectedTab = it },
-            background = Color(0xFF212121),
+            background = OriginalColors.Sheet,
             modifier = Modifier.navigationBarsPadding()
         )
     }
@@ -341,13 +341,13 @@ private fun YTMusicHeader(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
                     singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
-                    cursorBrush = SolidColor(Color.White),
+                    textStyle = TextStyle(color = OriginalColors.TextPrimary, fontSize = 15.sp),
+                    cursorBrush = SolidColor(OriginalColors.TextPrimary),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
             IconButton(onClick = onToggleSearch) {
-                Icon(imageVector = Icons.Rounded.Close, contentDescription = "Close", tint = Color.White)
+                Icon(imageVector = Icons.Rounded.Close, contentDescription = "Close", tint = OriginalColors.TextPrimary)
             }
         } else {
             // YT Music logo: red ring with a white play triangle + wordmark.
@@ -361,7 +361,7 @@ private fun YTMusicHeader(
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = OriginalColors.TextPrimary,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -370,20 +370,20 @@ private fun YTMusicHeader(
                     text = "Music",
                     fontSize = 21.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = OriginalColors.TextPrimary,
                     letterSpacing = (-0.5).sp
                 )
             }
 
             Row {
                 IconButton(onClick = { /* Cast */ }) {
-                    Icon(imageVector = Icons.Rounded.Cast, contentDescription = "Cast", tint = Color.White)
+                    Icon(imageVector = Icons.Rounded.Cast, contentDescription = "Cast", tint = OriginalColors.TextPrimary)
                 }
                 IconButton(onClick = onToggleSearch) {
-                    Icon(imageVector = Icons.Rounded.Search, contentDescription = "Search", tint = Color.White)
+                    Icon(imageVector = Icons.Rounded.Search, contentDescription = "Search", tint = OriginalColors.TextPrimary)
                 }
                 IconButton(onClick = { /* Profile */ }) {
-                    Icon(imageVector = Icons.Rounded.AccountCircle, contentDescription = "Profile", tint = Color.White)
+                    Icon(imageVector = Icons.Rounded.AccountCircle, contentDescription = "Profile", tint = OriginalColors.TextPrimary)
                 }
             }
         }
@@ -402,7 +402,7 @@ private fun YTMusicShelfCarousel(
                 text = shelf.title,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = OriginalColors.TextPrimary
             )
             Text(
                 text = shelf.subtitle,
@@ -470,7 +470,7 @@ private fun YTMusicAlbumCard(
             text = item.title,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = Color.White,
+            color = OriginalColors.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -520,7 +520,7 @@ private fun YTMusicSearchResultRow(
                 text = item.title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color.White,
+                color = OriginalColors.TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

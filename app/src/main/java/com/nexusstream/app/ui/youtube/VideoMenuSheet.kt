@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.ui.components.OriginalColors
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -82,8 +83,8 @@ fun VideoMenuSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF212121),
-        contentColor = Color.White
+        containerColor = OriginalColors.Sheet,
+        contentColor = OriginalColors.TextPrimary
     ) {
         Column(modifier = Modifier.navigationBarsPadding()) {
             MenuRow(
@@ -136,8 +137,8 @@ private fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+        Icon(icon, contentDescription = null, tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
         Spacer(modifier = Modifier.width(20.dp))
-        Text(text = label, fontSize = 16.sp, color = Color.White)
+        Text(text = label, fontSize = 16.sp, color = OriginalColors.TextPrimary)
     }
 }

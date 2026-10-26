@@ -155,7 +155,7 @@ private fun PlaylistHeader(page: PlaylistPage, onPlayAll: () -> Unit, onShuffle:
             }
         }
         Spacer(modifier = Modifier.size(12.dp))
-        Text(page.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(page.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = OriginalColors.TextPrimary)
         Spacer(modifier = Modifier.size(4.dp))
         Text(
             text = listOf(page.owner, if (page.videoCount > 0) "${page.videoCount} videos" else "")
@@ -182,14 +182,14 @@ internal fun PillButton(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(if (filled) Color.White else OriginalColors.Chip)
+            .background(if (filled) OriginalColors.TextPrimary else OriginalColors.Chip)
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = if (filled) Color.Black else Color.White, modifier = Modifier.size(20.dp))
+        Icon(icon, null, tint = if (filled) OriginalColors.OnInverse else OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.width(6.dp))
-        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if (filled) Color.Black else Color.White)
+        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if (filled) OriginalColors.OnInverse else OriginalColors.TextPrimary)
     }
 }

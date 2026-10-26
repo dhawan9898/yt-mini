@@ -169,14 +169,14 @@ fun ChannelScreen(
                                         text = label,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = if (tab == index) Color.White else OriginalColors.TextSecondary,
+                                        color = if (tab == index) OriginalColors.TextPrimary else OriginalColors.TextSecondary,
                                         modifier = Modifier.padding(vertical = 12.dp)
                                     )
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(2.dp)
-                                            .background(if (tab == index) Color.White else OriginalColors.Divider)
+                                            .background(if (tab == index) OriginalColors.TextPrimary else OriginalColors.Divider)
                                     )
                                 }
                             }
@@ -204,12 +204,12 @@ fun ChannelScreen(
                         }
                         else -> item(key = "about") {
                             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                Text("Description", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("Description", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = OriginalColors.TextPrimary)
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = channel.description.ifBlank { "No description." },
                                     fontSize = 14.sp,
-                                    color = Color.White,
+                                    color = OriginalColors.TextPrimary,
                                     lineHeight = 20.sp
                                 )
                                 if (channel.subscribers.isNotBlank()) {
@@ -223,7 +223,7 @@ fun ChannelScreen(
                     if (loadingMore) {
                         item(key = "loading_more") {
                             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                                CircularProgressIndicator(color = OriginalColors.TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                             }
                         }
                     }
@@ -266,7 +266,7 @@ private fun ChannelHeader(
                     channel.name,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = OriginalColors.TextPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -282,7 +282,7 @@ private fun ChannelHeader(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(18.dp))
-                    .background(if (subscribed) OriginalColors.Chip else Color(0xFFF1F1F1))
+                    .background(if (subscribed) OriginalColors.Chip else OriginalColors.TextPrimary)
                     .clickable(onClick = onToggleSubscribe)
                     .padding(horizontal = 20.dp, vertical = 9.dp)
             ) {
@@ -290,7 +290,7 @@ private fun ChannelHeader(
                     text = if (subscribed) "Subscribed" else "Subscribe",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (subscribed) Color.White else Color.Black
+                    color = if (subscribed) OriginalColors.TextPrimary else OriginalColors.OnInverse
                 )
             }
             if (subscribed && notifyLevel != null) {

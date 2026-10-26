@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -138,7 +141,7 @@ internal fun SubscriptionsTab(
                     Text(
                         text = sub.name,
                         fontSize = 12.sp,
-                        color = Color.White,
+                        color = OriginalColors.TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -176,9 +179,11 @@ internal fun SubscriptionsTab(
             is FeedState.Data -> if (shown.isEmpty()) {
                 OriginalEmptyState("Nothing new", "No uploads match this filter.")
             } else {
-                LazyColumn(
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 340.dp),
                     contentPadding = PaddingValues(vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(shown, key = { "sub_${it.id}" }) { video ->
@@ -224,7 +229,7 @@ fun AllSubscriptionsScreen(
                         Text(
                             text = sub.name,
                             fontSize = 16.sp,
-                            color = Color.White,
+                            color = OriginalColors.TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -236,7 +241,7 @@ fun AllSubscriptionsScreen(
                                 .clickable { LibraryRepository.toggleSubscribe(sub.name, sub.avatarUrl, sub.channelUrl) }
                                 .padding(horizontal = 14.dp, vertical = 8.dp)
                         ) {
-                            Text("Subscribed", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                            Text("Subscribed", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextPrimary)
                         }
                     }
                 }
@@ -262,7 +267,7 @@ internal fun Avatar(url: String, name: String, size: androidx.compose.ui.unit.Dp
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            Text(name.take(1).uppercase(), fontSize = (size.value / 2.5f).sp, color = Color.White)
+            Text(name.take(1).uppercase(), fontSize = (size.value / 2.5f).sp, color = OriginalColors.TextPrimary)
         }
     }
 }

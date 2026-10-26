@@ -80,7 +80,8 @@ import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.PlaybackMode
 import com.nexusstream.app.model.StreamRepeatMode
-import com.nexusstream.app.ui.components.OriginalColors
+import com.nexusstream.app.ui.theme.DarkPalette
+import com.nexusstream.app.ui.theme.SystemBarIcons
 import com.nexusstream.app.ui.components.PlayerOptionsSheet
 
 private enum class PlayerPanel { NONE, UP_NEXT, LYRICS }
@@ -105,6 +106,8 @@ fun MusicPlayerScreen(
     val isLiked = savedItems.any { it.id == item.id }
 
     BackHandler(onBack = onCollapse)
+    // The now-playing screen is always dark: keep light status / navigation icons.
+    SystemBarIcons(lightIcons = true)
 
     var dragY by remember { mutableFloatStateOf(0f) }
     val animatedDragY by animateFloatAsState(
@@ -257,7 +260,7 @@ fun MusicPlayerScreen(
                 Text(
                     text = item.artistOrChannel,
                     fontSize = 14.sp,
-                    color = OriginalColors.TextSecondary,
+                    color = DarkPalette.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -265,7 +268,7 @@ fun MusicPlayerScreen(
             IconButton(onClick = { LibraryRepository.toggleLike(item) }) {
                 Icon(
                     Icons.Rounded.ThumbUp, "Like",
-                    tint = if (isLiked) Color.White else OriginalColors.TextSecondary
+                    tint = if (isLiked) Color.White else DarkPalette.textSecondary
                 )
             }
         }
@@ -297,7 +300,7 @@ fun MusicPlayerScreen(
             IconButton(onClick = { playbackService.toggleShuffle() }) {
                 Icon(
                     Icons.Rounded.Shuffle, "Shuffle",
-                    tint = if (state.shuffleEnabled) Color.White else OriginalColors.TextSecondary
+                    tint = if (state.shuffleEnabled) Color.White else DarkPalette.textSecondary
                 )
             }
             IconButton(onClick = { playbackService.skipToPrevious() }, modifier = Modifier.size(52.dp)) {
@@ -327,7 +330,7 @@ fun MusicPlayerScreen(
                 Icon(
                     imageVector = if (state.repeatMode == StreamRepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                     contentDescription = "Repeat",
-                    tint = if (state.repeatMode == StreamRepeatMode.OFF) OriginalColors.TextSecondary else Color.White
+                    tint = if (state.repeatMode == StreamRepeatMode.OFF) DarkPalette.textSecondary else Color.White
                 )
             }
         }
@@ -436,8 +439,8 @@ private fun SeekBar(
                 .padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(formatTime(shownMs), fontSize = 12.sp, color = OriginalColors.TextSecondary)
-            Text(formatTime(durationMs), fontSize = 12.sp, color = OriginalColors.TextSecondary)
+            Text(formatTime(shownMs), fontSize = 12.sp, color = DarkPalette.textSecondary)
+            Text(formatTime(durationMs), fontSize = 12.sp, color = DarkPalette.textSecondary)
         }
     }
 }
@@ -458,7 +461,7 @@ private fun PanelTab(label: String, selected: Boolean, onClick: () -> Unit) {
             text = label,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
-            color = if (selected) Color.White else OriginalColors.TextSecondary
+            color = if (selected) Color.White else DarkPalette.textSecondary
         )
         Spacer(modifier = Modifier.height(4.dp))
         Box(
@@ -508,9 +511,9 @@ private fun UpNextList(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(q.title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(q.artistOrChannel, fontSize = 12.sp, color = OriginalColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(q.artistOrChannel, fontSize = 12.sp, color = DarkPalette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(formatTime(q.durationMs), fontSize = 12.sp, color = OriginalColors.TextSecondary)
+                Text(formatTime(q.durationMs), fontSize = 12.sp, color = DarkPalette.textSecondary)
             }
         }
     }
@@ -527,7 +530,7 @@ private fun LyricsPanel(
             Text(
                 text = "Lyrics aren't available for this song",
                 fontSize = 14.sp,
-                color = OriginalColors.TextSecondary,
+                color = DarkPalette.textSecondary,
                 textAlign = TextAlign.Center
             )
         }

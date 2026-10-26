@@ -190,6 +190,13 @@ object LibraryRepository {
         persistStrings("hidden_channels", _hidden.value.channels.toList())
     }
 
+    /** Undoes every "Not interested" / "Don't recommend channel". */
+    fun resetHidden() {
+        _hidden.value = Hidden()
+        persistStrings("hidden_videos", emptyList())
+        persistStrings("hidden_channels", emptyList())
+    }
+
     private fun persistStrings(key: String, values: List<String>) {
         prefs?.edit()?.putString(key, JSONArray(values).toString())?.apply()
     }
@@ -436,7 +443,7 @@ object LibraryRepository {
         put("duration", i.durationMs); put("views", i.viewsOrPlays); put("date", i.publishDate)
         put("source", i.sourceUrl); put("music", i.contentType == MediaContentType.MUSIC_TRACK)
         put("c1", i.dominantColor.toArgb()); put("c2", i.secondaryColor.toArgb())
-        put("chUrl", i.channelUrl); put("pub", i.publishedAtMs)
+        put("chUrl", i.channelUrl); put("pub", i.publishedAtMs); put("live", i.isLive)
     }
 
     private fun read(json: String?): List<MediaItemModel> {
@@ -460,7 +467,8 @@ object LibraryRepository {
                     dominantColor = Color(o.optInt("c1")),
                     secondaryColor = Color(o.optInt("c2")),
                     channelUrl = o.optString("chUrl"),
-                    publishedAtMs = o.optLong("pub")
+                    publishedAtMs = o.optLong("pub"),
+                    isLive = o.optBoolean("live")
                 )
             }
         }.getOrDefault(emptyList())

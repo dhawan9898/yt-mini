@@ -18,6 +18,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val id = inputData.getString(KEY_ID) ?: return Result.failure()
         val context = applicationContext
         LibraryRepository.init(context)
+        AppSettings.init(context)
         DownloadRepository.init(context)
 
         val pending = DownloadRepository.pendingFor(id) ?: return Result.success()

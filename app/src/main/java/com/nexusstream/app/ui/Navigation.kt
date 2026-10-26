@@ -16,6 +16,7 @@ sealed interface Route {
     data class LocalPlaylist(val id: String) : Route
     data object Notifications : Route
     data object NotificationSettings : Route
+    data object Settings : Route
 }
 
 /** Navigation actions handed to YouTube screens. */

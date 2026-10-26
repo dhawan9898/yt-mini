@@ -143,11 +143,11 @@ fun HistoryScreen(
                 Icon(
                     imageVector = if (paused) Icons.Outlined.PlayCircle else Icons.Outlined.PauseCircle,
                     contentDescription = if (paused) "Turn on watch history" else "Pause watch history",
-                    tint = Color.White
+                    tint = OriginalColors.TextPrimary
                 )
             }
             IconButton(onClick = { confirmClear = true }, enabled = history.isNotEmpty()) {
-                Icon(Icons.Outlined.DeleteSweep, "Clear watch history", tint = Color.White)
+                Icon(Icons.Outlined.DeleteSweep, "Clear watch history", tint = OriginalColors.TextPrimary)
             }
         }
     ) {
@@ -169,8 +169,8 @@ fun HistoryScreen(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
-                    cursorBrush = SolidColor(Color.White),
+                    textStyle = TextStyle(color = OriginalColors.TextPrimary, fontSize = 15.sp),
+                    cursorBrush = SolidColor(OriginalColors.TextPrimary),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -276,7 +276,7 @@ fun PlaylistsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
         miniPlayer = miniPlayer,
         actions = {
             IconButton(onClick = { showNew = true }) {
-                Icon(Icons.Outlined.Add, "New playlist", tint = Color.White)
+                Icon(Icons.Outlined.Add, "New playlist", tint = OriginalColors.TextPrimary)
             }
         }
     ) {
@@ -314,7 +314,7 @@ fun PlaylistsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                         }
                         Spacer(modifier = Modifier.width(14.dp))
                         Column {
-                            Text(playlist.name, fontSize = 16.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(playlist.name, fontSize = 16.sp, color = OriginalColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text("${playlist.items.size} videos", fontSize = 13.sp, color = OriginalColors.TextSecondary)
                         }
                     }
@@ -359,8 +359,8 @@ fun LocalPlaylistScreen(
         onBack = nav.back,
         miniPlayer = miniPlayer,
         actions = {
-            IconButton(onClick = { showRename = true }) { Icon(Icons.Outlined.Edit, "Rename", tint = Color.White) }
-            IconButton(onClick = { showDelete = true }) { Icon(Icons.Outlined.Delete, "Delete playlist", tint = Color.White) }
+            IconButton(onClick = { showRename = true }) { Icon(Icons.Outlined.Edit, "Rename", tint = OriginalColors.TextPrimary) }
+            IconButton(onClick = { showDelete = true }) { Icon(Icons.Outlined.Delete, "Delete playlist", tint = OriginalColors.TextPrimary) }
         }
     ) {
         if (playlist.items.isEmpty()) {
@@ -386,7 +386,7 @@ fun LocalPlaylistScreen(
                             ) {
                                 Icon(
                                     Icons.Rounded.KeyboardArrowUp, "Move up",
-                                    tint = if (index > 0) Color.White else OriginalColors.Divider
+                                    tint = if (index > 0) OriginalColors.TextPrimary else OriginalColors.Divider
                                 )
                             }
                             IconButton(
@@ -396,7 +396,7 @@ fun LocalPlaylistScreen(
                             ) {
                                 Icon(
                                     Icons.Rounded.KeyboardArrowDown, "Move down",
-                                    tint = if (index < playlist.items.lastIndex) Color.White else OriginalColors.Divider
+                                    tint = if (index < playlist.items.lastIndex) OriginalColors.TextPrimary else OriginalColors.Divider
                                 )
                             }
                         }
@@ -465,7 +465,7 @@ fun DownloadsScreen(
         miniPlayer = miniPlayer,
         actions = {
             IconButton(onClick = { confirmDeleteAll = true }, enabled = downloads.isNotEmpty() || pending.isNotEmpty()) {
-                Icon(Icons.Outlined.DeleteSweep, "Delete all downloads", tint = Color.White)
+                Icon(Icons.Outlined.DeleteSweep, "Delete all downloads", tint = OriginalColors.TextPrimary)
             }
         }
     ) {
@@ -523,7 +523,7 @@ private fun SectionHeader(text: String) {
         text = text,
         fontSize = 16.sp,
         fontWeight = FontWeight.Bold,
-        color = Color.White,
+        color = OriginalColors.TextPrimary,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
     )
 }
@@ -567,11 +567,11 @@ private fun PendingRow(download: PendingDownload, state: DownloadState?, context
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(download.item.title, fontSize = 14.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(download.item.title, fontSize = 14.sp, color = OriginalColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(4.dp))
             LinearProgressIndicator(
                 progress = { progress },
-                color = Color.White,
+                color = OriginalColors.TextPrimary,
                 trackColor = OriginalColors.Chip,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -590,11 +590,11 @@ private fun PendingRow(download: PendingDownload, state: DownloadState?, context
             Icon(
                 imageVector = if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (running) "Pause" else "Resume",
-                tint = Color.White
+                tint = OriginalColors.TextPrimary
             )
         }
         IconButton(onClick = { DownloadRepository.cancel(context, download.item.id) }) {
-            Icon(Icons.Rounded.Close, "Cancel download", tint = Color.White)
+            Icon(Icons.Rounded.Close, "Cancel download", tint = OriginalColors.TextPrimary)
         }
     }
 }
@@ -611,8 +611,8 @@ internal fun ConfirmDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF212121),
-        title = { Text(title, color = Color.White) },
+        containerColor = OriginalColors.Sheet,
+        title = { Text(title, color = OriginalColors.TextPrimary) },
         text = { Text(message, color = OriginalColors.TextSecondary) },
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel, color = Color(0xFF3EA6FF)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = OriginalColors.TextSecondary) } }

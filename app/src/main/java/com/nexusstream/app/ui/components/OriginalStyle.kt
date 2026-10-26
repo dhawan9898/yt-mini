@@ -25,6 +25,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.IconButton
 import kotlin.math.roundToInt
@@ -50,19 +52,24 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.player.PlayPauseMorphButton
+import com.nexusstream.app.ui.theme.ThemeState
 
 /**
  * Flat, near-black palette matching the official YouTube / YouTube Music apps.
  */
 object OriginalColors {
-    val YouTubeBackground = Color(0xFF0F0F0F)
-    val MusicBackground = Color(0xFF030303)
-    val Chip = Color(0xFF272727)
-    val MusicChip = Color(0xFF1F1F1F)
-    val MiniPlayer = Color(0xFF212121)
-    val Divider = Color(0xFF303030)
-    val TextPrimary = Color(0xFFFFFFFF)
-    val TextSecondary = Color(0xFFAAAAAA)
+    // Backed by the current theme palette (compose state), so these can be read anywhere.
+    val YouTubeBackground: Color get() = ThemeState.palette.background
+    val MusicBackground: Color get() = ThemeState.palette.musicBackground
+    val Chip: Color get() = ThemeState.palette.chip
+    val MusicChip: Color get() = ThemeState.palette.musicChip
+    val MiniPlayer: Color get() = ThemeState.palette.surface
+    val Sheet: Color get() = ThemeState.palette.surface
+    val Divider: Color get() = ThemeState.palette.divider
+    val TextPrimary: Color get() = ThemeState.palette.text
+    val TextSecondary: Color get() = ThemeState.palette.textSecondary
+    /** Text colour for use on a TextPrimary-coloured filled button. */
+    val OnInverse: Color get() = ThemeState.palette.onInverse
     val Red = Color(0xFFFF0000)
 }
 
@@ -95,7 +102,7 @@ fun OriginalFilterChips(
                         .clickable(onClick = onLeadingClick),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(leadingIcon, contentDescription = "Explore", tint = Color.White, modifier = Modifier.size(20.dp))
+                    Icon(leadingIcon, contentDescription = "Explore", tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -103,9 +110,9 @@ fun OriginalFilterChips(
             val isSelected = label == selected
             Box(
                 modifier = Modifier
-                    .height(32.dp)
+                    .heightIn(min = 32.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (isSelected) Color.White else unselectedColor)
+                    .background(if (isSelected) OriginalColors.TextPrimary else unselectedColor)
                     .clickable { onSelect(label) }
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center
@@ -114,7 +121,7 @@ fun OriginalFilterChips(
                     text = label,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (isSelected) Color.Black else Color.White
+                    color = if (isSelected) OriginalColors.OnInverse else OriginalColors.TextPrimary
                 )
             }
         }
@@ -198,7 +205,7 @@ fun OriginalMiniPlayer(
                     text = item.title,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color.White,
+                    color = OriginalColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -214,15 +221,16 @@ fun OriginalMiniPlayer(
                 isPlaying = isPlaying,
                 onClick = onTogglePlay,
                 size = 40.dp,
+                tint = OriginalColors.TextPrimary,
                 glowColor = Color.Transparent,
-                flatBackground = Color.White.copy(alpha = 0.10f)
+                flatBackground = OriginalColors.TextPrimary.copy(alpha = 0.10f)
             )
             if (onClose != null) {
                 IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = "Close player",
-                        tint = Color.White,
+                        tint = OriginalColors.TextPrimary,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -232,7 +240,7 @@ fun OriginalMiniPlayer(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(2.dp)
-                .background(Color.White.copy(alpha = 0.15f))
+                .background(OriginalColors.TextPrimary.copy(alpha = 0.15f))
         )
     }
 }
@@ -263,14 +271,15 @@ fun OriginalBottomNav(
         verticalAlignment = Alignment.CenterVertically
     ) {
         entries.forEachIndexed { index, entry ->
-            val tint = if (index == selectedIndex) Color.White else OriginalColors.TextSecondary
+            val tint = if (index == selectedIndex) OriginalColors.TextPrimary else OriginalColors.TextSecondary
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
+                        indication = null,
+                        role = Role.Tab
                     ) { onSelect(index) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
@@ -305,7 +314,7 @@ fun OriginalEmptyState(title: String, message: String, modifier: Modifier = Modi
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(text = title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(text = title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = OriginalColors.TextPrimary)
         Spacer(modifier = Modifier.height(6.dp))
         Text(text = message, fontSize = 14.sp, color = OriginalColors.TextSecondary)
     }
@@ -327,7 +336,7 @@ fun <T> Result<T>.toFeedState(): FeedState<T> = fold(
 @Composable
 fun OriginalLoading(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+        CircularProgressIndicator(color = OriginalColors.TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
     }
 }
 
@@ -340,18 +349,18 @@ fun OriginalError(message: String, onRetry: () -> Unit, modifier: Modifier = Mod
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(text = "Couldn't load content", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(text = "Couldn't load content", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = OriginalColors.TextPrimary)
         Spacer(modifier = Modifier.height(6.dp))
         Text(text = message, fontSize = 13.sp, color = OriginalColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Spacer(modifier = Modifier.height(16.dp))
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(18.dp))
-                .background(Color.White)
+                .background(OriginalColors.TextPrimary)
                 .clickable(onClick = onRetry)
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            Text(text = "Retry", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black)
+            Text(text = "Retry", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = OriginalColors.OnInverse)
         }
     }
 }

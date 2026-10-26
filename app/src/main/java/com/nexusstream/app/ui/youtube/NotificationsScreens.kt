@@ -76,10 +76,10 @@ fun NotificationsScreen(
         miniPlayer = miniPlayer,
         actions = {
             IconButton(onClick = { LibraryRepository.clearInbox() }, enabled = inbox.isNotEmpty()) {
-                Icon(Icons.Outlined.DeleteSweep, "Clear notifications", tint = Color.White)
+                Icon(Icons.Outlined.DeleteSweep, "Clear notifications", tint = OriginalColors.TextPrimary)
             }
             IconButton(onClick = { nav.open(Route.NotificationSettings) }) {
-                Icon(Icons.Outlined.Settings, "Notification settings", tint = Color.White)
+                Icon(Icons.Outlined.Settings, "Notification settings", tint = OriginalColors.TextPrimary)
             }
         }
     ) {
@@ -141,7 +141,7 @@ fun NotificationSettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Upload notifications", fontSize = 16.sp, color = Color.White)
+                        Text("Upload notifications", fontSize = 16.sp, color = OriginalColors.TextPrimary)
                         Text(
                             "Checked about every 30 minutes while the app has network access.",
                             fontSize = 12.sp,
@@ -182,7 +182,7 @@ fun NotificationSettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                         Text(
                             text = sub.name,
                             fontSize = 15.sp,
-                            color = Color.White,
+                            color = OriginalColors.TextPrimary,
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
                         OriginalFilterChips(
@@ -257,7 +257,7 @@ internal fun NotifyLevelButton(level: NotifyLevel, onSelect: (NotifyLevel) -> Un
                     NotifyLevel.NONE -> Icons.Outlined.NotificationsOff
                 },
                 contentDescription = "Notifications: ${levelLabel(level)}",
-                tint = Color.White
+                tint = OriginalColors.TextPrimary
             )
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {

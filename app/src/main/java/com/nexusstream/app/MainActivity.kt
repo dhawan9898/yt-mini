@@ -14,8 +14,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import com.nexusstream.app.data.AppSettings
+import com.nexusstream.app.data.CrashReporter
 import com.nexusstream.app.notifications.NotificationHelper
 import com.nexusstream.app.ui.NexusApp
+import com.nexusstream.app.ui.theme.ThemeState
+import com.nexusstream.app.ui.theme.paletteFor
 
 class MainActivity : ComponentActivity() {
 
@@ -33,6 +37,13 @@ class MainActivity : ComponentActivity() {
         // Liquid glass edge-to-edge transparent system bars
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Settings and the theme must be ready before the first frame (no dark flash in light mode).
+        AppSettings.init(this)
+        CrashReporter.install(this)
+        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        ThemeState.palette = paletteFor(AppSettings.themeMode.value, systemDark)
 
         PipController.enter = { enterPictureInPictureIfSupported() }
         // Only the first launch: a recreated activity must not replay an old link.

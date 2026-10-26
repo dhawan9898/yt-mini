@@ -50,6 +50,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.ui.components.OriginalFilterChips
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.lazy.LazyListScope
+import android.content.res.Configuration
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableFloatStateOf
 import android.view.WindowManager
@@ -129,6 +133,7 @@ import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.components.OriginalColors
+import com.nexusstream.app.ui.theme.SystemBarIcons
 
 /**
  * YouTube Mode Video Watch Page:
@@ -201,7 +206,16 @@ fun VideoWatchScreen(
         onDispose { PipController.canAutoEnter = false }
     }
 
-    FullscreenEffect(isFullscreen)
+    // Landscape phones go fullscreen automatically; tablets / wide windows get a two-pane layout.
+    val configuration = LocalConfiguration.current
+    val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val wide = configuration.screenWidthDp >= 840
+    val showFullscreen = isFullscreen || (landscape && !wide)
+    var relatedOnlyChannel by remember(mediaItem.id) { mutableStateOf(false) }
+
+    FullscreenEffect(showFullscreen, lockLandscape = isFullscreen)
+    // The status bar sits over the black video area, whatever the theme is.
+    SystemBarIcons(lightIcons = true, includeNavigationBar = false)
     BackHandler(enabled = isFullscreen) { isFullscreen = false }
     BackHandler(enabled = !isFullscreen, onBack = onCollapse)
 
@@ -221,15 +235,16 @@ fun VideoWatchScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxSize()
             .background(OriginalColors.YouTubeBackground)
             .navigationBarsPadding()
     ) {
+    Column(modifier = Modifier.weight(if (wide) 1.7f else 1f)) {
         // Video viewport on a black status-bar-height backdrop. Swipe down to minimize,
         // swipe up (or the player's fullscreen button) for fullscreen.
-        if (!isFullscreen) {
+        if (!showFullscreen) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -316,7 +331,7 @@ fun VideoWatchScreen(
                     )
                     append(parts.joinToString("  "))
                     if (!isDescriptionExpanded) {
-                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Medium)) { append("  more") }
+                        withStyle(SpanStyle(color = OriginalColors.TextPrimary, fontWeight = FontWeight.Medium)) { append("  more") }
                     }
                 }
                 Column(
@@ -329,7 +344,7 @@ fun VideoWatchScreen(
                         text = mediaItem.title,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color.White,
+                        color = OriginalColors.TextPrimary,
                         lineHeight = 24.sp,
                         maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
                         overflow = TextOverflow.Ellipsis
@@ -371,7 +386,7 @@ fun VideoWatchScreen(
                             text = "Chapters",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color.White
+                            color = OriginalColors.TextPrimary
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
@@ -415,7 +430,7 @@ fun VideoWatchScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(18.dp))
-                            .background(if (isSubscribed) OriginalColors.Chip else Color(0xFFF1F1F1))
+                            .background(if (isSubscribed) OriginalColors.Chip else OriginalColors.TextPrimary)
                             .clickable {
                                 LibraryRepository.toggleSubscribe(mediaItem.artistOrChannel, mediaItem.channelAvatarUrl, mediaItem.channelUrl)
                             }
@@ -425,7 +440,7 @@ fun VideoWatchScreen(
                             text = if (isSubscribed) "Subscribed" else "Subscribe",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
-                            color = if (isSubscribed) Color.White else Color.Black
+                            color = if (isSubscribed) OriginalColors.TextPrimary else OriginalColors.OnInverse
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
@@ -434,7 +449,7 @@ fun VideoWatchScreen(
                         Icon(
                             imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                             contentDescription = "Like",
-                            tint = Color.White,
+                            tint = OriginalColors.TextPrimary,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -445,7 +460,7 @@ fun VideoWatchScreen(
                         }
                         context.startActivity(Intent.createChooser(send, "Share"))
                     }) {
-                        Icon(Icons.Outlined.Share, "Share", tint = Color.White, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Outlined.Share, "Share", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
                     }
                     IconButton(onClick = {
                         if (downloadState !is DownloadState.Downloading) showOptions = true
@@ -453,24 +468,24 @@ fun VideoWatchScreen(
                         when {
                             downloadState is DownloadState.Downloading -> CircularProgressIndicator(
                                 progress = { downloadState.progress },
-                                color = Color.White,
+                                color = OriginalColors.TextPrimary,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(22.dp)
                             )
-                            isDownloaded -> Icon(Icons.Outlined.DownloadDone, "Downloaded", tint = Color.White, modifier = Modifier.size(24.dp))
-                            else -> Icon(Icons.Outlined.FileDownload, "Download", tint = Color.White, modifier = Modifier.size(24.dp))
+                            isDownloaded -> Icon(Icons.Outlined.DownloadDone, "Downloaded", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
+                            else -> Icon(Icons.Outlined.FileDownload, "Download", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
                         }
                     }
                     IconButton(onClick = { showSaveSheet = true }) {
                         Icon(
                             imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                             contentDescription = if (isSaved) "Saved" else "Save",
-                            tint = Color.White,
+                            tint = OriginalColors.TextPrimary,
                             modifier = Modifier.size(24.dp)
                         )
                     }
                     IconButton(onClick = { showOptions = true }) {
-                        Icon(Icons.Rounded.MoreHoriz, "More", tint = Color.White, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Rounded.MoreHoriz, "More", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
                     }
                 }
             }
@@ -495,7 +510,7 @@ fun VideoWatchScreen(
                             text = "Comments",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color.White
+                            color = OriginalColors.TextPrimary
                         )
                         total?.let {
                             Spacer(modifier = Modifier.width(8.dp))
@@ -514,7 +529,7 @@ fun VideoWatchScreen(
                             Text(
                                 text = topComment.text,
                                 fontSize = 14.sp,
-                                color = Color.White,
+                                color = OriginalColors.TextPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -526,19 +541,41 @@ fun VideoWatchScreen(
                 }
             }
 
-            // Up next: same large cards as the home feed
-            items(recommendedVideos, key = { "rec_${it.id}" }) { rec ->
-                YouTubeVideoCard(
-                    item = rec,
-                    onClick = { onSelectVideo(rec) },
-                    inset = true,
-                    onChannelClick = rec.channelUrl.takeIf { it.isNotBlank() }?.let { { onOpenChannel(rec) } }
+            // Up next (on wide screens it lives in the side pane instead)
+            if (!wide) {
+                relatedSection(
+                    channelName = mediaItem.artistOrChannel,
+                    related = recommendedVideos,
+                    onlyChannel = relatedOnlyChannel,
+                    onToggleChannel = { relatedOnlyChannel = it },
+                    onSelectVideo = onSelectVideo,
+                    onOpenChannel = onOpenChannel
                 )
             }
         }
     }
+    if (wide) {
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .statusBarsPadding(),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            relatedSection(
+                channelName = mediaItem.artistOrChannel,
+                related = recommendedVideos,
+                onlyChannel = relatedOnlyChannel,
+                onToggleChannel = { relatedOnlyChannel = it },
+                onSelectVideo = onSelectVideo,
+                onOpenChannel = onOpenChannel
+            )
+        }
+    }
+    }
 
-    if (isFullscreen) {
+    if (showFullscreen) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -588,8 +625,8 @@ fun VideoWatchScreen(
         val chapters = details?.chapters.orEmpty()
         ModalBottomSheet(
             onDismissRequest = { showChapters = false },
-            containerColor = Color(0xFF212121),
-            contentColor = Color.White
+            containerColor = OriginalColors.Sheet,
+            contentColor = OriginalColors.TextPrimary
         ) {
             LazyColumn(modifier = Modifier.fillMaxHeight(0.7f), contentPadding = PaddingValues(bottom = 24.dp)) {
                 item {
@@ -597,7 +634,7 @@ fun VideoWatchScreen(
                         text = "Chapters",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = OriginalColors.TextPrimary,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
@@ -617,7 +654,7 @@ fun VideoWatchScreen(
                             color = Color(0xFF3EA6FF),
                             modifier = Modifier.width(64.dp)
                         )
-                        Text(text = chapter.title, fontSize = 14.sp, color = Color.White)
+                        Text(text = chapter.title, fontSize = 14.sp, color = OriginalColors.TextPrimary)
                     }
                 }
             }
@@ -627,15 +664,15 @@ fun VideoWatchScreen(
     if (showComments) {
         ModalBottomSheet(
             onDismissRequest = { showComments = false },
-            containerColor = Color(0xFF212121),
-            contentColor = Color.White
+            containerColor = OriginalColors.Sheet,
+            contentColor = OriginalColors.TextPrimary
         ) {
             Column(modifier = Modifier.fillMaxHeight(0.8f)) {
                 Text(
                     text = "Comments",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = OriginalColors.TextPrimary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
                 when (val state = comments) {
@@ -652,6 +689,37 @@ fun VideoWatchScreen(
                 }
             }
         }
+    }
+}
+
+/** "Up next": optional "All / From this channel" chips, then the related videos. */
+private fun LazyListScope.relatedSection(
+    channelName: String,
+    related: List<MediaItemModel>,
+    onlyChannel: Boolean,
+    onToggleChannel: (Boolean) -> Unit,
+    onSelectVideo: (MediaItemModel) -> Unit,
+    onOpenChannel: (MediaItemModel) -> Unit
+) {
+    if (related.any { it.artistOrChannel == channelName }) {
+        item(key = "related_chips") {
+            val channelLabel = "From $channelName"
+            OriginalFilterChips(
+                labels = listOf("All", channelLabel),
+                selected = if (onlyChannel) channelLabel else "All",
+                onSelect = { onToggleChannel(it == channelLabel) },
+                unselectedColor = OriginalColors.Chip
+            )
+        }
+    }
+    val shown = if (onlyChannel) related.filter { it.artistOrChannel == channelName } else related
+    items(shown, key = { "rec_${it.id}" }) { rec ->
+        YouTubeVideoCard(
+            item = rec,
+            onClick = { onSelectVideo(rec) },
+            inset = true,
+            onChannelClick = rec.channelUrl.takeIf { it.isNotBlank() }?.let { { onOpenChannel(rec) } }
+        )
     }
 }
 
@@ -682,7 +750,7 @@ private fun CommentsList(page: CommentsPage) {
         if (loadingMore) {
             item(key = "loading_more") {
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                    CircularProgressIndicator(color = OriginalColors.TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                 }
             }
         }
@@ -715,7 +783,7 @@ private fun LinkifiedText(text: String, onSeek: (Long) -> Unit) {
             append(text.substring(cursor))
         }
     }
-    Text(text = annotated, fontSize = 14.sp, color = Color.White, lineHeight = 20.sp)
+    Text(text = annotated, fontSize = 14.sp, color = OriginalColors.TextPrimary, lineHeight = 20.sp)
 }
 
 @Composable
@@ -762,7 +830,7 @@ private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
                     color = OriginalColors.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(text = comment.text, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp)
+                Text(text = comment.text, fontSize = 14.sp, color = OriginalColors.TextPrimary, lineHeight = 19.sp)
                 if (comment.likes > 0) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(text = "${comment.likes} likes", fontSize = 12.sp, color = OriginalColors.TextSecondary)
@@ -975,21 +1043,25 @@ private fun WatchPlayerSurface(
     }
 }
 
-/** Landscape + hidden system bars while [isFullscreen]; restored when it ends or the screen leaves. */
+/**
+ * Hidden system bars while [isFullscreen]; with [lockLandscape] the screen is also forced to
+ * landscape (not when fullscreen is only the result of the user rotating the phone).
+ * Restored when it ends or the screen leaves.
+ */
 @Composable
-private fun FullscreenEffect(isFullscreen: Boolean) {
+private fun FullscreenEffect(isFullscreen: Boolean, lockLandscape: Boolean) {
     val view = LocalView.current
-    DisposableEffect(isFullscreen) {
+    DisposableEffect(isFullscreen, lockLandscape) {
         val activity = view.context.findActivity()
         val controller = activity?.window?.let { WindowCompat.getInsetsController(it, view) }
         if (isFullscreen) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            if (lockLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller?.hide(WindowInsetsCompat.Type.systemBars())
         }
         onDispose {
             if (isFullscreen) {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                if (lockLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 controller?.show(WindowInsetsCompat.Type.systemBars())
                 // Give brightness back to the system setting.
                 activity?.window?.let { window ->

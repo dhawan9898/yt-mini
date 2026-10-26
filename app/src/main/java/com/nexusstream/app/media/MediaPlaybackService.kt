@@ -26,12 +26,14 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.SingleSampleMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.nexusstream.app.data.AppSettings
 import com.nexusstream.app.data.AudioTrack
 import com.nexusstream.app.data.ResolvedStream
 import com.nexusstream.app.data.SubtitleOption
@@ -106,6 +108,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private var preferredAudioKbps: Int? = null
     private var preferredAudioTrackId: String? = null
     private var preferredSubtitleTag: String? = null
+    /** Once the user picks a caption language (or Off) their choice wins over "captions by default". */
+    private var subtitleChosenByUser = false
     private var sleepJob: Job? = null
     /** Related videos to continue with when the queue runs out (set by the watch page). */
     private var autoplayQueue: List<MediaItemModel> = emptyList()
@@ -154,6 +158,16 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     override fun onCreate() {
         super.onCreate()
+        AppSettings.init(this)
+        // Settings -> defaults for playback (changes apply to the next video, not the current one).
+        serviceScope.launch {
+            AppSettings.defaultVideoHeight.collect { preferredVideoHeight = it.takeIf { h -> h > 0 } }
+        }
+        serviceScope.launch {
+            AppSettings.autoplay.collect { enabled ->
+                _playbackState.value = _playbackState.value.copy(autoplayNext = enabled)
+            }
+        }
         createNotificationChannel()
         startForegroundWithInitialNotification()
         initAdBlockPipeline()
@@ -385,8 +399,24 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         positionMs: Long,
         playWhenReady: Boolean
     ) {
-        val audio = resolved.pickAudio(preferredAudioKbps, preferredAudioTrackId) ?: return
-        val video = resolved.pickVideo(preferredVideoHeight)
+        // Live stream: one HLS playlist, played from the live edge (no quality / caption choices).
+        resolved.hlsUrl?.let { hlsUrl ->
+            val hlsSource = HlsMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
+                .createMediaSource(
+                    MediaItem.Builder().setMediaId(item.id).setUri(hlsUrl).setMediaMetadata(metadata).build()
+                )
+            exoPlayer.setMediaSource(hlsSource)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = playWhenReady
+            return
+        }
+
+        // Data saver caps video at 480p and audio at 96 kbps unless the user pinned a lower quality.
+        val saver = AppSettings.dataSaver.value
+        val heightCap = if (saver) minOf(preferredVideoHeight ?: 480, 480) else preferredVideoHeight
+        val audioCap = if (saver && preferredAudioKbps == null) 96 else preferredAudioKbps
+        val audio = resolved.pickAudio(audioCap, preferredAudioTrackId) ?: return
+        val video = resolved.pickVideo(heightCap)
 
         val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
         val audioSource = factory.createMediaSource(
@@ -398,7 +428,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         )
         // Always merge video when available; the video renderer stays disabled (and
         // downloads nothing) in audio-only mode, so toggling modes is instant.
-        val subtitle = preferredSubtitleTag?.let { tag -> resolved.subtitles.firstOrNull { it.languageTag == tag } }
+        val subtitleTag = if (subtitleChosenByUser) preferredSubtitleTag else defaultSubtitleTag(resolved)
+        val subtitle = subtitleTag?.let { tag -> resolved.subtitles.firstOrNull { it.languageTag == tag } }
         val subtitleSource = subtitle?.let { sub ->
             val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
                 .setMimeType(sub.mimeType)
@@ -433,6 +464,14 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         )
     }
 
+    /** The caption track to show when "captions by default" is on: the device language, manual first. */
+    private fun defaultSubtitleTag(resolved: ResolvedStream): String? {
+        if (!AppSettings.captionsByDefault.value) return null
+        val language = java.util.Locale.getDefault().language
+        val matching = resolved.subtitles.filter { it.languageTag.startsWith(language) }
+        return (matching.firstOrNull { !it.autoGenerated } ?: matching.firstOrNull())?.languageTag
+    }
+
     /** Pins the video quality (null = auto, capped at 720p). Keeps position and play state. */
     fun setVideoQuality(height: Int?) {
         preferredVideoHeight = height
@@ -447,6 +486,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     /** Shows captions in the given language, or turns them off (null). */
     fun setSubtitle(languageTag: String?) {
+        subtitleChosenByUser = true
         preferredSubtitleTag = languageTag
         reapplyQuality()
     }
@@ -500,7 +540,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             exoPlayer.clearMediaItems()
             exoPlayer.setPlaybackSpeed(1f)
         }
-        _playbackState.value = PlaybackState()
+        _playbackState.value = PlaybackState(autoplayNext = AppSettings.autoplay.value)
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 

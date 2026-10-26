@@ -3,6 +3,7 @@ package com.nexusstream.app.notifications
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.nexusstream.app.data.AppSettings
 import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.data.NotifyLevel
 import com.nexusstream.app.data.YouTubeRepository
@@ -16,6 +17,7 @@ class UploadCheckWorker(context: Context, params: WorkerParameters) : CoroutineW
     override suspend fun doWork(): Result {
         val context = applicationContext
         LibraryRepository.init(context)
+        AppSettings.init(context)
         if (!LibraryRepository.notificationsEnabled.value) return Result.success()
 
         val subs = LibraryRepository.subscriptions.value.filter { it.notifyLevel != NotifyLevel.NONE }

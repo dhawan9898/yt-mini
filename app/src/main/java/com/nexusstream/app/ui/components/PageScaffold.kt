@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Icon
@@ -68,7 +69,7 @@ fun PageScaffold(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White)
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = OriginalColors.TextPrimary)
             }
             if (header != null) {
                 header()
@@ -77,7 +78,7 @@ fun PageScaffold(
                     text = title,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color.White,
+                    color = OriginalColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -100,6 +101,20 @@ fun PageScaffold(
             )
         } else {
             Box(modifier = Modifier.navigationBarsPadding())
+        }
+    }
+}
+
+/** Same as the list version, for a [LazyVerticalGrid]. */
+@Composable
+fun OnReachEnd(gridState: LazyGridState, buffer: Int = 4, onReachEnd: () -> Unit) {
+    val callback by rememberUpdatedState(onReachEnd)
+    LaunchedEffect(gridState) {
+        snapshotFlow {
+            val info = gridState.layoutInfo
+            info.totalItemsCount to (info.visibleItemsInfo.lastOrNull()?.index ?: -1)
+        }.collect { (total, last) ->
+            if (total > 0 && last >= total - 1 - buffer) callback()
         }
     }
 }

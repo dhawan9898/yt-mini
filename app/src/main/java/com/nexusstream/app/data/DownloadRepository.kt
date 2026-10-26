@@ -154,7 +154,13 @@ object DownloadRepository {
     private fun enqueue(context: Context, id: String) {
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setInputData(workDataOf(DownloadWorker.KEY_ID to id))
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(
+                        if (AppSettings.wifiOnlyDownloads.value) NetworkType.UNMETERED else NetworkType.CONNECTED
+                    )
+                    .build()
+            )
             .build()
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniqueWork(workName(id), ExistingWorkPolicy.REPLACE, request)

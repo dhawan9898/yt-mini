@@ -69,7 +69,9 @@ data class MediaItemModel(
     /** Channel page URL (https://www.youtube.com/channel/UC...), when known. */
     val channelUrl: String = "",
     /** Publish time in epoch millis when known (0 = unknown). */
-    val publishedAtMs: Long = 0L
+    val publishedAtMs: Long = 0L,
+    /** A live stream (played from the live edge; has no fixed duration). */
+    val isLive: Boolean = false
 )
 
 /**

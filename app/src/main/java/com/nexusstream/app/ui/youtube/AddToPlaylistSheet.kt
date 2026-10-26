@@ -50,15 +50,15 @@ fun AddToPlaylistSheet(item: MediaItemModel, onDismiss: () -> Unit) {
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF212121),
-        contentColor = Color.White
+        containerColor = OriginalColors.Sheet,
+        contentColor = OriginalColors.TextPrimary
     ) {
         Column(modifier = Modifier.navigationBarsPadding()) {
             Text(
                 text = "Save to...",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = OriginalColors.TextPrimary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
             LazyColumn {
@@ -115,17 +115,17 @@ private fun SaveRow(icon: ImageVector?, label: String, checked: Boolean, onClick
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = null, tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.width(20.dp))
         }
         Text(
             text = label,
             fontSize = 16.sp,
-            color = Color.White,
+            color = OriginalColors.TextPrimary,
             modifier = Modifier.weight(1f)
         )
         if (checked) {
-            Icon(Icons.Rounded.Check, contentDescription = "Saved", tint = Color.White, modifier = Modifier.size(22.dp))
+            Icon(Icons.Rounded.Check, contentDescription = "Saved", tint = OriginalColors.TextPrimary, modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -142,8 +142,8 @@ internal fun TextInputDialog(
     var text by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF212121),
-        title = { Text(title, color = Color.White) },
+        containerColor = OriginalColors.Sheet,
+        title = { Text(title, color = OriginalColors.TextPrimary) },
         text = {
             TextField(
                 value = text,
