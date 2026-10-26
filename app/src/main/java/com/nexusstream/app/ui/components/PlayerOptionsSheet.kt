@@ -49,7 +49,8 @@ fun PlayerOptionsSheet(
     showVideoQuality: Boolean,
     onVideoQuality: (Int?) -> Unit,
     onAudioQuality: (Int?) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onAudioTrack: (String?) -> Unit = {}
 ) {
     val context = LocalContext.current
     val downloadStates by DownloadRepository.states.collectAsState()
@@ -90,6 +91,23 @@ fun PlayerOptionsSheet(
                             label = "${height}p",
                             selected = !state.videoQualityAuto && state.selectedVideoHeight == height,
                             onClick = { onVideoQuality(height) }
+                        )
+                    }
+                }
+            }
+
+            // Several tracks = original plus auto-dubbed / other languages. Original is the default.
+            if (state.availableAudioTracks.size > 1) {
+                item { SectionTitle("Audio language") }
+                state.availableAudioTracks.forEachIndexed { index, track ->
+                    item(key = "t_$index") {
+                        val label = track.name.ifBlank { "Audio" } +
+                            if (track.isOriginal && !track.name.contains("original", ignoreCase = true)) " (original)" else ""
+                        OptionRow(
+                            label = label,
+                            selected = state.selectedAudioTrackId == track.id,
+                            // Choosing the original track resets to the default instead of pinning it.
+                            onClick = { onAudioTrack(if (track.isOriginal) null else track.id) }
                         )
                     }
                 }

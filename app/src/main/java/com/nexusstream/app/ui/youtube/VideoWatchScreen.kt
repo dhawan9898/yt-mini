@@ -484,6 +484,7 @@ fun VideoWatchScreen(
             showVideoQuality = true,
             onVideoQuality = playbackService::setVideoQuality,
             onAudioQuality = playbackService::setAudioQuality,
+            onAudioTrack = playbackService::setAudioTrack,
             onDismiss = { showOptions = false }
         )
     }

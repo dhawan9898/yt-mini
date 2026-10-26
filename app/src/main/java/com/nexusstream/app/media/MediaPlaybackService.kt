@@ -29,6 +29,7 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.nexusstream.app.data.AudioTrack
 import com.nexusstream.app.data.ResolvedStream
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
@@ -64,6 +65,9 @@ data class PlaybackState(
     val availableAudioKbps: List<Int> = emptyList(),
     val selectedVideoHeight: Int? = null,
     val selectedAudioKbps: Int? = null,
+    /** Language / audio tracks offered for the current live item (original first). */
+    val availableAudioTracks: List<AudioTrack> = emptyList(),
+    val selectedAudioTrackId: String? = null,
     /** True when the user has not pinned a video / audio quality. */
     val videoQualityAuto: Boolean = true,
     val audioQualityAuto: Boolean = true,
@@ -88,6 +92,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private var currentResolved: ResolvedStream? = null
     private var preferredVideoHeight: Int? = null
     private var preferredAudioKbps: Int? = null
+    private var preferredAudioTrackId: String? = null
 
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var mediaSession: MediaSession
@@ -311,6 +316,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             errorMessage = null,
             availableVideoHeights = emptyList(),
             availableAudioKbps = emptyList(),
+            availableAudioTracks = emptyList(),
+            selectedAudioTrackId = null,
             selectedVideoHeight = null,
             selectedAudioKbps = null
         )
@@ -358,7 +365,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         positionMs: Long,
         playWhenReady: Boolean
     ) {
-        val audio = resolved.pickAudio(preferredAudioKbps) ?: return
+        val audio = resolved.pickAudio(preferredAudioKbps, preferredAudioTrackId) ?: return
         val video = resolved.pickVideo(preferredVideoHeight)
 
         val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
@@ -381,7 +388,9 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
         _playbackState.value = _playbackState.value.copy(
             availableVideoHeights = resolved.videoOptions.map { it.height },
-            availableAudioKbps = resolved.audioOptions.map { it.kbps },
+            availableAudioKbps = resolved.kbpsFor(audio.trackId),
+            availableAudioTracks = resolved.audioTracks,
+            selectedAudioTrackId = audio.trackId,
             selectedVideoHeight = video?.height,
             selectedAudioKbps = audio.kbps,
             videoQualityAuto = preferredVideoHeight == null,
@@ -398,6 +407,14 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     /** Pins the audio quality (null = best available). Keeps position and play state. */
     fun setAudioQuality(kbps: Int?) {
         preferredAudioKbps = kbps
+        reapplyQuality()
+    }
+
+    /** Switches the audio language track (null = original). Keeps position and play state. */
+    fun setAudioTrack(trackId: String?) {
+        preferredAudioTrackId = trackId
+        // Bitrates differ per track, so drop a pinned bitrate that the new track may not offer.
+        preferredAudioKbps = null
         reapplyQuality()
     }
 

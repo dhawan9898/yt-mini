@@ -26,6 +26,7 @@ import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
@@ -125,15 +126,28 @@ data class CommentModel(
 /** One selectable video rendition (video-only stream). */
 data class VideoOption(val height: Int, val url: String)
 
-/** One selectable audio rendition. */
-data class AudioOption(val kbps: Int, val url: String)
+/**
+ * One selectable audio rendition. [trackId] / [trackName] identify the language track
+ * (null for single-track videos); [isOriginal] is false for auto-dubbed and descriptive tracks.
+ */
+data class AudioOption(
+    val kbps: Int,
+    val url: String,
+    val trackId: String? = null,
+    val trackName: String = "",
+    val isOriginal: Boolean = true
+)
+
+/** A language / audio track of a video. */
+data class AudioTrack(val id: String?, val name: String, val isOriginal: Boolean)
 
 /** A downloadable file with a human label such as "720p video" or "128 kbps audio". */
 data class DownloadOption(val label: String, val url: String, val extension: String, val isVideo: Boolean)
 
 /**
  * Direct, short-lived stream URLs for one video, with every quality that is available.
- * Both lists are sorted best-first.
+ * Video options are sorted best-first. Audio options list the original track first
+ * (best bitrate first), then other language tracks.
  */
 data class ResolvedStream(
     val audioOptions: List<AudioOption>,
@@ -145,10 +159,34 @@ data class ResolvedStream(
         return videoOptions.firstOrNull { it.height <= cap } ?: videoOptions.lastOrNull()
     }
 
-    /** Closest rendition at or below [kbps]; null selects the best. */
-    fun pickAudio(kbps: Int?): AudioOption? {
-        if (kbps == null) return audioOptions.firstOrNull()
-        return audioOptions.firstOrNull { it.kbps <= kbps } ?: audioOptions.lastOrNull()
+    /** Distinct audio tracks, original first. */
+    val audioTracks: List<AudioTrack>
+        get() = audioOptions.distinctBy { it.trackId }
+            .map { AudioTrack(it.trackId, it.trackName, it.isOriginal) }
+
+    /** The track played by default: the original audio, never an auto-dub. */
+    private fun defaultTrackId(): String? =
+        (audioOptions.firstOrNull { it.isOriginal } ?: audioOptions.firstOrNull())?.trackId
+
+    /** Bitrates (best first) offered by the given track; null means the default track. */
+    fun kbpsFor(trackId: String?): List<Int> {
+        val id = resolveTrack(trackId)
+        return audioOptions.filter { it.trackId == id }.map { it.kbps }.distinct().sortedDescending()
+    }
+
+    private fun resolveTrack(trackId: String?): String? =
+        trackId?.takeIf { wanted -> audioOptions.any { it.trackId == wanted } } ?: defaultTrackId()
+
+    /**
+     * Audio for the chosen [trackId] (null or unknown = original track) at the closest bitrate
+     * at or below [kbps] (null = best).
+     */
+    fun pickAudio(kbps: Int?, trackId: String? = null): AudioOption? {
+        val id = resolveTrack(trackId)
+        val forTrack = audioOptions.filter { it.trackId == id }.ifEmpty { audioOptions }
+            .sortedByDescending { it.kbps }
+        if (kbps == null) return forTrack.firstOrNull()
+        return forTrack.firstOrNull { it.kbps <= kbps } ?: forTrack.lastOrNull()
     }
 
     companion object {
@@ -370,13 +408,27 @@ object YouTubeRepository {
     /** Resolves fresh direct stream URLs for a watch URL. Call right before playback. */
     suspend fun resolveStream(watchUrl: String): Result<ResolvedStream> = io {
         val info = streamInfo(watchUrl)
+        // YouTube serves several language tracks (original, auto-dubbed, audio description).
+        // Keep the best stream per (track, bitrate) and list the original track first.
         val audio = info.audioStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
-            .groupBy { it.averageBitrate }
+            .groupBy { it.audioTrackId to it.averageBitrate }
             .mapValues { (_, streams) -> streams.maxByOrNull(::audioScore)!! }
             .values
-            .sortedByDescending { it.averageBitrate }
-            .map { AudioOption(it.averageBitrate, it.content) }
+            .map { stream ->
+                AudioOption(
+                    kbps = stream.averageBitrate,
+                    url = stream.content,
+                    trackId = stream.audioTrackId,
+                    trackName = trackLabel(stream),
+                    isOriginal = isOriginalTrack(stream)
+                )
+            }
+            .sortedWith(
+                compareByDescending<AudioOption> { it.isOriginal }
+                    .thenBy { it.trackId.orEmpty() }
+                    .thenByDescending { it.kbps }
+            )
         check(audio.isNotEmpty()) { "No playable audio stream" }
         val video = info.videoOnlyStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height > 0 }
@@ -398,8 +450,12 @@ object YouTubeRepository {
             .values
             .sortedByDescending { it.height }
             .map { DownloadOption("${it.height}p video", it.content, it.format?.suffix ?: "mp4", true) }
-        val audios = info.audioStreams
+        val playableAudio = info.audioStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+        // Save the original-language audio, not an auto-dub.
+        val originalTrackId = (playableAudio.firstOrNull { isOriginalTrack(it) } ?: playableAudio.firstOrNull())?.audioTrackId
+        val audios = playableAudio
+            .filter { it.audioTrackId == originalTrackId }
             .groupBy { it.averageBitrate }
             .mapValues { (_, streams) -> streams.maxByOrNull(::audioScore)!! }
             .values
@@ -645,6 +701,15 @@ object YouTubeRepository {
 
     private fun bestImage(images: List<Image>): String =
         images.maxByOrNull { it.height }?.url.orEmpty()
+
+    /** Original-language audio: no track type reported (single track) or explicitly ORIGINAL. */
+    private fun isOriginalTrack(s: AudioStream): Boolean =
+        s.audioTrackType == null || s.audioTrackType == AudioTrackType.ORIGINAL
+
+    private fun trackLabel(s: AudioStream): String =
+        s.audioTrackName?.takeIf { it.isNotBlank() }
+            ?: s.audioLocale?.displayLanguage?.takeIf { it.isNotBlank() }
+            ?: "Audio"
 
     private fun audioScore(s: AudioStream): Int {
         // Prefer m4a (broadest codec support), then the highest bitrate.
