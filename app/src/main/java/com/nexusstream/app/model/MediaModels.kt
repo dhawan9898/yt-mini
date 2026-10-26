@@ -65,7 +65,11 @@ data class MediaItemModel(
     /** Public watch URL; when set, direct stream URLs are resolved at play time. */
     val sourceUrl: String = "",
     /** True for albums/playlists: tapping loads and plays their tracks. */
-    val isCollection: Boolean = false
+    val isCollection: Boolean = false,
+    /** Channel page URL (https://www.youtube.com/channel/UC...), when known. */
+    val channelUrl: String = "",
+    /** Publish time in epoch millis when known (0 = unknown). */
+    val publishedAtMs: Long = 0L
 )
 
 /**

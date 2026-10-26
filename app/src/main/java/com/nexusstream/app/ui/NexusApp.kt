@@ -55,6 +55,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.ui.youtube.SearchScreen
+import com.nexusstream.app.ui.youtube.PlaylistScreen
+import com.nexusstream.app.ui.youtube.ChannelScreen
+import com.nexusstream.app.ui.youtube.AllSubscriptionsScreen
+import com.nexusstream.app.ui.components.MiniPlayerHooks
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.key
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Brush
@@ -100,6 +108,23 @@ fun NexusApp() {
     var currentMode by remember { mutableStateOf(AppMode.YOUTUBE_VIDEO) }
     var currentScreen by remember { mutableStateOf(AppScreen.HOME) }
 
+    // Pages (search, channel, playlist...) stacked above the YouTube home screen.
+    val backStack = remember { mutableStateListOf<Route>() }
+    val nav = remember {
+        fun push(route: Route) {
+            // Leave the watch / player screen so the page is visible (playback continues).
+            currentScreen = AppScreen.HOME
+            if (backStack.lastOrNull() != route) backStack.add(route)
+        }
+        YouTubeNav(
+            openSearch = { push(Route.Search) },
+            openChannel = { url, name, avatar -> push(Route.Channel(url, name, avatar)) },
+            openPlaylist = { url, title -> push(Route.Playlist(url, title)) },
+            openAllSubscriptions = { push(Route.AllSubscriptions) },
+            back = { if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) }
+        )
+    }
+
     // Service binding
     DisposableEffect(Unit) {
         val serviceIntent = Intent(context, MediaPlaybackService::class.java)
@@ -141,6 +166,17 @@ fun NexusApp() {
         currentItem?.let { LibraryRepository.recordPlayed(it) }
     }
 
+    BackHandler(enabled = backStack.isNotEmpty() && currentScreen == AppScreen.HOME) { nav.back() }
+
+    val playVideo: (MediaItemModel, List<MediaItemModel>) -> Unit = { item, queue ->
+        val idx = queue.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+        activeService?.playQueue(queue, idx, startInVideoMode = true)
+        currentScreen = AppScreen.WATCH
+    }
+    val expandPlayer: () -> Unit = {
+        currentScreen = if (playbackState?.playbackMode == PlaybackMode.VIDEO) AppScreen.WATCH else AppScreen.PLAYER
+    }
+
     NexusTheme(
         dominantColor = currentItem?.dominantColor ?: Color(0xFF6C5CE7),
         secondaryColor = currentItem?.secondaryColor ?: Color(0xFFFF7675)
@@ -153,7 +189,7 @@ fun NexusApp() {
         Box(modifier = Modifier.fillMaxSize().background(shellBackground)) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Top Dual-Engine Mode Switcher Bar
-                if (currentScreen == AppScreen.HOME) {
+                if (currentScreen == AppScreen.HOME && backStack.isEmpty()) {
                     DualEngineModeSwitcherBar(
                         currentMode = currentMode,
                         onModeSelect = { mode ->
@@ -179,7 +215,8 @@ fun NexusApp() {
                                         onCollapse = { currentScreen = AppScreen.HOME },
                                         onSelectVideo = { item ->
                                             activeService.playMediaItem(item, startInVideoMode = true)
-                                        }
+                                        },
+                                        onOpenChannel = { item -> nav.openChannelOf(item) }
                                     )
                                 }
                             }
@@ -192,23 +229,33 @@ fun NexusApp() {
                                 }
                             }
                             mode == AppMode.YOUTUBE_VIDEO -> {
-                                YouTubeHomeScreen(
-                                    currentPlayingItem = currentItem,
+                                val miniPlayer = MiniPlayerHooks(
+                                    item = currentItem,
                                     isPlaying = playbackState?.isPlaying == true,
-                                    onSelectVideo = { item, queue ->
-                                        val idx = queue.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
-                                        activeService?.playQueue(queue, idx, startInVideoMode = true)
-                                        currentScreen = AppScreen.WATCH
-                                    },
-                                    onExpandPlayer = {
-                                        if (playbackState?.playbackMode == PlaybackMode.VIDEO) {
-                                            currentScreen = AppScreen.WATCH
-                                        } else {
-                                            currentScreen = AppScreen.PLAYER
-                                        }
-                                    },
-                                    onTogglePlayPause = { activeService?.togglePlayPause() }
+                                    onExpand = expandPlayer,
+                                    onTogglePlay = { activeService?.togglePlayPause() }
                                 )
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    // Home stays composed underneath so its tab and scroll state survive.
+                                    YouTubeHomeScreen(
+                                        currentPlayingItem = currentItem,
+                                        isPlaying = playbackState?.isPlaying == true,
+                                        onSelectVideo = playVideo,
+                                        onExpandPlayer = expandPlayer,
+                                        onTogglePlayPause = { activeService?.togglePlayPause() },
+                                        nav = nav
+                                    )
+                                    backStack.forEachIndexed { index, route ->
+                                        key(index, route) {
+                                            when (route) {
+                                                is Route.Search -> SearchScreen(nav, playVideo, miniPlayer)
+                                                is Route.Channel -> ChannelScreen(route, nav, playVideo, miniPlayer)
+                                                is Route.Playlist -> PlaylistScreen(route, nav, playVideo, miniPlayer)
+                                                is Route.AllSubscriptions -> AllSubscriptionsScreen(nav, miniPlayer)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             mode == AppMode.YT_MUSIC -> {
                                 YTMusicHomeScreen(

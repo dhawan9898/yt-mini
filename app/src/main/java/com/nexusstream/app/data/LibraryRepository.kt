@@ -34,24 +34,91 @@ object LibraryRepository {
     val downloads: StateFlow<List<MediaItemModel>> = _downloads.asStateFlow()
 
     /** A followed channel (stored locally; there is no account sign-in). */
-    data class ChannelSub(val name: String, val avatarUrl: String)
+    data class ChannelSub(
+        val name: String,
+        val avatarUrl: String,
+        val channelUrl: String = "",
+        /** When the user last opened this channel; newer uploads show a "new" dot. */
+        val lastSeenMs: Long = 0L
+    )
 
     private val _subscriptions = MutableStateFlow<List<ChannelSub>>(emptyList())
     val subscriptions: StateFlow<List<ChannelSub>> = _subscriptions.asStateFlow()
 
     fun isSubscribed(name: String): Boolean = _subscriptions.value.any { it.name == name }
 
-    fun toggleSubscribe(name: String, avatarUrl: String) {
+    fun toggleSubscribe(name: String, avatarUrl: String, channelUrl: String = "") {
         _subscriptions.value = if (isSubscribed(name)) {
             _subscriptions.value.filter { it.name != name }
         } else {
-            _subscriptions.value + ChannelSub(name, avatarUrl)
+            _subscriptions.value + ChannelSub(name, avatarUrl, channelUrl, lastSeenMs = System.currentTimeMillis())
         }
+        persistSubscriptions()
+    }
+
+    /** Clears the "new" dot for a channel. */
+    fun markSeen(name: String) {
+        if (!isSubscribed(name)) return
+        _subscriptions.value = _subscriptions.value.map {
+            if (it.name == name) it.copy(lastSeenMs = System.currentTimeMillis()) else it
+        }
+        persistSubscriptions()
+    }
+
+    private fun persistSubscriptions() {
         val json = JSONArray(_subscriptions.value.map {
-            JSONObject().put("name", it.name).put("avatar", it.avatarUrl)
+            JSONObject()
+                .put("name", it.name).put("avatar", it.avatarUrl)
+                .put("url", it.channelUrl).put("seen", it.lastSeenMs)
         })
         prefs?.edit()?.putString("subscriptions", json.toString())?.apply()
     }
+
+    // ---- search history ----
+    private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
+    val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
+
+    fun addSearch(query: String) {
+        val q = query.trim()
+        if (q.isEmpty()) return
+        _searchHistory.value = (listOf(q) + _searchHistory.value.filter { !it.equals(q, ignoreCase = true) }).take(15)
+        persistStrings("search_history", _searchHistory.value)
+    }
+
+    fun removeSearch(query: String) {
+        _searchHistory.value = _searchHistory.value.filter { it != query }
+        persistStrings("search_history", _searchHistory.value)
+    }
+
+    fun clearSearchHistory() {
+        _searchHistory.value = emptyList()
+        persistStrings("search_history", emptyList())
+    }
+
+    // ---- "Not interested" / "Don't recommend channel" ----
+    data class Hidden(val videoIds: Set<String> = emptySet(), val channels: Set<String> = emptySet())
+
+    private val _hidden = MutableStateFlow(Hidden())
+    val hidden: StateFlow<Hidden> = _hidden.asStateFlow()
+
+    fun hideVideo(id: String) {
+        _hidden.value = _hidden.value.copy(videoIds = _hidden.value.videoIds + id)
+        persistStrings("hidden_videos", _hidden.value.videoIds.toList())
+    }
+
+    fun hideChannel(name: String) {
+        _hidden.value = _hidden.value.copy(channels = _hidden.value.channels + name)
+        persistStrings("hidden_channels", _hidden.value.channels.toList())
+    }
+
+    private fun persistStrings(key: String, values: List<String>) {
+        prefs?.edit()?.putString(key, JSONArray(values).toString())?.apply()
+    }
+
+    private fun readStrings(json: String?): List<String> = runCatching {
+        val arr = JSONArray(json ?: "[]")
+        (0 until arr.length()).map { arr.getString(it) }
+    }.getOrDefault(emptyList())
 
     fun init(context: Context) {
         if (prefs != null) return
@@ -62,8 +129,18 @@ object LibraryRepository {
         _subscriptions.value = runCatching {
             val arr = JSONArray(p.getString("subscriptions", "[]"))
             (0 until arr.length()).map { arr.getJSONObject(it) }
-                .map { ChannelSub(it.getString("name"), it.optString("avatar")) }
+                .map {
+                    ChannelSub(
+                        it.getString("name"), it.optString("avatar"),
+                        it.optString("url"), it.optLong("seen")
+                    )
+                }
         }.getOrDefault(emptyList())
+        _searchHistory.value = readStrings(p.getString("search_history", null))
+        _hidden.value = Hidden(
+            videoIds = readStrings(p.getString("hidden_videos", null)).toSet(),
+            channels = readStrings(p.getString("hidden_channels", null)).toSet()
+        )
         // Drop downloads whose files were deleted.
         _downloads.value = read(p.getString("downloads", null)).filter { item ->
             item.audioUrl.removePrefix("file://").let { path -> java.io.File(path).exists() }
@@ -108,6 +185,7 @@ object LibraryRepository {
         put("duration", i.durationMs); put("views", i.viewsOrPlays); put("date", i.publishDate)
         put("source", i.sourceUrl); put("music", i.contentType == MediaContentType.MUSIC_TRACK)
         put("c1", i.dominantColor.toArgb()); put("c2", i.secondaryColor.toArgb())
+        put("chUrl", i.channelUrl); put("pub", i.publishedAtMs)
     }
 
     private fun read(json: String?): List<MediaItemModel> {
@@ -129,7 +207,9 @@ object LibraryRepository {
                     sourceUrl = o.optString("source"),
                     contentType = if (o.optBoolean("music")) MediaContentType.MUSIC_TRACK else MediaContentType.YOUTUBE_VIDEO,
                     dominantColor = Color(o.optInt("c1")),
-                    secondaryColor = Color(o.optInt("c2"))
+                    secondaryColor = Color(o.optInt("c2")),
+                    channelUrl = o.optString("chUrl"),
+                    publishedAtMs = o.optLong("pub")
                 )
             }
         }.getOrDefault(emptyList())

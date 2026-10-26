@@ -129,6 +129,7 @@ fun VideoWatchScreen(
     playbackService: MediaPlaybackService,
     onCollapse: () -> Unit,
     onSelectVideo: (MediaItemModel) -> Unit,
+    onOpenChannel: (MediaItemModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val playbackState by playbackService.playbackState.collectAsState()
@@ -305,7 +306,8 @@ fun VideoWatchScreen(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(mediaItem.dominantColor),
+                            .background(mediaItem.dominantColor)
+                            .clickable { onOpenChannel(mediaItem) },
                         contentAlignment = Alignment.Center
                     ) {
                         if (mediaItem.channelAvatarUrl.isNotEmpty()) {
@@ -323,7 +325,7 @@ fun VideoWatchScreen(
                             .clip(RoundedCornerShape(18.dp))
                             .background(if (isSubscribed) OriginalColors.Chip else Color(0xFFF1F1F1))
                             .clickable {
-                                LibraryRepository.toggleSubscribe(mediaItem.artistOrChannel, mediaItem.channelAvatarUrl)
+                                LibraryRepository.toggleSubscribe(mediaItem.artistOrChannel, mediaItem.channelAvatarUrl, mediaItem.channelUrl)
                             }
                             .padding(horizontal = 16.dp, vertical = 9.dp)
                     ) {
@@ -434,7 +436,12 @@ fun VideoWatchScreen(
 
             // Up next: same large cards as the home feed
             items(recommendedVideos, key = { "rec_${it.id}" }) { rec ->
-                YouTubeVideoCard(item = rec, onClick = { onSelectVideo(rec) }, inset = true)
+                YouTubeVideoCard(
+                    item = rec,
+                    onClick = { onSelectVideo(rec) },
+                    inset = true,
+                    onChannelClick = rec.channelUrl.takeIf { it.isNotBlank() }?.let { { onOpenChannel(rec) } }
+                )
             }
         }
     }

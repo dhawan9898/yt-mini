@@ -21,10 +21,22 @@ android {
         }
     }
 
+    // Fixed signing key (committed on purpose: personal, sideloaded app). Every CI build is signed
+    // with the same key, so a new APK installs over the old one instead of needing an uninstall.
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file("keystore/nexusstream.p12")
+            storeType = "pkcs12"
+            storePassword = "nexusstream"
+            keyAlias = "nexusstream"
+            keyPassword = "nexusstream"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

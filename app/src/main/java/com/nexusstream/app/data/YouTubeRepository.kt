@@ -9,6 +9,13 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.Image
+import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
+import org.schabi.newpipe.extractor.channel.ChannelInfoItem
+import org.schabi.newpipe.extractor.channel.ChannelInfo
+import org.schabi.newpipe.extractor.Page
+import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.localization.ContentCountry
@@ -24,6 +31,69 @@ import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.VideoStream
 import kotlin.math.abs
+
+/**
+ * One page of results. [next] loads the following page; it is null when there are no more.
+ * Pages are immutable, so a cached [Paged] can be paged again from its first page.
+ */
+class Paged<T>(
+    val items: List<T>,
+    internal val loadMore: (suspend () -> Result<Paged<T>>)?
+) {
+    val hasMore: Boolean get() = loadMore != null
+    suspend fun next(): Result<Paged<T>> = loadMore?.invoke() ?: Result.success(Paged(emptyList(), null))
+}
+
+/** What a search can be narrowed to. */
+enum class SearchType(val label: String, val filter: String) {
+    ALL("All", YoutubeSearchQueryHandlerFactory.ALL),
+    VIDEOS("Videos", YoutubeSearchQueryHandlerFactory.VIDEOS),
+    CHANNELS("Channels", YoutubeSearchQueryHandlerFactory.CHANNELS),
+    PLAYLISTS("Playlists", YoutubeSearchQueryHandlerFactory.PLAYLISTS)
+}
+
+data class ChannelResult(
+    val name: String,
+    val url: String,
+    val avatarUrl: String,
+    val subscribers: String,
+    val description: String
+)
+
+data class PlaylistResult(
+    val title: String,
+    val url: String,
+    val thumbnailUrl: String,
+    val owner: String,
+    val videoCount: Long
+)
+
+/** One search hit. */
+sealed interface SearchResult {
+    data class Video(val item: MediaItemModel) : SearchResult
+    data class Channel(val channel: ChannelResult) : SearchResult
+    data class Playlist(val playlist: PlaylistResult) : SearchResult
+}
+
+/** A channel's header info plus its first page of videos. Playlists load on demand. */
+data class ChannelPage(
+    val name: String,
+    val url: String,
+    val avatarUrl: String,
+    val bannerUrl: String,
+    val subscribers: String,
+    val description: String,
+    val videos: Paged<MediaItemModel>,
+    val loadPlaylists: suspend () -> Result<Paged<PlaylistResult>>
+)
+
+data class PlaylistPage(
+    val title: String,
+    val owner: String,
+    val videoCount: Long,
+    val thumbnailUrl: String,
+    val videos: Paged<MediaItemModel>
+)
 
 /** A titled row of tracks for the YT Music home screen. */
 data class MusicShelf(val title: String, val subtitle: String, val items: List<MediaItemModel>)
@@ -112,44 +182,149 @@ object YouTubeRepository {
         return StreamInfo.getInfo(youtube, watchUrl).also { cachedInfo = watchUrl to it }
     }
 
-    private const val CACHE_TTL_MS = 5 * 60 * 1000L
-    private class Cached<T>(val at: Long, val value: T) {
-        fun fresh() = System.currentTimeMillis() - at < CACHE_TTL_MS
-    }
-    private val feedCache = java.util.concurrent.ConcurrentHashMap<String, Cached<List<MediaItemModel>>>()
+    // Caches live in process memory: they last until the app is fully closed (process killed),
+    // and are only replaced by an explicit refresh (Retry / pull-to-refresh).
+    private class Cached<T>(val at: Long, val value: T)
+    private val feedCache = java.util.concurrent.ConcurrentHashMap<String, Cached<Paged<MediaItemModel>>>()
     private val shelfCache = java.util.concurrent.ConcurrentHashMap<String, Cached<List<MusicShelf>>>()
 
-    /** Cached home feed for [category] if it is still fresh (lets screens skip the loading state). */
-    fun cachedVideoFeed(category: String): List<MediaItemModel>? =
-        feedCache[category]?.takeIf { it.fresh() }?.value
+    /** Cached home feed for [category], if loaded earlier in this process. */
+    fun cachedVideoFeed(category: String): Paged<MediaItemModel>? =
+        feedCache[category]?.value
 
-    /** Cached music shelves for [mood] if still fresh. */
+    /** Cached music shelves for [mood], if loaded earlier in this process. */
     fun cachedMusicShelves(mood: String): List<MusicShelf>? =
-        shelfCache[mood]?.takeIf { it.fresh() }?.value
+        shelfCache[mood]?.value
 
     /** Last video feed loaded, used for "Up next" suggestions on the watch screen. */
     @Volatile
     var lastVideoFeed: List<MediaItemModel> = emptyList()
         private set
 
-    /** Home feed (category = "All") or a topic feed for [category]. */
-    suspend fun videoFeed(category: String, refresh: Boolean = false): Result<List<MediaItemModel>> = io {
+    /**
+     * Home feed (category "All") or a topic feed. For "All", recent uploads from
+     * [personalChannels] (subscriptions / most-watched) are mixed in with trending videos.
+     */
+    suspend fun videoFeedPaged(
+        category: String,
+        personalChannels: List<String>,
+        refresh: Boolean = false
+    ): Result<Paged<MediaItemModel>> = io {
         if (!refresh) cachedVideoFeed(category)?.let { cached ->
-            lastVideoFeed = cached
+            lastVideoFeed = cached.items
             return@io cached
         }
         val query = if (category == "All") "trending videos today" else category
-        searchItems(query, YoutubeSearchQueryHandlerFactory.VIDEOS, minSeconds = 61)
-            .also {
-                lastVideoFeed = it
-                feedCache[category] = Cached(System.currentTimeMillis(), it)
+        val base = searchPaged(query, YoutubeSearchQueryHandlerFactory.VIDEOS) { videoOnly(it) }
+        val first = if (category == "All" && personalChannels.isNotEmpty()) {
+            val personal = coroutineScope {
+                personalChannels.take(3).map { name ->
+                    async {
+                        runCatching {
+                            searchItems(name, YoutubeSearchQueryHandlerFactory.VIDEOS, minSeconds = 61)
+                                .filter { it.artistOrChannel.equals(name, ignoreCase = true) }
+                                .take(3)
+                        }.getOrDefault(emptyList())
+                    }
+                }.awaitAll()
             }
+            interleave(personal + listOf(base.items)).distinctBy { it.id }
+        } else {
+            base.items
+        }
+        Paged(first, base.loadMore).also {
+            lastVideoFeed = it.items
+            feedCache[category] = Cached(System.currentTimeMillis(), it)
+        }
     }
 
-    suspend fun searchVideos(query: String): Result<List<MediaItemModel>> = io {
-        searchItems(query, YoutubeSearchQueryHandlerFactory.VIDEOS, minSeconds = 61)
-            .also { if (it.isNotEmpty()) lastVideoFeed = it }
+    /** Typed, paged search (videos, channels, playlists). */
+    suspend fun search(query: String, type: SearchType): Result<Paged<SearchResult>> = io {
+        searchPaged(query, type.filter) { toSearchResult(it) }
     }
+
+    /** Autocomplete suggestions for a partially typed query. */
+    suspend fun suggestions(query: String): Result<List<String>> = io {
+        youtube.suggestionExtractor.suggestionList(query).orEmpty()
+    }
+
+    /** Channel header plus first page of videos. [channelUrl] is a youtube.com/channel/... URL. */
+    suspend fun channelPage(channelUrl: String): Result<ChannelPage> = io {
+        val info = ChannelInfo.getInfo(youtube, channelUrl)
+        val avatar = bestImage(info.avatars)
+        val canonicalUrl = "https://www.youtube.com/channel/${info.id}"
+        val videosTab = info.tabs.firstOrNull { ChannelTabs.VIDEOS in it.contentFilters }
+        val playlistsTab = info.tabs.firstOrNull { ChannelTabs.PLAYLISTS in it.contentFilters }
+
+        val videos = videosTab?.let { tab ->
+            tabPaged(tab) { item ->
+                (item as? StreamInfoItem)
+                    ?.takeIf { it.duration > 0 && !it.isShortFormContent }
+                    ?.let { toModel(it, false, info.name, avatar, canonicalUrl) }
+            }
+        } ?: Paged(emptyList(), null)
+
+        ChannelPage(
+            name = info.name,
+            url = canonicalUrl,
+            avatarUrl = avatar,
+            bannerUrl = info.banners.maxByOrNull { it.width }?.url.orEmpty(),
+            subscribers = formatCount(info.subscriberCount),
+            description = info.description.orEmpty(),
+            videos = videos,
+            loadPlaylists = {
+                io {
+                    playlistsTab?.let { tab ->
+                        tabPaged(tab) { item -> (item as? PlaylistInfoItem)?.let { toPlaylistResult(it) } }
+                    } ?: Paged(emptyList(), null)
+                }
+            }
+        )
+    }
+
+    /** Playlist header plus first page of videos. */
+    suspend fun playlistPage(playlistUrl: String): Result<PlaylistPage> = io {
+        val info = PlaylistInfo.getInfo(youtube, playlistUrl)
+        fun map(item: StreamInfoItem): MediaItemModel? = if (item.duration > 0) toModel(item, false) else null
+        val videos = pagedOf(
+            info.relatedItems.mapNotNull { map(it) },
+            if (info.hasNextPage()) info.nextPage else null
+        ) { page ->
+            val more = PlaylistInfo.getMoreItems(youtube, playlistUrl, page)
+            more.items.mapNotNull { map(it) } to (if (more.hasNextPage()) more.nextPage else null)
+        }
+        PlaylistPage(
+            title = info.name,
+            owner = info.uploaderName.orEmpty(),
+            videoCount = info.streamCount,
+            thumbnailUrl = bestImage(info.thumbnails),
+            videos = videos
+        )
+    }
+
+    /**
+     * Newest uploads from the given subscriptions, newest first. Uses each channel's public RSS
+     * feed (real publish times); subscriptions saved without a channel URL fall back to a name search.
+     */
+    suspend fun subscriptionFeed(
+        subs: List<LibraryRepository.ChannelSub>,
+        refresh: Boolean = false
+    ): Result<List<MediaItemModel>> = io {
+        if (!refresh) cachedSubscriptionFeed(subs)?.let { return@io it }
+        coroutineScope {
+            subs.take(30).map { sub ->
+                async { runCatching { feedFor(sub) }.getOrDefault(emptyList()) }
+            }.awaitAll().flatten()
+        }.distinctBy { it.id }.sortedByDescending { it.publishedAtMs }
+            .also { subFeedCache = subKey(subs) to it }
+    }
+
+    private var subFeedCache: Pair<String, List<MediaItemModel>>? = null
+    private fun subKey(subs: List<LibraryRepository.ChannelSub>) = subs.joinToString("|") { it.name + it.channelUrl }
+
+    /** The subscriptions feed loaded earlier in this process for exactly these channels. */
+    fun cachedSubscriptionFeed(subs: List<LibraryRepository.ChannelSub>): List<MediaItemModel>? =
+        subFeedCache?.takeIf { it.first == subKey(subs) }?.second
 
     suspend fun searchSongs(query: String): Result<List<MediaItemModel>> = io {
         searchItems(query, YoutubeSearchQueryHandlerFactory.MUSIC_SONGS, minSeconds = 1)
@@ -251,21 +426,6 @@ object YouTubeRepository {
         )
     }
 
-    /** Recent videos from the given channels (matched by channel name search). */
-    suspend fun latestFrom(channels: List<String>): Result<List<MediaItemModel>> = io {
-        coroutineScope {
-            channels.take(8).map { name ->
-                async {
-                    runCatching {
-                        searchItems(name, YoutubeSearchQueryHandlerFactory.VIDEOS, minSeconds = 61)
-                            .filter { it.artistOrChannel.equals(name, ignoreCase = true) }
-                            .take(3)
-                    }.getOrDefault(emptyList())
-                }
-            }.awaitAll().flatten()
-        }
-    }
-
     /** Tracks of an album / playlist, as playable music items. */
     suspend fun playlistTracks(playlistUrl: String): Result<List<MediaItemModel>> = io {
         PlaylistInfo.getInfo(youtube, playlistUrl).relatedItems
@@ -339,13 +499,135 @@ object YouTubeRepository {
             .distinctBy { it.id }
     }
 
-    private fun toModel(item: StreamInfoItem, isMusic: Boolean): MediaItemModel? {
+    private fun <T> pagedOf(
+        items: List<T>,
+        next: Page?,
+        fetchMore: (Page) -> Pair<List<T>, Page?>
+    ): Paged<T> {
+        val loader: (suspend () -> Result<Paged<T>>)? = next?.let { page ->
+            suspend {
+                io { fetchMore(page) }.map { (more, nextPage) -> pagedOf(more, nextPage, fetchMore) }
+            }
+        }
+        return Paged(items, loader)
+    }
+
+    private fun <T> searchPaged(query: String, filter: String, map: (InfoItem) -> T?): Paged<T> {
+        val handler = youtube.searchQHFactory.fromQuery(query, listOf(filter), "")
+        val first = SearchInfo.getInfo(youtube, handler)
+        return pagedOf(
+            first.relatedItems.mapNotNull(map),
+            if (first.hasNextPage()) first.nextPage else null
+        ) { page ->
+            val more = SearchInfo.getMoreItems(youtube, handler, page)
+            more.items.mapNotNull(map) to (if (more.hasNextPage()) more.nextPage else null)
+        }
+    }
+
+    private fun <T> tabPaged(tab: ListLinkHandler, map: (InfoItem) -> T?): Paged<T> {
+        val first = ChannelTabInfo.getInfo(youtube, tab)
+        return pagedOf(
+            first.relatedItems.mapNotNull(map),
+            if (first.hasNextPage()) first.nextPage else null
+        ) { page ->
+            val more = ChannelTabInfo.getMoreItems(youtube, tab, page)
+            more.items.mapNotNull(map) to (if (more.hasNextPage()) more.nextPage else null)
+        }
+    }
+
+    private fun videoOnly(item: InfoItem): MediaItemModel? =
+        (item as? StreamInfoItem)
+            ?.takeIf { it.duration > 60 && !it.isShortFormContent }
+            ?.let { toModel(it, false) }
+
+    private fun toSearchResult(item: InfoItem): SearchResult? = when (item) {
+        is StreamInfoItem ->
+            if (item.duration > 0 && !item.isShortFormContent) toModel(item, false)?.let { SearchResult.Video(it) } else null
+        is ChannelInfoItem -> SearchResult.Channel(
+            ChannelResult(
+                name = item.name,
+                url = item.url,
+                avatarUrl = bestImage(item.thumbnails),
+                subscribers = formatCount(item.subscriberCount),
+                description = item.description.orEmpty()
+            )
+        )
+        is PlaylistInfoItem -> SearchResult.Playlist(toPlaylistResult(item))
+        else -> null
+    }
+
+    private fun toPlaylistResult(item: PlaylistInfoItem) = PlaylistResult(
+        title = item.name,
+        url = item.url,
+        thumbnailUrl = bestImage(item.thumbnails),
+        owner = item.uploaderName.orEmpty(),
+        videoCount = item.streamCount
+    )
+
+    private fun <T> interleave(lists: List<List<T>>): List<T> {
+        val out = mutableListOf<T>()
+        var index = 0
+        while (lists.any { index < it.size }) {
+            lists.forEach { if (index < it.size) out += it[index] }
+            index++
+        }
+        return out
+    }
+
+    private fun feedFor(sub: LibraryRepository.ChannelSub): List<MediaItemModel> {
+        val channelId = FeedParsing.channelId(sub.channelUrl)
+            ?: return searchItems(sub.name, YoutubeSearchQueryHandlerFactory.VIDEOS, minSeconds = 61)
+                .filter { it.artistOrChannel.equals(sub.name, ignoreCase = true) }
+                .take(3)
+
+        val request = okhttp3.Request.Builder()
+            .url(FeedParsing.feedUrl(channelId))
+            .header("User-Agent", NewPipeDownloader.USER_AGENT)
+            .build()
+        val xml = NewPipeDownloader.instance.client.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "Feed HTTP ${response.code}" }
+            response.body?.string().orEmpty()
+        }
+        val now = System.currentTimeMillis()
+        return FeedParsing.parseFeed(xml)
+            .filter { !it.title.contains("#shorts", ignoreCase = true) }
+            .take(10)
+            .map { entry ->
+                val (primary, secondary) = colorsFor(entry.videoId)
+                MediaItemModel(
+                    id = entry.videoId,
+                    title = entry.title,
+                    artistOrChannel = entry.channelName.ifBlank { sub.name },
+                    audioUrl = "",
+                    videoUrl = "",
+                    artworkUrl = "https://i.ytimg.com/vi/${entry.videoId}/hqdefault.jpg",
+                    durationMs = 0L,
+                    dominantColor = primary,
+                    secondaryColor = secondary,
+                    viewsOrPlays = formatCount(entry.views),
+                    contentType = MediaContentType.YOUTUBE_VIDEO,
+                    channelAvatarUrl = sub.avatarUrl,
+                    publishDate = FeedParsing.relativeTime(entry.publishedAtMs, now),
+                    sourceUrl = "https://www.youtube.com/watch?v=${entry.videoId}",
+                    channelUrl = sub.channelUrl,
+                    publishedAtMs = entry.publishedAtMs
+                )
+            }
+    }
+
+    private fun toModel(
+        item: StreamInfoItem,
+        isMusic: Boolean,
+        channelName: String? = null,
+        channelAvatar: String? = null,
+        channelUrl: String? = null
+    ): MediaItemModel? {
         val id = VIDEO_ID.find(item.url)?.groupValues?.get(1) ?: return null
         val (primary, secondary) = colorsFor(id)
         return MediaItemModel(
             id = id,
             title = item.name,
-            artistOrChannel = item.uploaderName.orEmpty(),
+            artistOrChannel = channelName ?: item.uploaderName.orEmpty(),
             audioUrl = "",
             videoUrl = "",
             artworkUrl = bestImage(item.thumbnails),
@@ -354,9 +636,10 @@ object YouTubeRepository {
             secondaryColor = secondary,
             viewsOrPlays = formatCount(item.viewCount),
             contentType = if (isMusic) MediaContentType.MUSIC_TRACK else MediaContentType.YOUTUBE_VIDEO,
-            channelAvatarUrl = bestImage(item.uploaderAvatars),
+            channelAvatarUrl = channelAvatar ?: bestImage(item.uploaderAvatars),
             publishDate = item.textualUploadDate.orEmpty(),
-            sourceUrl = item.url
+            sourceUrl = item.url,
+            channelUrl = channelUrl ?: item.uploaderUrl.orEmpty()
         )
     }
 
