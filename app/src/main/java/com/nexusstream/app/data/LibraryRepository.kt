@@ -33,12 +33,37 @@ object LibraryRepository {
     private val _downloads = MutableStateFlow<List<MediaItemModel>>(emptyList())
     val downloads: StateFlow<List<MediaItemModel>> = _downloads.asStateFlow()
 
+    /** A followed channel (stored locally; there is no account sign-in). */
+    data class ChannelSub(val name: String, val avatarUrl: String)
+
+    private val _subscriptions = MutableStateFlow<List<ChannelSub>>(emptyList())
+    val subscriptions: StateFlow<List<ChannelSub>> = _subscriptions.asStateFlow()
+
+    fun isSubscribed(name: String): Boolean = _subscriptions.value.any { it.name == name }
+
+    fun toggleSubscribe(name: String, avatarUrl: String) {
+        _subscriptions.value = if (isSubscribed(name)) {
+            _subscriptions.value.filter { it.name != name }
+        } else {
+            _subscriptions.value + ChannelSub(name, avatarUrl)
+        }
+        val json = JSONArray(_subscriptions.value.map {
+            JSONObject().put("name", it.name).put("avatar", it.avatarUrl)
+        })
+        prefs?.edit()?.putString("subscriptions", json.toString())?.apply()
+    }
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         _saved.value = read(p.getString("saved", null))
         _history.value = read(p.getString("history", null))
+        _subscriptions.value = runCatching {
+            val arr = JSONArray(p.getString("subscriptions", "[]"))
+            (0 until arr.length()).map { arr.getJSONObject(it) }
+                .map { ChannelSub(it.getString("name"), it.optString("avatar")) }
+        }.getOrDefault(emptyList())
         // Drop downloads whose files were deleted.
         _downloads.value = read(p.getString("downloads", null)).filter { item ->
             item.audioUrl.removePrefix("file://").let { path -> java.io.File(path).exists() }

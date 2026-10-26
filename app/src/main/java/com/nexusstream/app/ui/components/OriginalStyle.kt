@@ -62,19 +62,36 @@ fun OriginalFilterChips(
     selected: String,
     onSelect: (String) -> Unit,
     unselectedColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Optional square icon chip shown before the labels (e.g. the Explore compass). */
+    leadingIcon: ImageVector? = null,
+    onLeadingClick: () -> Unit = {}
 ) {
     LazyRow(
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        if (leadingIcon != null) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(unselectedColor)
+                        .clickable(onClick = onLeadingClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(leadingIcon, contentDescription = "Explore", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
         items(labels) { label ->
             val isSelected = label == selected
             Box(
                 modifier = Modifier
                     .height(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(if (isSelected) Color.White else unselectedColor)
                     .clickable { onSelect(label) }
                     .padding(horizontal = 12.dp),
@@ -166,7 +183,12 @@ fun OriginalMiniPlayer(
     }
 }
 
-data class BottomNavEntry(val label: String, val icon: ImageVector)
+data class BottomNavEntry(
+    val label: String,
+    val icon: ImageVector,
+    /** Shown instead of [icon] when this tab is selected (outline -> filled). */
+    val selectedIcon: ImageVector = icon
+)
 
 /**
  * Flat bottom navigation bar.
@@ -200,7 +222,7 @@ fun OriginalBottomNav(
                 verticalArrangement = Arrangement.Center
             ) {
                 Icon(
-                    imageVector = entry.icon,
+                    imageVector = if (index == selectedIndex) entry.selectedIcon else entry.icon,
                     contentDescription = entry.label,
                     tint = tint,
                     modifier = Modifier.size(24.dp)

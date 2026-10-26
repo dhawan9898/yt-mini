@@ -28,6 +28,20 @@ import kotlin.math.abs
 /** A titled row of tracks for the YT Music home screen. */
 data class MusicShelf(val title: String, val subtitle: String, val items: List<MediaItemModel>)
 
+/** Extra information shown on the watch page. Unknown numbers are negative. */
+data class VideoDetails(
+    val likes: Long,
+    val views: Long,
+    val uploadedText: String,
+    val description: String,
+    val subscribers: Long,
+    val tags: List<String>,
+    val related: List<MediaItemModel>
+)
+
+/** Comments plus the video's total count (negative when unknown). */
+data class CommentsPage(val totalCount: Int, val items: List<CommentModel>)
+
 /** A top-level comment on a video. */
 data class CommentModel(
     val author: String,
@@ -89,6 +103,15 @@ object YouTubeRepository {
         true
     }
 
+    /** The most recent StreamInfo, shared by playback, downloads and the watch page. */
+    @Volatile
+    private var cachedInfo: Pair<String, StreamInfo>? = null
+
+    private fun streamInfo(watchUrl: String): StreamInfo {
+        cachedInfo?.takeIf { it.first == watchUrl }?.let { return it.second }
+        return StreamInfo.getInfo(youtube, watchUrl).also { cachedInfo = watchUrl to it }
+    }
+
     /** Last video feed loaded, used for "Up next" suggestions on the watch screen. */
     @Volatile
     var lastVideoFeed: List<MediaItemModel> = emptyList()
@@ -147,7 +170,7 @@ object YouTubeRepository {
 
     /** Resolves fresh direct stream URLs for a watch URL. Call right before playback. */
     suspend fun resolveStream(watchUrl: String): Result<ResolvedStream> = io {
-        val info = StreamInfo.getInfo(youtube, watchUrl)
+        val info = streamInfo(watchUrl)
         val audio = info.audioStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
             .groupBy { it.averageBitrate }
@@ -168,7 +191,7 @@ object YouTubeRepository {
 
     /** Every file that can be saved offline: muxed video renditions, then audio-only renditions. */
     suspend fun downloadOptions(watchUrl: String): Result<List<DownloadOption>> = io {
-        val info = StreamInfo.getInfo(youtube, watchUrl)
+        val info = streamInfo(watchUrl)
         val videos = info.videoStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height > 0 }
             .groupBy { it.height }
@@ -186,6 +209,39 @@ object YouTubeRepository {
         (videos + audios).also { check(it.isNotEmpty()) { "No downloadable streams" } }
     }
 
+    /** Likes, views, description, tags and related videos for the watch page. */
+    suspend fun details(watchUrl: String): Result<VideoDetails> = io {
+        val info = streamInfo(watchUrl)
+        VideoDetails(
+            likes = info.likeCount,
+            views = info.viewCount,
+            uploadedText = info.textualUploadDate.orEmpty(),
+            description = info.description?.content.orEmpty(),
+            subscribers = info.uploaderSubscriberCount,
+            tags = info.tags.orEmpty(),
+            related = info.relatedItems
+                .filterIsInstance<StreamInfoItem>()
+                .filter { it.duration > 60 && !it.isShortFormContent }
+                .mapNotNull { toModel(it, isMusic = false) }
+                .distinctBy { it.id }
+        )
+    }
+
+    /** Recent videos from the given channels (matched by channel name search). */
+    suspend fun latestFrom(channels: List<String>): Result<List<MediaItemModel>> = io {
+        coroutineScope {
+            channels.take(8).map { name ->
+                async {
+                    runCatching {
+                        searchItems(name, YoutubeSearchQueryHandlerFactory.VIDEOS, minSeconds = 61)
+                            .filter { it.artistOrChannel.equals(name, ignoreCase = true) }
+                            .take(3)
+                    }.getOrDefault(emptyList())
+                }
+            }.awaitAll().flatten()
+        }
+    }
+
     /** Tracks of an album / playlist, as playable music items. */
     suspend fun playlistTracks(playlistUrl: String): Result<List<MediaItemModel>> = io {
         PlaylistInfo.getInfo(youtube, playlistUrl).relatedItems
@@ -196,18 +252,22 @@ object YouTubeRepository {
             .also { check(it.isNotEmpty()) { "This album has no playable tracks" } }
     }
 
-    /** Top-level comments for a video. */
-    suspend fun comments(watchUrl: String): Result<List<CommentModel>> = io {
-        CommentsInfo.getInfo(youtube, watchUrl).relatedItems.map { c ->
-            CommentModel(
-                author = c.uploaderName.orEmpty(),
-                avatarUrl = bestImage(c.uploaderAvatars),
-                text = c.commentText?.content.orEmpty(),
-                likes = c.likeCount,
-                date = c.textualUploadDate.orEmpty(),
-                pinned = c.isPinned
-            )
-        }
+    /** Top-level comments for a video, with the total count when YouTube reports it. */
+    suspend fun comments(watchUrl: String): Result<CommentsPage> = io {
+        val info = CommentsInfo.getInfo(youtube, watchUrl)
+        CommentsPage(
+            totalCount = info.commentCount,
+            items = info.relatedItems.map { c ->
+                CommentModel(
+                    author = c.uploaderName.orEmpty(),
+                    avatarUrl = bestImage(c.uploaderAvatars),
+                    text = c.commentText?.content.orEmpty(),
+                    likes = c.likeCount,
+                    date = c.textualUploadDate.orEmpty(),
+                    pinned = c.isPinned
+                )
+            }
+        )
     }
 
     // ---- internals ----
@@ -291,7 +351,7 @@ object YouTubeRepository {
         return mp4 + s.height
     }
 
-    private fun formatCount(n: Long): String = when {
+    fun formatCount(n: Long): String = when {
         n < 0 -> ""
         n >= 1_000_000_000 -> "%.1fB".format(n / 1_000_000_000.0)
         n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)

@@ -49,6 +49,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.filled.Subscriptions
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.outlined.Subscriptions
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.AccountCircle
 import com.nexusstream.app.data.LibraryRepository
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.draw.clip
@@ -119,9 +130,9 @@ fun YouTubeHomeScreen(
     val categories = remember { listOf("All", "Music", "Gaming", "News", "Sports", "Movies", "Technology", "Cooking") }
     val navEntries = remember {
         listOf(
-            BottomNavEntry("Home", Icons.Rounded.Home),
-            BottomNavEntry("Subscriptions", Icons.Rounded.Subscriptions),
-            BottomNavEntry("You", Icons.Rounded.VideoLibrary)
+            BottomNavEntry("Home", Icons.Outlined.Home, Icons.Filled.Home),
+            BottomNavEntry("Subscriptions", Icons.Outlined.Subscriptions, Icons.Filled.Subscriptions),
+            BottomNavEntry("You", Icons.Outlined.AccountCircle, Icons.Filled.AccountCircle)
         )
     }
 
@@ -145,7 +156,9 @@ fun YouTubeHomeScreen(
                 labels = categories,
                 selected = selectedCategory,
                 onSelect = { selectedCategory = it },
-                unselectedColor = OriginalColors.Chip
+                unselectedColor = OriginalColors.Chip,
+                leadingIcon = Icons.Outlined.Explore,
+                onLeadingClick = { selectedCategory = "Trending" }
             )
         }
 
@@ -155,17 +168,7 @@ fun YouTubeHomeScreen(
                 .fillMaxWidth()
         ) {
             if (selectedTab == 1) {
-                // Subscriptions: channels from the feed, then their videos grouped by channel.
-                val byChannel = remember(filteredList) { filteredList.sortedBy { it.artistOrChannel } }
-                LazyColumn(
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(byChannel, key = { "sub_${it.id}" }) { video ->
-                        YouTubeVideoCard(item = video, onClick = { onSelectVideo(video, byChannel) })
-                    }
-                }
+                SubscriptionsTab(onSelectVideo = onSelectVideo)
             } else if (selectedTab == 2) {
                 val savedItems by LibraryRepository.saved.collectAsState()
                 val downloadedItems by LibraryRepository.downloads.collectAsState()
@@ -265,7 +268,7 @@ private fun YouTubeHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(56.dp)
             .padding(start = 12.dp, end = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -303,9 +306,9 @@ private fun YouTubeHeader(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .width(30.dp)
-                        .height(21.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .width(34.dp)
+                        .height(24.dp)
+                        .clip(RoundedCornerShape(7.dp))
                         .background(OriginalColors.Red),
                     contentAlignment = Alignment.Center
                 ) {
@@ -313,35 +316,106 @@ private fun YouTubeHeader(
                         imageVector = Icons.Rounded.PlayArrow,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "YouTube",
-                    fontSize = 20.sp,
+                    text = "Premium",
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
-                    letterSpacing = (-1).sp
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Premium",
-                    fontSize = 9.sp,
-                    color = OriginalColors.TextSecondary,
-                    modifier = Modifier.padding(top = 6.dp)
+                    letterSpacing = (-1.2).sp
                 )
             }
 
             Row {
-                IconButton(onClick = { /* Cast */ }) {
-                    Icon(imageVector = Icons.Rounded.Cast, contentDescription = "Cast", tint = Color.White)
-                }
-                IconButton(onClick = { /* Notification actions */ }) {
-                    Icon(imageVector = Icons.Rounded.Notifications, contentDescription = "Notifications", tint = Color.White)
+                IconButton(onClick = { /* Notifications */ }) {
+                    Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "Notifications", tint = Color.White, modifier = Modifier.size(26.dp))
                 }
                 IconButton(onClick = onToggleSearch) {
-                    Icon(imageVector = Icons.Rounded.Search, contentDescription = "Search", tint = Color.White)
+                    Icon(imageVector = Icons.Outlined.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(26.dp))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Subscriptions: avatars of channels followed from the watch page, then their recent videos.
+ * Subscriptions are stored on this device (no account sign-in).
+ */
+@Composable
+private fun SubscriptionsTab(onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit) {
+    val subs by LibraryRepository.subscriptions.collectAsState()
+    var videos by remember { mutableStateOf<FeedState<List<MediaItemModel>>>(FeedState.Loading) }
+    var reloadKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(subs, reloadKey) {
+        if (subs.isEmpty()) return@LaunchedEffect
+        videos = FeedState.Loading
+        videos = YouTubeRepository.latestFrom(subs.map { it.name }).toFeedState()
+    }
+
+    if (subs.isEmpty()) {
+        OriginalEmptyState(
+            title = "No subscriptions yet",
+            message = "Tap Subscribe on a video's page and the channel will appear here."
+        )
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(subs, key = { it.name }) { sub ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(68.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(OriginalColors.Chip)
+                    ) {
+                        if (sub.avatarUrl.isNotEmpty()) {
+                            AsyncImage(
+                                model = sub.avatarUrl,
+                                contentDescription = sub.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = sub.name,
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        when (val state = videos) {
+            is FeedState.Loading -> OriginalLoading()
+            is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
+            is FeedState.Data -> if (state.value.isEmpty()) {
+                OriginalEmptyState("Nothing new", "No recent videos found from your subscriptions.")
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(state.value, key = { "sub_${it.id}" }) { video ->
+                        YouTubeVideoCard(item = video, onClick = { onSelectVideo(video, state.value) })
+                    }
                 }
             }
         }
@@ -351,7 +425,9 @@ private fun YouTubeHeader(
 @Composable
 internal fun YouTubeVideoCard(
     item: MediaItemModel,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    /** Inset, rounded thumbnail (used for "Up next"); the home feed is edge to edge. */
+    inset: Boolean = false
 ) {
     Column(
         modifier = Modifier
@@ -362,7 +438,9 @@ internal fun YouTubeVideoCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (inset) Modifier.padding(horizontal = 12.dp) else Modifier)
                 .aspectRatio(16f / 9f)
+                .then(if (inset) Modifier.clip(RoundedCornerShape(12.dp)) else Modifier)
                 .background(OriginalColors.Chip)
         ) {
             if (item.artworkUrl.isNotEmpty()) {
@@ -379,8 +457,8 @@ internal fun YouTubeVideoCard(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(8.dp)
-                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = formatVideoDuration(item.durationMs),
@@ -428,29 +506,57 @@ internal fun YouTubeVideoCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Normal,
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 19.sp
+                    lineHeight = 22.sp
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${item.artistOrChannel} • ${item.viewsOrPlays} views • ${item.publishDate}",
-                    fontSize = 12.sp,
-                    color = OriginalColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Spacer(modifier = Modifier.height(2.dp))
+                // "Channel  ▷ 456K  1d ago", like the original feed.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.artistOrChannel,
+                        fontSize = 13.sp,
+                        color = OriginalColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (item.viewsOrPlays.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Icon(
+                            imageVector = Icons.Outlined.PlayArrow,
+                            contentDescription = null,
+                            tint = OriginalColors.TextSecondary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = item.viewsOrPlays,
+                            fontSize = 13.sp,
+                            color = OriginalColors.TextSecondary,
+                            maxLines = 1
+                        )
+                    }
+                    if (item.publishDate.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = item.publishDate,
+                            fontSize = 13.sp,
+                            color = OriginalColors.TextSecondary,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
 
             IconButton(onClick = { /* Options menu */ }) {
                 Icon(
-                    imageVector = Icons.Rounded.MoreVert,
+                    imageVector = Icons.Rounded.MoreHoriz,
                     contentDescription = "Options",
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(20.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }

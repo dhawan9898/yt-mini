@@ -50,6 +50,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.data.VideoDetails
+import com.nexusstream.app.data.CommentsPage
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.DownloadDone
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.Bookmark
 import kotlin.math.abs
 import com.nexusstream.app.ui.components.PlayerOptionsSheet
 import androidx.core.view.WindowInsetsControllerCompat
@@ -121,8 +134,14 @@ fun VideoWatchScreen(
     val playbackState by playbackService.playbackState.collectAsState()
     val mediaItem = playbackState.currentItem ?: return
 
-    val recommendedVideos = remember(mediaItem) {
-        YouTubeRepository.lastVideoFeed.filter { it.id != mediaItem.id }
+    var details by remember(mediaItem.id) { mutableStateOf<VideoDetails?>(null) }
+    LaunchedEffect(mediaItem.id) {
+        details = YouTubeRepository.details(mediaItem.watchUrl).getOrNull()
+    }
+    // Real related videos when available, otherwise the last home feed.
+    val recommendedVideos = remember(mediaItem.id, details) {
+        details?.related?.takeIf { it.isNotEmpty() }
+            ?: YouTubeRepository.lastVideoFeed.filter { it.id != mediaItem.id }
     }
 
     val context = LocalContext.current
@@ -133,7 +152,7 @@ fun VideoWatchScreen(
     val isDownloaded = offlineItems.any { it.id == mediaItem.id }
     val downloadState = downloadStates[mediaItem.id]
 
-    var comments by remember(mediaItem.id) { mutableStateOf<FeedState<List<CommentModel>>>(FeedState.Loading) }
+    var comments by remember(mediaItem.id) { mutableStateOf<FeedState<CommentsPage>>(FeedState.Loading) }
     var commentsReload by remember { mutableStateOf(0) }
     LaunchedEffect(mediaItem.id, commentsReload) {
         comments = FeedState.Loading
@@ -141,7 +160,8 @@ fun VideoWatchScreen(
     }
     var showComments by remember { mutableStateOf(false) }
 
-    var isSubscribed by remember { mutableStateOf(false) }
+    val subscriptions by LibraryRepository.subscriptions.collectAsState()
+    val isSubscribed = subscriptions.any { it.name == mediaItem.artistOrChannel }
     var isLiked by remember { mutableStateOf(false) }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var isCommentsExpanded by remember { mutableStateOf(false) }
@@ -222,6 +242,21 @@ fun VideoWatchScreen(
         ) {
             // Title + stats (tap to expand description)
             item {
+                val tag = details?.tags?.firstOrNull()?.takeIf { it.isNotBlank() }
+                val statsLine = buildAnnotatedString {
+                    val parts = listOfNotNull(
+                        mediaItem.artistOrChannel.takeIf { it.isNotBlank() },
+                        details?.likes?.takeIf { it >= 0 }?.let { "${YouTubeRepository.formatCount(it)} likes" },
+                        (details?.views?.takeIf { it >= 0 }?.let { YouTubeRepository.formatCount(it) }
+                            ?: mediaItem.viewsOrPlays.takeIf { it.isNotBlank() })?.let { "$it views" },
+                        (details?.uploadedText?.takeIf { it.isNotBlank() } ?: mediaItem.publishDate.takeIf { it.isNotBlank() }),
+                        tag?.let { "#${it.replace(" ", "")}" }
+                    )
+                    append(parts.joinToString("  "))
+                    if (!isDescriptionExpanded) {
+                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Medium)) { append("  more") }
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -230,46 +265,45 @@ fun VideoWatchScreen(
                 ) {
                     Text(
                         text = mediaItem.title,
-                        fontSize = 16.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.White,
-                        lineHeight = 21.sp,
+                        lineHeight = 24.sp,
                         maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = (listOf(
-                            mediaItem.viewsOrPlays.takeIf { it.isNotBlank() }?.let { "$it views" },
-                            mediaItem.publishDate.takeIf { it.isNotBlank() }
-                        ).filterNotNull() + if (isDescriptionExpanded) emptyList() else listOf("...more"))
-                            .joinToString("  "),
-                        fontSize = 12.sp,
-                        color = OriginalColors.TextSecondary
+                        text = statsLine,
+                        fontSize = 13.sp,
+                        color = OriginalColors.TextSecondary,
+                        maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    if (isDescriptionExpanded && mediaItem.description.isNotEmpty()) {
+                    val description = details?.description?.takeIf { it.isNotBlank() } ?: mediaItem.description
+                    if (isDescriptionExpanded && description.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = mediaItem.description,
-                            fontSize = 13.sp,
+                            text = description,
+                            fontSize = 14.sp,
                             color = Color.White,
-                            lineHeight = 18.sp
+                            lineHeight = 20.sp
                         )
                     }
                 }
             }
 
-            // Channel row
+            // Channel avatar + Subscribe, with icon-only actions on the right
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
+                        .padding(start = 12.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(mediaItem.dominantColor),
                         contentAlignment = Alignment.Center
@@ -284,128 +318,123 @@ fun VideoWatchScreen(
                         }
                     }
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = mediaItem.artistOrChannel,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(18.dp))
-                            .background(if (isSubscribed) OriginalColors.Chip else Color.White)
-                            .clickable { isSubscribed = !isSubscribed }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .background(if (isSubscribed) OriginalColors.Chip else Color(0xFFF1F1F1))
+                            .clickable {
+                                LibraryRepository.toggleSubscribe(mediaItem.artistOrChannel, mediaItem.channelAvatarUrl)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 9.dp)
                     ) {
                         Text(
                             text = if (isSubscribed) "Subscribed" else "Subscribe",
-                            fontSize = 13.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = if (isSubscribed) Color.White else Color.Black
                         )
                     }
-                }
-            }
+                    Spacer(modifier = Modifier.weight(1f))
 
-            // Action chips
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
-                        WatchActionChip(
-                            icon = Icons.Rounded.ThumbUp,
-                            label = if (isLiked) "Liked" else "Like",
-                            highlighted = isLiked,
-                            onClick = { isLiked = !isLiked }
+                    IconButton(onClick = { isLiked = !isLiked }) {
+                        Icon(
+                            imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                            contentDescription = "Like",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
-                    item {
-                        WatchActionChip(Icons.Rounded.Share, "Share") {
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, mediaItem.watchUrl)
-                            }
-                            context.startActivity(Intent.createChooser(send, "Share"))
+                    IconButton(onClick = {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, mediaItem.watchUrl)
+                        }
+                        context.startActivity(Intent.createChooser(send, "Share"))
+                    }) {
+                        Icon(Icons.Outlined.Share, "Share", tint = Color.White, modifier = Modifier.size(24.dp))
+                    }
+                    IconButton(onClick = {
+                        if (downloadState !is DownloadState.Downloading) showOptions = true
+                    }) {
+                        when {
+                            downloadState is DownloadState.Downloading -> CircularProgressIndicator(
+                                progress = { downloadState.progress },
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            isDownloaded -> Icon(Icons.Outlined.DownloadDone, "Downloaded", tint = Color.White, modifier = Modifier.size(24.dp))
+                            else -> Icon(Icons.Outlined.FileDownload, "Download", tint = Color.White, modifier = Modifier.size(24.dp))
                         }
                     }
-                    item {
-                        WatchActionChip(
-                            icon = Icons.Rounded.Download,
-                            label = when {
-                                isDownloaded -> "Downloaded"
-                                downloadState is DownloadState.Downloading ->
-                                    "${(downloadState.progress * 100).toInt()}%"
-                                downloadState is DownloadState.Error -> "Retry"
-                                else -> "Download"
-                            },
-                            highlighted = isDownloaded
-                        ) {
-                            if (downloadState !is DownloadState.Downloading) showOptions = true
-                        }
+                    IconButton(onClick = { LibraryRepository.toggleSave(mediaItem) }) {
+                        Icon(
+                            imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = if (isSaved) "Saved" else "Save",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
-                    item {
-                        WatchActionChip(
-                            icon = if (isSaved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                            label = if (isSaved) "Saved" else "Save",
-                            highlighted = isSaved
-                        ) { LibraryRepository.toggleSave(mediaItem) }
+                    IconButton(onClick = { showOptions = true }) {
+                        Icon(Icons.Rounded.MoreHoriz, "More", tint = Color.White, modifier = Modifier.size(24.dp))
                     }
                 }
             }
 
             // Comments card with the top comment as a preview
             item {
-                val topComment = (comments as? FeedState.Data)?.value?.firstOrNull()
+                val page = (comments as? FeedState.Data)?.value
+                val topComment = page?.items?.firstOrNull()
+                val total = page?.totalCount?.takeIf { it >= 0 }
+                    ?: page?.items?.size?.takeIf { it > 0 }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(OriginalColors.Chip)
                         .clickable { showComments = true }
-                        .padding(12.dp)
+                        .padding(14.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "Comments",
-                            fontSize = 14.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color.White
                         )
-                        (comments as? FeedState.Data)?.value?.size?.takeIf { it > 0 }?.let {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "$it+", fontSize = 12.sp, color = OriginalColors.TextSecondary)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    when {
-                        topComment != null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            CommentAvatar(topComment, 24.dp)
+                        total?.let {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
+                                text = YouTubeRepository.formatCount(it.toLong()),
+                                fontSize = 14.sp,
+                                color = OriginalColors.TextSecondary
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    when {
+                        topComment != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                            CommentAvatar(topComment, 28.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
                                 text = topComment.text,
-                                fontSize = 13.sp,
+                                fontSize = 14.sp,
                                 color = Color.White,
-                                maxLines = 2,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        comments is FeedState.Loading -> Text("Loading comments...", fontSize = 13.sp, color = OriginalColors.TextSecondary)
-                        comments is FeedState.Error -> Text("Comments unavailable", fontSize = 13.sp, color = OriginalColors.TextSecondary)
-                        else -> Text("No comments yet", fontSize = 13.sp, color = OriginalColors.TextSecondary)
+                        comments is FeedState.Loading -> Text("Loading comments...", fontSize = 14.sp, color = OriginalColors.TextSecondary)
+                        comments is FeedState.Error -> Text("Comments unavailable", fontSize = 14.sp, color = OriginalColors.TextSecondary)
+                        else -> Text("No comments yet", fontSize = 14.sp, color = OriginalColors.TextSecondary)
                     }
                 }
             }
 
             // Up next: same large cards as the home feed
             items(recommendedVideos, key = { "rec_${it.id}" }) { rec ->
-                YouTubeVideoCard(item = rec, onClick = { onSelectVideo(rec) })
+                YouTubeVideoCard(item = rec, onClick = { onSelectVideo(rec) }, inset = true)
             }
         }
     }
@@ -472,11 +501,11 @@ fun VideoWatchScreen(
                         message = state.message,
                         onRetry = { commentsReload++ }
                     )
-                    is FeedState.Data -> if (state.value.isEmpty()) {
+                    is FeedState.Data -> if (state.value.items.isEmpty()) {
                         OriginalEmptyState("No comments", "Comments may be turned off for this video.")
                     } else {
                         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                            items(state.value) { comment -> CommentRow(comment) }
+                            items(state.value.items) { comment -> CommentRow(comment) }
                         }
                     }
                 }
@@ -530,33 +559,6 @@ private fun CommentRow(comment: CommentModel) {
                 Text(text = "${comment.likes} likes", fontSize = 12.sp, color = OriginalColors.TextSecondary)
             }
         }
-    }
-}
-
-@Composable
-private fun WatchActionChip(
-    icon: ImageVector,
-    label: String,
-    highlighted: Boolean = false,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .height(34.dp)
-            .clip(RoundedCornerShape(17.dp))
-            .background(OriginalColors.Chip)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (highlighted) Color(0xFF3EA6FF) else Color.White,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(text = label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
     }
 }
 
