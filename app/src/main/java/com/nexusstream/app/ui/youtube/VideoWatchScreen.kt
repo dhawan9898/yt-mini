@@ -50,6 +50,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableFloatStateOf
+import android.view.WindowManager
+import android.media.AudioManager
 import kotlinx.coroutines.launch
 import com.nexusstream.app.ui.components.OnReachEnd
 import com.nexusstream.app.model.PlaybackMode
@@ -546,6 +550,7 @@ fun VideoWatchScreen(
                 onSwipeUp = { },
                 onSwipeDown = { isFullscreen = false },
                 onFullscreenClick = { isFullscreen = false },
+                gesturesEnabled = true,
                 modifier = Modifier.fillMaxSize()
             )
             IconButton(
@@ -794,13 +799,38 @@ private class SwipePlayerView(context: Context) : PlayerView(context) {
     var onSwipeUp: () -> Unit = {}
     var onSwipeDown: () -> Unit = {}
 
+    /** Fullscreen: vertical drags on the left half change brightness, on the right half volume. */
+    var fullscreenGestures = false
+    var onAdjustBrightness: (Float) -> Unit = {}
+    var onAdjustVolume: (Float) -> Unit = {}
+
+    private var scrollingVertically: Boolean? = null
     private var boostActive = false
     private var speedBeforeBoost = 1f
 
     private val detector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
+            override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+                if (!fullscreenGestures) return false
+                val start = e1 ?: return false
+                if (scrollingVertically == null) {
+                    // Decide once per touch whether this drag is vertical (brightness / volume).
+                    val dx = e2.x - start.x
+                    val dy = e2.y - start.y
+                    if (abs(dx) < 24f && abs(dy) < 24f) return false
+                    scrollingVertically = abs(dy) > abs(dx) * 1.5f
+                }
+                if (scrollingVertically != true) return false
+                // distanceY is positive when the finger moves up.
+                val fraction = distanceY / height.coerceAtLeast(1)
+                if (start.x < width / 2f) onAdjustBrightness(fraction) else onAdjustVolume(fraction)
+                return true
+            }
+
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                // In fullscreen a vertical drag adjusts brightness / volume instead.
+                if (fullscreenGestures) return false
                 val start = e1 ?: return false
                 val dy = e2.y - start.y
                 val dx = e2.x - start.x
@@ -835,6 +865,7 @@ private class SwipePlayerView(context: Context) : PlayerView(context) {
 
     // Observe every touch without consuming it, so the controller and seek bar keep working.
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) scrollingVertically = null
         detector.onTouchEvent(ev)
         if (boostActive && (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL)) {
             boostActive = false
@@ -857,8 +888,20 @@ private fun WatchPlayerSurface(
     onSwipeDown: () -> Unit,
     onFullscreenClick: () -> Unit,
     modifier: Modifier = Modifier,
-    showController: Boolean = true
+    showController: Boolean = true,
+    /** Fullscreen: enables brightness (left half) and volume (right half) swipes. */
+    gesturesEnabled: Boolean = false
 ) {
+    val context = LocalContext.current
+    var hud by remember { mutableStateOf<String?>(null) }
+    var volumeRemainder by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(hud) {
+        if (hud != null) {
+            delay(700)
+            hud = null
+        }
+    }
+
     Box(modifier = modifier) {
         AndroidView(
             factory = { ctx ->
@@ -874,6 +917,32 @@ private fun WatchPlayerSurface(
             update = { view ->
                 view.player = playbackService.getPlayer()
                 view.useController = showController
+                view.fullscreenGestures = gesturesEnabled
+                view.onAdjustBrightness = { fraction ->
+                    val window = context.findActivity()?.window
+                    if (window != null) {
+                        val attributes = window.attributes
+                        val current = if (attributes.screenBrightness < 0f) 0.5f else attributes.screenBrightness
+                        val next = (current + fraction * 1.2f).coerceIn(0.02f, 1f)
+                        attributes.screenBrightness = next
+                        window.attributes = attributes
+                        hud = "Brightness ${(next * 100).toInt()}%"
+                    }
+                }
+                view.onAdjustVolume = { fraction ->
+                    val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    if (audio != null) {
+                        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                        volumeRemainder += fraction * max * 1.5f
+                        val steps = volumeRemainder.toInt()
+                        if (steps != 0) {
+                            volumeRemainder -= steps
+                            val level = (audio.getStreamVolume(AudioManager.STREAM_MUSIC) + steps).coerceIn(0, max)
+                            audio.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0)
+                        }
+                        hud = "Volume ${audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / max.coerceAtLeast(1)}%"
+                    }
+                }
                 view.onSwipeUp = onSwipeUp
                 view.onSwipeDown = onSwipeDown
                 view.setFullscreenButtonClickListener { onFullscreenClick() }
@@ -887,6 +956,20 @@ private fun WatchPlayerSurface(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .size(36.dp)
+            )
+        }
+        hud?.let { text ->
+            Text(
+                text = text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 24.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
             )
         }
     }
@@ -908,6 +991,12 @@ private fun FullscreenEffect(isFullscreen: Boolean) {
             if (isFullscreen) {
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 controller?.show(WindowInsetsCompat.Type.systemBars())
+                // Give brightness back to the system setting.
+                activity?.window?.let { window ->
+                    window.attributes = window.attributes.apply {
+                        screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    }
+                }
             }
         }
     }

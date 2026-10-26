@@ -177,7 +177,13 @@ fun YouTubeHomeScreen(
             .fillMaxSize()
             .background(OriginalColors.YouTubeBackground)
     ) {
-        YouTubeHeader(onSearch = nav.openSearch)
+        val inbox by LibraryRepository.inbox.collectAsState()
+        val inboxSeenAt by LibraryRepository.inboxSeenAtMs.collectAsState()
+        YouTubeHeader(
+            unreadCount = inbox.count { it.publishedAtMs > inboxSeenAt },
+            onNotifications = { nav.open(Route.Notifications) },
+            onSearch = nav.openSearch
+        )
 
         if (selectedTab == 0) {
             OriginalFilterChips(
@@ -294,7 +300,7 @@ private fun personalChannels(): List<String> {
 }
 
 @Composable
-private fun YouTubeHeader(onSearch: () -> Unit) {
+private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearch: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -330,8 +336,26 @@ private fun YouTubeHeader(onSearch: () -> Unit) {
         }
 
         Row {
-            IconButton(onClick = { /* Notifications arrive in a later phase */ }) {
-                Icon(Icons.Outlined.Notifications, "Notifications", tint = Color.White, modifier = Modifier.size(26.dp))
+            IconButton(onClick = onNotifications) {
+                Box {
+                    Icon(Icons.Outlined.Notifications, "Notifications", tint = Color.White, modifier = Modifier.size(26.dp))
+                    if (unreadCount > 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(OriginalColors.Red)
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = if (unreadCount > 9) "9+" else unreadCount.toString(),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
             }
             IconButton(onClick = onSearch) {
                 Icon(Icons.Outlined.Search, "Search", tint = Color.White, modifier = Modifier.size(26.dp))

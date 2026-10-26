@@ -4,22 +4,22 @@ import android.content.Context
 import android.net.Uri
 import com.nexusstream.app.model.MediaItemModel
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.util.concurrent.ConcurrentHashMap
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 
 /** Status of an offline download. */
 sealed class DownloadState {
@@ -48,12 +48,13 @@ data class PendingDownload(
  * Unfinished downloads keep a ".part" file and are remembered across app restarts; they can be
  * paused, resumed (HTTP range request with a freshly resolved link) or cancelled. Finished items
  * are stored with a file:// URL so they play offline through the normal player path.
- * Downloads run while the app process is alive (there is no background service yet).
+ * The transfer itself runs in a WorkManager worker ([DownloadWorker]) with a foreground progress
+ * notification, so downloads continue when the app is closed.
  */
 object DownloadRepository {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val jobs = ConcurrentHashMap<String, Job>()
     private var downloadsDir: File? = null
+    private var appContext: Context? = null
+    private var initialized = false
 
     private val _states = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
     val states: StateFlow<Map<String, DownloadState>> = _states.asStateFlow()
@@ -63,6 +64,9 @@ object DownloadRepository {
 
     /** Loads unfinished downloads (shown as paused). Call once after [LibraryRepository.init]. */
     fun init(context: Context) {
+        appContext = context.applicationContext
+        if (initialized) return
+        initialized = true
         val dir = dir(context)
         val items = LibraryRepository.decodeItems(LibraryRepository.loadBlob("pending_items")).associateBy { it.id }
         val loaded = runCatching {
@@ -84,19 +88,19 @@ object DownloadRepository {
     }
 
     fun start(context: Context, item: MediaItemModel, option: DownloadOption) {
-        if (jobs[item.id]?.isActive == true) return
+        appContext = context.applicationContext
         val dir = dir(context)
         val pending = PendingDownload(item, option.label, option.extension, option.isVideo)
         partFile(dir, pending).delete() // a new download never continues an old partial file
         upsertPending(pending)
         setState(item.id, DownloadState.Downloading(0f))
-        jobs[item.id] = scope.launch { runDownload(dir, pending, option.url) }
+        enqueue(context, item.id)
     }
 
     /** Stops a running download but keeps what has been downloaded so far. */
     fun pause(id: String) {
         val pending = _pending.value.firstOrNull { it.item.id == id } ?: return
-        jobs.remove(id)?.cancel()
+        appContext?.let { WorkManager.getInstance(it).cancelUniqueWork(workName(id)) }
         val dir = downloadsDir
         val done = dir?.let { partFile(it, pending).let { f -> if (f.exists()) f.length() else 0L } } ?: pending.bytesDone
         upsertPending(pending.copy(bytesDone = done))
@@ -106,27 +110,15 @@ object DownloadRepository {
     /** Continues a paused or failed download from the partial file. */
     fun resume(context: Context, id: String) {
         val pending = _pending.value.firstOrNull { it.item.id == id } ?: return
-        if (jobs[id]?.isActive == true) return
-        val dir = dir(context)
+        appContext = context.applicationContext
         setState(id, DownloadState.Downloading(progressOf(pending)))
-        jobs[id] = scope.launch {
-            // Stream links expire, so look the same file up again to get a fresh link.
-            val url = YouTubeRepository.downloadOptions(pending.item.watchUrl).getOrNull()?.let { options ->
-                (options.firstOrNull { it.label == pending.label }
-                    ?: options.firstOrNull { it.isVideo == pending.isVideo })?.url
-            }
-            if (url == null) {
-                setState(id, DownloadState.Error("Couldn't refresh the download link. Check your connection."))
-                return@launch
-            }
-            runDownload(dir, pending, url)
-        }
+        enqueue(context, id)
     }
 
     /** Stops the download and deletes the partial file. */
     fun cancel(context: Context, id: String) {
         val pending = _pending.value.firstOrNull { it.item.id == id }
-        jobs.remove(id)?.cancel()
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(workName(id))
         if (pending != null) partFile(dir(context), pending).delete()
         removePending(id)
         _states.value = _states.value - id
@@ -144,7 +136,41 @@ object DownloadRepository {
 
     // ---- internals ----
 
-    private suspend fun runDownload(dir: File, start: PendingDownload, url: String) {
+    internal fun pendingFor(id: String): PendingDownload? = _pending.value.firstOrNull { it.item.id == id }
+
+    internal fun downloadsDir(context: Context): File = dir(context)
+
+    internal fun fail(id: String, message: String) = setState(id, DownloadState.Error(message))
+
+    /** Stream links expire, so look the same file up again to get a fresh link. */
+    internal suspend fun freshUrl(pending: PendingDownload): String? =
+        YouTubeRepository.downloadOptions(pending.item.watchUrl).getOrNull()?.let { options ->
+            (options.firstOrNull { it.label == pending.label }
+                ?: options.firstOrNull { it.isVideo == pending.isVideo })?.url
+        }
+
+    private fun workName(id: String) = "download_$id"
+
+    private fun enqueue(context: Context, id: String) {
+        val request = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setInputData(workDataOf(DownloadWorker.KEY_ID to id))
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(context.applicationContext)
+            .enqueueUniqueWork(workName(id), ExistingWorkPolicy.REPLACE, request)
+    }
+
+    /**
+     * Transfers [url] into the partial file (continuing it if it exists) and finishes the download.
+     * Returns true when the download completed. Cancellation (pause / cancel) is rethrown;
+     * other failures keep the partial file and mark the download as failed so it can be resumed.
+     */
+    internal suspend fun runDownload(
+        dir: File,
+        start: PendingDownload,
+        url: String,
+        onProgress: suspend (Float) -> Unit = {}
+    ): Boolean {
         val id = start.item.id
         val part = partFile(dir, start)
         try {
@@ -166,6 +192,7 @@ object DownloadRepository {
                         val remaining = body.contentLength()
                         val total = if (remaining > 0) remaining + offset else 0L
                         var written = offset
+                        var lastReport = 0L
                         body.byteStream().use { input ->
                             FileOutputStream(part, resumed).use { output ->
                                 val buffer = ByteArray(64 * 1024)
@@ -176,7 +203,13 @@ object DownloadRepository {
                                     output.write(buffer, 0, read)
                                     written += read
                                     if (total > 0 && currentCoroutineContext().isActive) {
-                                        setState(id, DownloadState.Downloading(written.toFloat() / total))
+                                        val progress = written.toFloat() / total
+                                        setState(id, DownloadState.Downloading(progress))
+                                        val now = System.currentTimeMillis()
+                                        if (now - lastReport > 1000) {
+                                            lastReport = now
+                                            onProgress(progress)
+                                        }
                                     }
                                 }
                             }
@@ -188,12 +221,14 @@ object DownloadRepository {
                 call.cancel()
             }
             finish(dir, _pending.value.firstOrNull { it.item.id == id } ?: start, part)
+            return true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // Keep the partial file and pending entry so the user can resume.
             upsertPending(start.copy(bytesDone = if (part.exists()) part.length() else 0L))
             setState(id, DownloadState.Error(e.message ?: "Download failed"))
+            return false
         }
     }
 
@@ -204,7 +239,6 @@ object DownloadRepository {
         val uri = Uri.fromFile(finalFile).toString()
         LibraryRepository.addDownload(pending.item.copy(audioUrl = uri, videoUrl = uri, sourceUrl = ""))
         removePending(pending.item.id)
-        jobs.remove(pending.item.id)
         setState(pending.item.id, DownloadState.Downloaded(finalFile.absolutePath))
     }
 

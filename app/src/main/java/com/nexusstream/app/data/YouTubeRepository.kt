@@ -483,6 +483,29 @@ object YouTubeRepository {
         (videos + audios).also { check(it.isNotEmpty()) { "No downloadable streams" } }
     }
 
+    /** A full video item for a watch URL (used when a link or notification only gives the id). */
+    suspend fun videoFromUrl(watchUrl: String): Result<MediaItemModel> = io {
+        val id = VIDEO_ID.find(watchUrl)?.groupValues?.get(1) ?: error("Not a video link")
+        val info = streamInfo(watchUrl)
+        val (primary, secondary) = colorsFor(id)
+        MediaItemModel(
+            id = id,
+            title = info.name,
+            artistOrChannel = info.uploaderName.orEmpty(),
+            audioUrl = "",
+            videoUrl = "",
+            artworkUrl = bestImage(info.thumbnails),
+            durationMs = info.duration.coerceAtLeast(0) * 1000L,
+            dominantColor = primary,
+            secondaryColor = secondary,
+            viewsOrPlays = formatCount(info.viewCount),
+            channelAvatarUrl = bestImage(info.uploaderAvatars),
+            publishDate = info.textualUploadDate.orEmpty(),
+            sourceUrl = watchUrl,
+            channelUrl = info.uploaderUrl.orEmpty()
+        )
+    }
+
     /** Likes, views, description, tags and related videos for the watch page. */
     suspend fun details(watchUrl: String): Result<VideoDetails> = io {
         val info = streamInfo(watchUrl)

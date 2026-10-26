@@ -108,6 +108,9 @@ dependencies {
     // Real org.json for unit tests (the Android one is a stub on the JVM).
     testImplementation("org.json:json:20240303")
 
+    // Background work: upload checks, reminders, downloads
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // Coil Image Loading
     implementation("io.coil-kt:coil-compose:2.7.0")
 }

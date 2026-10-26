@@ -55,6 +55,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
+import com.nexusstream.app.ui.youtube.NotificationsScreen
+import com.nexusstream.app.ui.youtube.NotificationSettingsScreen
+import com.nexusstream.app.notifications.NotificationHelper
+import com.nexusstream.app.notifications.BackgroundJobs
+import com.nexusstream.app.data.YouTubeRepository
+import com.nexusstream.app.LaunchRequests
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import com.nexusstream.app.ui.youtube.SearchScreen
 import com.nexusstream.app.ui.youtube.PlaylistScreen
 import com.nexusstream.app.ui.youtube.ChannelScreen
@@ -166,6 +175,18 @@ fun NexusApp() {
     LaunchedEffect(Unit) {
         LibraryRepository.init(context)
         DownloadRepository.init(context)
+        NotificationHelper.ensureChannels(context)
+    }
+
+    // Background work follows the notification settings.
+    val notificationsEnabled by LibraryRepository.notificationsEnabled.collectAsState()
+    val bedtimeMinute by LibraryRepository.bedtimeMinute.collectAsState()
+    val breakMinutes by LibraryRepository.breakMinutes.collectAsState()
+    LaunchedEffect(notificationsEnabled) {
+        if (notificationsEnabled) BackgroundJobs.scheduleUploadChecks(context) else BackgroundJobs.cancelUploadChecks(context)
+    }
+    LaunchedEffect(bedtimeMinute) {
+        if (bedtimeMinute >= 0) BackgroundJobs.scheduleBedtime(context, bedtimeMinute) else BackgroundJobs.cancelBedtime(context)
     }
 
     val activeService = playbackService
@@ -194,6 +215,31 @@ fun NexusApp() {
     }
     val expandPlayer: () -> Unit = {
         currentScreen = if (playbackState?.playbackMode == PlaybackMode.VIDEO) AppScreen.WATCH else AppScreen.PLAYER
+    }
+
+    // A video opened from a notification, a YouTube link or shared text.
+    val launchRequest by LaunchRequests.video.collectAsState()
+    LaunchedEffect(launchRequest, activeService) {
+        val request = launchRequest ?: return@LaunchedEffect
+        if (activeService == null) return@LaunchedEffect
+        LaunchRequests.consumeVideo()
+        val basic = LaunchRequests.minimalItem(request)
+        val item = if (request.title.isNotBlank()) {
+            basic
+        } else {
+            YouTubeRepository.videoFromUrl(basic.sourceUrl).getOrNull() ?: basic
+        }
+        playVideo(item, listOf(item))
+    }
+
+    // "Take a break": after N minutes of continuous playback.
+    var showBreakDialog by remember { mutableStateOf(false) }
+    val isPlayingNow = playbackState?.isPlaying == true
+    LaunchedEffect(breakMinutes, isPlayingNow) {
+        if (breakMinutes > 0 && isPlayingNow) {
+            delay(breakMinutes * 60_000L)
+            showBreakDialog = true
+        }
     }
 
     NexusTheme(
@@ -280,6 +326,8 @@ fun NexusApp() {
                                                 is Route.Downloads -> DownloadsScreen(nav, playVideo, miniPlayer)
                                                 is Route.Playlists -> PlaylistsScreen(nav, miniPlayer)
                                                 is Route.LocalPlaylist -> LocalPlaylistScreen(route, nav, playVideo, miniPlayer)
+                                                is Route.Notifications -> NotificationsScreen(nav, playVideo, miniPlayer)
+                                                is Route.NotificationSettings -> NotificationSettingsScreen(nav, miniPlayer)
                                             }
                                         }
                                     }
@@ -303,6 +351,31 @@ fun NexusApp() {
                     }
                 }
             }
+        }
+
+        if (showBreakDialog) {
+            AlertDialog(
+                onDismissRequest = { showBreakDialog = false },
+                containerColor = Color(0xFF212121),
+                title = { Text("Time for a break", color = Color.White) },
+                text = {
+                    Text(
+                        "You've been watching for $breakMinutes minutes.",
+                        color = OriginalColors.TextSecondary
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (playbackState?.isPlaying == true) activeService?.togglePlayPause()
+                        showBreakDialog = false
+                    }) { Text("Pause", color = Color(0xFF3EA6FF)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBreakDialog = false }) {
+                        Text("Keep watching", color = OriginalColors.TextSecondary)
+                    }
+                }
+            )
         }
     }
 }

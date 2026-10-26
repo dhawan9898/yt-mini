@@ -14,6 +14,9 @@ import org.json.JSONObject
 /** Watch URL for a live YouTube item (ids are YouTube video ids). */
 val MediaItemModel.watchUrl: String get() = "https://www.youtube.com/watch?v=$id"
 
+/** How a subscribed channel notifies you about new uploads (the channel "bell"). */
+enum class NotifyLevel { NONE, PERSONALIZED, ALL }
+
 /** A user-created playlist, stored on this device. Items keep the order they were added in. */
 data class Playlist(val id: String, val name: String, val items: List<MediaItemModel>)
 
@@ -42,7 +45,10 @@ object LibraryRepository {
         val avatarUrl: String,
         val channelUrl: String = "",
         /** When the user last opened this channel; newer uploads show a "new" dot. */
-        val lastSeenMs: Long = 0L
+        val lastSeenMs: Long = 0L,
+        val notifyLevel: NotifyLevel = NotifyLevel.PERSONALIZED,
+        /** Publish time of the newest upload already notified about. */
+        val lastNotifiedMs: Long = 0L
     )
 
     private val _subscriptions = MutableStateFlow<List<ChannelSub>>(emptyList())
@@ -74,8 +80,77 @@ object LibraryRepository {
             JSONObject()
                 .put("name", it.name).put("avatar", it.avatarUrl)
                 .put("url", it.channelUrl).put("seen", it.lastSeenMs)
+                .put("level", it.notifyLevel.name).put("notified", it.lastNotifiedMs)
         })
         store.edit().putString("subscriptions", json.toString()).apply()
+    }
+
+    fun setNotifyLevel(name: String, level: NotifyLevel) {
+        _subscriptions.value = _subscriptions.value.map { if (it.name == name) it.copy(notifyLevel = level) else it }
+        persistSubscriptions()
+    }
+
+    /** Remembers that uploads up to [publishedAtMs] were notified, so they are not repeated. */
+    fun markNotified(name: String, publishedAtMs: Long) {
+        _subscriptions.value = _subscriptions.value.map {
+            if (it.name == name && publishedAtMs > it.lastNotifiedMs) it.copy(lastNotifiedMs = publishedAtMs) else it
+        }
+        persistSubscriptions()
+    }
+
+    // ---- notification settings, reminders and inbox ----
+    private val _notificationsEnabled = MutableStateFlow(true)
+    val notificationsEnabled: StateFlow<Boolean> = _notificationsEnabled.asStateFlow()
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        _notificationsEnabled.value = enabled
+        prefs?.edit()?.putBoolean("notifications_enabled", enabled)?.apply()
+    }
+
+    /** "Take a break" reminder after this many minutes of continuous playback; 0 = off. */
+    private val _breakMinutes = MutableStateFlow(0)
+    val breakMinutes: StateFlow<Int> = _breakMinutes.asStateFlow()
+
+    fun setBreakMinutes(minutes: Int) {
+        _breakMinutes.value = minutes
+        prefs?.edit()?.putInt("break_minutes", minutes)?.apply()
+    }
+
+    /** Bedtime reminder as minutes after midnight; -1 = off. */
+    private val _bedtimeMinute = MutableStateFlow(-1)
+    val bedtimeMinute: StateFlow<Int> = _bedtimeMinute.asStateFlow()
+
+    fun setBedtimeMinute(minuteOfDay: Int) {
+        _bedtimeMinute.value = minuteOfDay
+        prefs?.edit()?.putInt("bedtime_minute", minuteOfDay)?.apply()
+    }
+
+    private val _inbox = MutableStateFlow<List<MediaItemModel>>(emptyList())
+    /** Videos from new-upload notifications, newest first. */
+    val inbox: StateFlow<List<MediaItemModel>> = _inbox.asStateFlow()
+
+    private val _inboxSeenAtMs = MutableStateFlow(0L)
+    val inboxSeenAtMs: StateFlow<Long> = _inboxSeenAtMs.asStateFlow()
+
+    fun addToInbox(items: List<MediaItemModel>) {
+        if (items.isEmpty()) return
+        val known = _inbox.value.map { it.id }.toSet()
+        _inbox.value = (items.filter { it.id !in known } + _inbox.value)
+            .sortedByDescending { it.publishedAtMs }
+            .take(50)
+        persist("inbox", _inbox.value)
+    }
+
+    /** Clears the unread badge (inbox entries published up to now count as seen). */
+    fun markInboxSeen() {
+        val now = System.currentTimeMillis()
+        _inboxSeenAtMs.value = now
+        prefs?.edit()?.putLong("inbox_seen", now)?.apply()
+    }
+
+    fun clearInbox() {
+        _inbox.value = emptyList()
+        persist("inbox", _inbox.value)
     }
 
     // ---- search history ----
@@ -233,7 +308,9 @@ object LibraryRepository {
     /** Adds channels that are not subscribed yet; returns how many were new. */
     fun importSubscriptions(subs: List<ChannelSub>): Int {
         val existing = _subscriptions.value.map { it.name }.toSet()
+        val now = System.currentTimeMillis()
         val fresh = subs.filter { it.name !in existing }.distinctBy { it.name }
+            .map { if (it.lastSeenMs == 0L) it.copy(lastSeenMs = now) else it }
         if (fresh.isEmpty()) return 0
         _subscriptions.value = _subscriptions.value + fresh
         persistSubscriptions()
@@ -260,6 +337,11 @@ object LibraryRepository {
         _playlists.value = emptyList()
         _liked.value = emptyList()
         _historyPaused.value = false
+        _notificationsEnabled.value = true
+        _breakMinutes.value = 0
+        _bedtimeMinute.value = -1
+        _inbox.value = emptyList()
+        _inboxSeenAtMs.value = 0L
         _searchHistory.value = emptyList()
         _hidden.value = Hidden()
     }
@@ -284,13 +366,23 @@ object LibraryRepository {
         _liked.value = read(p.getString("liked", null))
         _playlists.value = readPlaylists(p.getString("playlists", null))
         _historyPaused.value = p.getBoolean("history_paused", false)
+        _notificationsEnabled.value = p.getBoolean("notifications_enabled", true)
+        _breakMinutes.value = p.getInt("break_minutes", 0)
+        _bedtimeMinute.value = p.getInt("bedtime_minute", -1)
+        _inbox.value = read(p.getString("inbox", null))
+        _inboxSeenAtMs.value = p.getLong("inbox_seen", 0L)
         _subscriptions.value = runCatching {
             val arr = JSONArray(p.getString("subscriptions", "[]"))
             (0 until arr.length()).map { arr.getJSONObject(it) }
                 .map {
                     ChannelSub(
-                        it.getString("name"), it.optString("avatar"),
-                        it.optString("url"), it.optLong("seen")
+                        name = it.getString("name"),
+                        avatarUrl = it.optString("avatar"),
+                        channelUrl = it.optString("url"),
+                        lastSeenMs = it.optLong("seen"),
+                        notifyLevel = runCatching { NotifyLevel.valueOf(it.optString("level")) }
+                            .getOrDefault(NotifyLevel.PERSONALIZED),
+                        lastNotifiedMs = it.optLong("notified")
                     )
                 }
         }.getOrDefault(emptyList())

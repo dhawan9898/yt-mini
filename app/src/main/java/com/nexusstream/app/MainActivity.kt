@@ -2,6 +2,7 @@ package com.nexusstream.app
 
 import android.Manifest
 import android.app.PictureInPictureParams
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -13,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import com.nexusstream.app.notifications.NotificationHelper
 import com.nexusstream.app.ui.NexusApp
 
 class MainActivity : ComponentActivity() {
@@ -33,10 +35,40 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         PipController.enter = { enterPictureInPictureIfSupported() }
+        // Only the first launch: a recreated activity must not replay an old link.
+        if (savedInstanceState == null) handleLaunchIntent(intent)
 
         setContent {
             NexusApp()
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLaunchIntent(intent)
+    }
+
+    /** Opens a video from a notification tap, an opened YouTube link, or shared text. */
+    private fun handleLaunchIntent(intent: Intent?) {
+        intent ?: return
+        val notifiedId = intent.getStringExtra(NotificationHelper.EXTRA_VIDEO_ID)
+        if (notifiedId != null) {
+            LaunchRequests.requestVideo(
+                VideoLaunch(
+                    videoId = notifiedId,
+                    title = intent.getStringExtra(NotificationHelper.EXTRA_VIDEO_TITLE).orEmpty(),
+                    channel = intent.getStringExtra(NotificationHelper.EXTRA_VIDEO_CHANNEL).orEmpty()
+                )
+            )
+            return
+        }
+        val text = when (intent.action) {
+            Intent.ACTION_VIEW -> intent.dataString
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            else -> null
+        } ?: return
+        DeepLinks.videoIdFrom(text)?.let { LaunchRequests.requestVideo(VideoLaunch(videoId = it)) }
     }
 
     override fun onDestroy() {

@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusstream.app.data.ChannelPage
 import com.nexusstream.app.data.LibraryRepository
+import com.nexusstream.app.data.NotifyLevel
 import com.nexusstream.app.data.Paged
 import com.nexusstream.app.data.PlaylistResult
 import com.nexusstream.app.data.YouTubeRepository
@@ -148,6 +149,8 @@ fun ChannelScreen(
                         ChannelHeader(
                             channel = channel,
                             subscribed = subscribed,
+                            notifyLevel = subs.firstOrNull { it.name == channel.name }?.notifyLevel,
+                            onNotifyLevel = { LibraryRepository.setNotifyLevel(channel.name, it) },
                             onToggleSubscribe = {
                                 LibraryRepository.toggleSubscribe(channel.name, channel.avatarUrl, channel.url)
                             }
@@ -232,7 +235,13 @@ fun ChannelScreen(
 }
 
 @Composable
-private fun ChannelHeader(channel: ChannelPage, subscribed: Boolean, onToggleSubscribe: () -> Unit) {
+private fun ChannelHeader(
+    channel: ChannelPage,
+    subscribed: Boolean,
+    notifyLevel: NotifyLevel?,
+    onNotifyLevel: (NotifyLevel) -> Unit,
+    onToggleSubscribe: () -> Unit
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         if (channel.bannerUrl.isNotBlank()) {
             AsyncImage(
@@ -266,20 +275,28 @@ private fun ChannelHeader(channel: ChannelPage, subscribed: Boolean, onToggleSub
                 }
             }
         }
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(if (subscribed) OriginalColors.Chip else Color(0xFFF1F1F1))
-                .clickable(onClick = onToggleSubscribe)
-                .padding(horizontal = 20.dp, vertical = 9.dp)
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = if (subscribed) "Subscribed" else "Subscribe",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (subscribed) Color.White else Color.Black
-            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(if (subscribed) OriginalColors.Chip else Color(0xFFF1F1F1))
+                    .clickable(onClick = onToggleSubscribe)
+                    .padding(horizontal = 20.dp, vertical = 9.dp)
+            ) {
+                Text(
+                    text = if (subscribed) "Subscribed" else "Subscribe",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (subscribed) Color.White else Color.Black
+                )
+            }
+            if (subscribed && notifyLevel != null) {
+                Spacer(modifier = Modifier.width(4.dp))
+                NotifyLevelButton(level = notifyLevel, onSelect = onNotifyLevel)
+            }
         }
     }
 }

@@ -144,4 +144,61 @@ class LibraryRepositoryTest {
         assertEquals(1, added)
         assertEquals(listOf("One", "Two"), LibraryRepository.subscriptions.value.map { it.name })
     }
+
+    // ---- notifications ----
+
+    private fun uploaded(id: String, publishedAt: Long) = item(id).copy(publishedAtMs = publishedAt)
+
+    @Test
+    fun newSubscriptionsDefaultToPersonalizedNotifications() {
+        LibraryRepository.toggleSubscribe("A", "")
+        assertEquals(NotifyLevel.PERSONALIZED, LibraryRepository.subscriptions.value.single().notifyLevel)
+        LibraryRepository.setNotifyLevel("A", NotifyLevel.ALL)
+        assertEquals(NotifyLevel.ALL, LibraryRepository.subscriptions.value.single().notifyLevel)
+    }
+
+    @Test
+    fun markNotifiedOnlyMovesForward() {
+        LibraryRepository.toggleSubscribe("A", "")
+        LibraryRepository.markNotified("A", 5000L)
+        LibraryRepository.markNotified("A", 3000L)
+        assertEquals(5000L, LibraryRepository.subscriptions.value.single().lastNotifiedMs)
+    }
+
+    @Test
+    fun importedSubscriptionsStartFromNowSoTheyDoNotFloodNotifications() {
+        val before = System.currentTimeMillis()
+        LibraryRepository.importSubscriptions(listOf(LibraryRepository.ChannelSub("Imported", "")))
+        assertTrue(LibraryRepository.subscriptions.value.single().lastSeenMs >= before)
+    }
+
+    @Test
+    fun inboxIsNewestFirstDeduplicatedAndCapped() {
+        LibraryRepository.addToInbox(listOf(uploaded("a", 1000L), uploaded("b", 3000L)))
+        LibraryRepository.addToInbox(listOf(uploaded("b", 3000L), uploaded("c", 2000L)))
+        assertEquals(listOf("b", "c", "a"), LibraryRepository.inbox.value.map { it.id })
+
+        LibraryRepository.addToInbox((1..80).map { uploaded("x$it", 10_000L + it) })
+        assertEquals(50, LibraryRepository.inbox.value.size)
+        assertEquals("x80", LibraryRepository.inbox.value.first().id)
+    }
+
+    @Test
+    fun markInboxSeenAndClear() {
+        LibraryRepository.addToInbox(listOf(uploaded("a", 1000L)))
+        LibraryRepository.markInboxSeen()
+        assertTrue(LibraryRepository.inboxSeenAtMs.value > 0L)
+        LibraryRepository.clearInbox()
+        assertTrue(LibraryRepository.inbox.value.isEmpty())
+    }
+
+    @Test
+    fun reminderSettingsAreStored() {
+        LibraryRepository.setBreakMinutes(30)
+        LibraryRepository.setBedtimeMinute(22 * 60)
+        LibraryRepository.setNotificationsEnabled(false)
+        assertEquals(30, LibraryRepository.breakMinutes.value)
+        assertEquals(22 * 60, LibraryRepository.bedtimeMinute.value)
+        assertFalse(LibraryRepository.notificationsEnabled.value)
+    }
 }
