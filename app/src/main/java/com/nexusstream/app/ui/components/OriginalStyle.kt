@@ -1,0 +1,234 @@
+package com.nexusstream.app.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.nexusstream.app.model.MediaItemModel
+import com.nexusstream.app.ui.player.PlayPauseMorphButton
+
+/**
+ * Flat, near-black palette matching the official YouTube / YouTube Music apps.
+ */
+object OriginalColors {
+    val YouTubeBackground = Color(0xFF0F0F0F)
+    val MusicBackground = Color(0xFF030303)
+    val Chip = Color(0xFF272727)
+    val MusicChip = Color(0xFF1F1F1F)
+    val MiniPlayer = Color(0xFF212121)
+    val Divider = Color(0xFF303030)
+    val TextPrimary = Color(0xFFFFFFFF)
+    val TextSecondary = Color(0xFFAAAAAA)
+    val Red = Color(0xFFFF0000)
+}
+
+/**
+ * Horizontally scrolling filter chips: unselected = dark grey, selected = solid white with black text.
+ */
+@Composable
+fun OriginalFilterChips(
+    labels: List<String>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    unselectedColor: Color,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(labels) { label ->
+            val isSelected = label == selected
+            Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isSelected) Color.White else unselectedColor)
+                    .clickable { onSelect(label) }
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isSelected) Color.Black else Color.White
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Flat docked mini player with a thin red progress hairline, as in the original apps.
+ */
+@Composable
+fun OriginalMiniPlayer(
+    item: MediaItemModel,
+    isPlaying: Boolean,
+    onExpand: () -> Unit,
+    onTogglePlay: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(OriginalColors.MiniPlayer)
+            .clickable(onClick = onExpand)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(item.dominantColor)
+            ) {
+                if (item.artworkUrl.isNotEmpty()) {
+                    AsyncImage(
+                        model = item.artworkUrl,
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = item.artistOrChannel,
+                    fontSize = 12.sp,
+                    color = OriginalColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            PlayPauseMorphButton(
+                isPlaying = isPlaying,
+                onClick = onTogglePlay,
+                size = 40.dp,
+                glowColor = Color.Transparent
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(Color.White.copy(alpha = 0.15f))
+        )
+    }
+}
+
+data class BottomNavEntry(val label: String, val icon: ImageVector)
+
+/**
+ * Flat bottom navigation bar.
+ */
+@Composable
+fun OriginalBottomNav(
+    entries: List<BottomNavEntry>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    background: Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(background)
+            .height(56.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        entries.forEachIndexed { index, entry ->
+            val tint = if (index == selectedIndex) Color.White else OriginalColors.TextSecondary
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onSelect(index) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = entry.icon,
+                    contentDescription = entry.label,
+                    tint = tint,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = entry.label,
+                    fontSize = 10.sp,
+                    color = tint,
+                    fontWeight = if (index == selectedIndex) FontWeight.Medium else FontWeight.Normal
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Centered empty-state message for tabs with no content yet.
+ */
+@Composable
+fun OriginalEmptyState(title: String, message: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(text = title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(text = message, fontSize = 14.sp, color = OriginalColors.TextSecondary)
+    }
+}

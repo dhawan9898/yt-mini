@@ -102,13 +102,8 @@ fun Modifier.liquidGlassSurface(
     blurRadius: Dp = 28.dp,
     highlightColor: Color = Color.White.copy(alpha = 0.12f)
 ): Modifier = this
-    .then(
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Modifier.blur(blurRadius)
-        } else {
-            Modifier
-        }
-    )
+    // NOTE: Modifier.blur() blurs this element's own content (text, icons), not what is behind it,
+    // so it is intentionally not applied here. blurRadius is kept for API compatibility.
     .clip(shape)
     .background(backgroundColor, shape)
     .border(borderWidth, borderBrush, shape)

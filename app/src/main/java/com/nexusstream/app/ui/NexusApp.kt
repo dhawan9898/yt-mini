@@ -6,7 +6,9 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -14,6 +16,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -22,12 +25,14 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -36,7 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.OndemandVideo
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -49,6 +54,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -58,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
+import com.nexusstream.app.ui.components.OriginalColors
 import com.nexusstream.app.ui.player.PlayerScreen
 import com.nexusstream.app.ui.theme.NexusTheme
 import com.nexusstream.app.ui.theme.liquidGlassSurface
@@ -128,7 +136,12 @@ fun NexusApp() {
         dominantColor = currentItem?.dominantColor ?: Color(0xFF6C5CE7),
         secondaryColor = currentItem?.secondaryColor ?: Color(0xFFFF7675)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        val shellBackground by animateColorAsState(
+            targetValue = if (currentMode == AppMode.YT_MUSIC) OriginalColors.MusicBackground else OriginalColors.YouTubeBackground,
+            animationSpec = tween(300),
+            label = "ShellBackground"
+        )
+        Box(modifier = Modifier.fillMaxSize().background(shellBackground)) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Top Dual-Engine Mode Switcher Bar
                 if (currentScreen == AppScreen.HOME) {
@@ -145,19 +158,7 @@ fun NexusApp() {
                     AnimatedContent(
                         targetState = Pair(currentMode, currentScreen),
                         transitionSpec = {
-                            (scaleIn(
-                                initialScale = 0.90f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                    stiffness = Spring.StiffnessLow
-                                )
-                            ) + fadeIn(tween(350))) togetherWith (scaleOut(
-                                targetScale = 1.10f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                                )
-                            ) + fadeOut(tween(200)))
+                            fadeIn(tween(220)) togetherWith fadeOut(tween(160))
                         },
                         label = "AppScreenMorph"
                     ) { (mode, screen) ->
@@ -222,7 +223,7 @@ fun NexusApp() {
 }
 
 /**
- * Top Dual Engine Switcher: "YouTube Video" <-> "YouTube Music"
+ * Top mode pill: "YouTube" <-> "YT Music". Flat dark track with a white sliding thumb.
  */
 @Composable
 private fun DualEngineModeSwitcherBar(
@@ -230,97 +231,94 @@ private fun DualEngineModeSwitcherBar(
     onModeSelect: (AppMode) -> Unit
 ) {
     val isMusic = currentMode == AppMode.YT_MUSIC
+    val thumbFraction by animateFloatAsState(
+        targetValue = if (isMusic) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
+        label = "PillThumb"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 6.dp),
+            .statusBarsPadding()
+            .padding(top = 8.dp, bottom = 2.dp),
         contentAlignment = Alignment.Center
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
-                .width(300.dp)
-                .height(44.dp)
-                .liquidGlassSurface(
-                    shape = RoundedCornerShape(22.dp),
-                    backgroundColor = Color.Black.copy(alpha = 0.50f),
-                    borderWidth = 1.dp
-                )
+                .width(220.dp)
+                .height(36.dp)
+                .clip(CircleShape)
+                .background(OriginalColors.Chip)
                 .padding(3.dp)
         ) {
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val tabWidth = maxWidth / 2
+            val tabWidth = maxWidth / 2
 
-                val offsetFraction = if (isMusic) 1f else 0f
+            Box(
+                modifier = Modifier
+                    .width(tabWidth)
+                    .fillMaxHeight()
+                    .offset(x = tabWidth * thumbFraction)
+                    .clip(CircleShape)
+                    .background(Color.White)
+            )
 
-                Box(
-                    modifier = Modifier
-                        .width(tabWidth)
-                        .fillMaxSize()
-                        .offset(x = tabWidth * offsetFraction)
-                        .liquidGlassSurface(
-                            shape = RoundedCornerShape(20.dp),
-                            backgroundColor = Color.White.copy(alpha = 0.25f),
-                            borderWidth = 1.dp
-                        )
+            Row(modifier = Modifier.fillMaxSize()) {
+                PillTab(
+                    label = "YouTube",
+                    icon = Icons.Rounded.PlayArrow,
+                    selected = !isMusic,
+                    onClick = { onModeSelect(AppMode.YOUTUBE_VIDEO) },
+                    modifier = Modifier.weight(1f)
                 )
-
-                Row(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { onModeSelect(AppMode.YOUTUBE_VIDEO) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Rounded.OndemandVideo,
-                                contentDescription = null,
-                                tint = if (!isMusic) Color.White else Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "YouTube",
-                                fontSize = 13.sp,
-                                fontWeight = if (!isMusic) FontWeight.Bold else FontWeight.Medium,
-                                color = if (!isMusic) Color.White else Color.White.copy(alpha = 0.5f)
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { onModeSelect(AppMode.YT_MUSIC) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Rounded.MusicNote,
-                                contentDescription = null,
-                                tint = if (isMusic) Color.White else Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "YT Music",
-                                fontSize = 13.sp,
-                                fontWeight = if (isMusic) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isMusic) Color.White else Color.White.copy(alpha = 0.5f)
-                            )
-                        }
-                    }
-                }
+                PillTab(
+                    label = "YT Music",
+                    icon = Icons.Rounded.MusicNote,
+                    selected = isMusic,
+                    onClick = { onModeSelect(AppMode.YT_MUSIC) },
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun PillTab(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) Color.Black else Color.White.copy(alpha = 0.7f),
+        label = "PillTabColor"
+    )
+    Row(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = contentColor
+        )
     }
 }
