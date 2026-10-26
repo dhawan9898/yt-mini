@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -263,6 +264,7 @@ fun DynamicMeshBackground(
 }
 
 /** Roboto (bundled variable font) - the typeface the official YouTube apps use. */
+@OptIn(ExperimentalTextApi::class)
 val RobotoFamily = FontFamily(
     listOf(
         FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold,
