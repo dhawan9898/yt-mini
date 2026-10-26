@@ -49,6 +49,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.data.LibraryRepository
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -165,10 +167,40 @@ fun YouTubeHomeScreen(
                     }
                 }
             } else if (selectedTab == 2) {
-                OriginalEmptyState(
-                    title = "Your library",
-                    message = "Watch history and playlists will show up here."
-                )
+                val savedItems by LibraryRepository.saved.collectAsState()
+                val downloadedItems by LibraryRepository.downloads.collectAsState()
+                val historyItems by LibraryRepository.history.collectAsState()
+                if (savedItems.isEmpty() && downloadedItems.isEmpty() && historyItems.isEmpty()) {
+                    OriginalEmptyState(
+                        title = "Your library",
+                        message = "Watch history, saved videos and downloads will show up here."
+                    )
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        listOf(
+                            "Downloads" to downloadedItems,
+                            "Saved" to savedItems,
+                            "History" to historyItems
+                        ).filter { it.second.isNotEmpty() }.forEach { (title, list) ->
+                            item(key = "you_header_$title") {
+                                Text(
+                                    text = title,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                )
+                            }
+                            items(list, key = { "you_${title}_${it.id}" }) { video ->
+                                YouTubeVideoCard(item = video, onClick = { onSelectVideo(video, list) })
+                            }
+                        }
+                    }
+                }
             } else if (feed is FeedState.Loading) {
                 OriginalLoading()
             } else if (feed is FeedState.Error) {

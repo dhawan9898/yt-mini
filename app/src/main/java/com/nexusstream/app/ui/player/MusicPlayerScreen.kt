@@ -3,7 +3,11 @@ package com.nexusstream.app.ui.player
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -49,12 +53,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -64,10 +71,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.PlaybackMode
 import com.nexusstream.app.model.StreamRepeatMode
@@ -90,13 +99,40 @@ fun MusicPlayerScreen(
     val state by playbackService.playbackState.collectAsState()
     val item = state.currentItem ?: return
     var panel by remember { mutableStateOf(PlayerPanel.NONE) }
-    var isLiked by remember(item.id) { mutableStateOf(false) }
+    val savedItems by LibraryRepository.saved.collectAsState()
+    val isLiked = savedItems.any { it.id == item.id }
 
     BackHandler(onBack = onCollapse)
+
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val animatedDragY by animateFloatAsState(
+        targetValue = dragY,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "PlayerDrag"
+    )
+    var isDragging by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .offset { IntOffset(0, (if (isDragging) dragY else animatedDragY).roundToInt()) }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { isDragging = true },
+                    onDragEnd = {
+                        isDragging = false
+                        if (dragY > size.height * 0.2f) onCollapse() else dragY = 0f
+                    },
+                    onDragCancel = {
+                        isDragging = false
+                        dragY = 0f
+                    },
+                    onVerticalDrag = { change, amount ->
+                        change.consume()
+                        dragY = (dragY + amount).coerceAtLeast(0f)
+                    }
+                )
+            }
             .background(
                 Brush.verticalGradient(
                     listOf(item.dominantColor.copy(alpha = 0.55f), Color.Black, Color.Black)
@@ -224,7 +260,7 @@ fun MusicPlayerScreen(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = { isLiked = !isLiked }) {
+            IconButton(onClick = { LibraryRepository.toggleSave(item) }) {
                 Icon(
                     Icons.Rounded.ThumbUp, "Like",
                     tint = if (isLiked) Color.White else OriginalColors.TextSecondary
@@ -265,22 +301,20 @@ fun MusicPlayerScreen(
             IconButton(onClick = { playbackService.skipToPrevious() }, modifier = Modifier.size(52.dp)) {
                 Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Color.White, modifier = Modifier.size(38.dp))
             }
-            Box(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-                    .clickable { playbackService.togglePlayPause() },
-                contentAlignment = Alignment.Center
-            ) {
-                if (state.isBuffering && !state.isPlaying) {
-                    CircularProgressIndicator(color = Color.Black, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
-                } else {
-                    Icon(
-                        imageVector = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        tint = Color.Black,
-                        modifier = Modifier.size(40.dp)
+            Box(modifier = Modifier.size(68.dp), contentAlignment = Alignment.Center) {
+                PlayPauseMorphButton(
+                    isPlaying = state.isPlaying,
+                    onClick = { playbackService.togglePlayPause() },
+                    size = 68.dp,
+                    tint = Color.Black,
+                    glowColor = Color.Transparent,
+                    flatBackground = Color.White
+                )
+                if (state.isResolving || (state.isBuffering && !state.isPlaying)) {
+                    CircularProgressIndicator(
+                        color = Color.Black,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(44.dp)
                     )
                 }
             }

@@ -47,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +63,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
@@ -128,9 +130,16 @@ fun NexusApp() {
         }
     }
 
+    LaunchedEffect(Unit) { LibraryRepository.init(context) }
+
     val activeService = playbackService
     val playbackState = activeService?.playbackState?.collectAsState()?.value
     val currentItem = playbackState?.currentItem
+
+    // Feeds "Listen again" and the You tab's history.
+    LaunchedEffect(currentItem?.id) {
+        currentItem?.let { LibraryRepository.recordPlayed(it) }
+    }
 
     NexusTheme(
         dominantColor = currentItem?.dominantColor ?: Color(0xFF6C5CE7),

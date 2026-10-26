@@ -63,7 +63,9 @@ data class MediaItemModel(
     val likesCount: String = "Like",
     val description: String = "",
     /** Public watch URL; when set, direct stream URLs are resolved at play time. */
-    val sourceUrl: String = ""
+    val sourceUrl: String = "",
+    /** True for albums/playlists: tapping loads and plays their tracks. */
+    val isCollection: Boolean = false
 )
 
 /**

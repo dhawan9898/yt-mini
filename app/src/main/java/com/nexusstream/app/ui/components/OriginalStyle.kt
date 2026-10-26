@@ -153,7 +153,8 @@ fun OriginalMiniPlayer(
                 isPlaying = isPlaying,
                 onClick = onTogglePlay,
                 size = 40.dp,
-                glowColor = Color.Transparent
+                glowColor = Color.Transparent,
+                flatBackground = Color.White.copy(alpha = 0.10f)
             )
         }
         Box(

@@ -55,6 +55,8 @@ data class PlaybackState(
     val durationMs: Long = 0L,
     val playbackMode: PlaybackMode = PlaybackMode.AUDIO_ONLY,
     val isBuffering: Boolean = false,
+    /** True while fresh stream URLs are being fetched, before the player has a source. */
+    val isResolving: Boolean = false,
     val queue: List<MediaItemModel> = emptyList(),
     val queueIndex: Int = 0,
     val shuffleEnabled: Boolean = false,
@@ -295,6 +297,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             errorMessage = null
         )
         updateForegroundNotification()
+        _playbackState.value = _playbackState.value.copy(isResolving = false)
 
         if (item.sourceUrl.isEmpty()) {
             // Item already carries direct URLs.
@@ -311,10 +314,12 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         }
 
         // Live YouTube item: resolve fresh stream URLs first (they expire), then play.
+        _playbackState.value = _playbackState.value.copy(isResolving = true)
         loadJob = serviceScope.launch {
             val resolved = YouTubeRepository.resolveStream(item.sourceUrl).getOrElse { error ->
                 Log.e(TAG, "Stream resolution failed for ${item.id}: ${error.message}", error)
                 _playbackState.value = _playbackState.value.copy(
+                    isResolving = false,
                     hasError = true,
                     errorMessage = "Couldn't load stream: ${error.message ?: "unknown error"}"
                 )
@@ -341,6 +346,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             exoPlayer.setMediaSource(source, startPositionMs)
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
+            _playbackState.value = _playbackState.value.copy(isResolving = false)
         }
     }
 

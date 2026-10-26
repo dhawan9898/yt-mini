@@ -20,6 +20,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -46,7 +48,9 @@ fun PlayPauseMorphButton(
     modifier: Modifier = Modifier,
     size: Dp = 72.dp,
     tint: Color = Color.White,
-    glowColor: Color = Color(0xFF6C5CE7)
+    glowColor: Color = Color(0xFF6C5CE7),
+    /** When set, draws a flat filled circle instead of the glass surface. */
+    flatBackground: Color? = null
 ) {
     // 0f = Play (Arrowhead), 1f = Pause (Dual Bars)
     val morphProgress = remember { Animatable(if (isPlaying) 1f else 0f) }
@@ -66,17 +70,25 @@ fun PlayPauseMorphButton(
         modifier = modifier
             .size(size)
             .scale(pressScale.value)
-            .liquidGlassSurface(
-                shape = CircleShape,
-                backgroundColor = Color.White.copy(alpha = 0.12f),
-                borderWidth = 1.dp,
-                borderBrush = Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.60f),
-                        glowColor.copy(alpha = 0.40f)
+            .then(
+                if (flatBackground != null) {
+                    Modifier
+                        .clip(CircleShape)
+                        .background(flatBackground)
+                } else {
+                    Modifier.liquidGlassSurface(
+                        shape = CircleShape,
+                        backgroundColor = Color.White.copy(alpha = 0.12f),
+                        borderWidth = 1.dp,
+                        borderBrush = Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.60f),
+                                glowColor.copy(alpha = 0.40f)
+                            )
+                        ),
+                        blurRadius = 16.dp
                     )
-                ),
-                blurRadius = 16.dp
+                }
             )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },

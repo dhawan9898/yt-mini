@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -150,8 +151,11 @@ class AdBlockMediaPipeline(
             .setReadTimeoutMs(15000)
             .setAllowCrossProtocolRedirects(true)
 
+        // DefaultDataSource routes http(s) to the factory above and file:// to local storage
+        // (needed for offline downloads).
+        val routed = DefaultDataSource.Factory(context, baseHttpFactory)
         return DataSource.Factory {
-            AdFilteringHttpDataSource(baseHttpFactory.createDataSource())
+            AdFilteringHttpDataSource(routed.createDataSource())
         }
     }
 

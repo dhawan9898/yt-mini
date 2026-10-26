@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -36,7 +37,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
+import com.nexusstream.app.R
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
 import kotlin.math.sin
@@ -254,6 +262,42 @@ fun DynamicMeshBackground(
     }
 }
 
+/** Roboto (bundled variable font) - the typeface the official YouTube apps use. */
+val RobotoFamily = FontFamily(
+    listOf(
+        FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold,
+        FontWeight.Bold, FontWeight.ExtraBold, FontWeight.Black
+    ).map { weight ->
+        Font(
+            resId = R.font.roboto_variable,
+            weight = weight,
+            variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight))
+        )
+    }
+)
+
+private fun robotoTypography(): Typography {
+    val base = Typography()
+    return base.copy(
+        displayLarge = base.displayLarge.copy(fontFamily = RobotoFamily),
+        displayMedium = base.displayMedium.copy(fontFamily = RobotoFamily),
+        displaySmall = base.displaySmall.copy(fontFamily = RobotoFamily),
+        headlineLarge = base.headlineLarge.copy(fontFamily = RobotoFamily),
+        headlineMedium = base.headlineMedium.copy(fontFamily = RobotoFamily),
+        headlineSmall = base.headlineSmall.copy(fontFamily = RobotoFamily),
+        titleLarge = base.titleLarge.copy(fontFamily = RobotoFamily),
+        titleMedium = base.titleMedium.copy(fontFamily = RobotoFamily),
+        titleSmall = base.titleSmall.copy(fontFamily = RobotoFamily),
+        // bodyLarge is the default text style: no extra tracking or fixed line height.
+        bodyLarge = base.bodyLarge.copy(fontFamily = RobotoFamily, letterSpacing = 0.sp, lineHeight = TextUnit.Unspecified),
+        bodyMedium = base.bodyMedium.copy(fontFamily = RobotoFamily),
+        bodySmall = base.bodySmall.copy(fontFamily = RobotoFamily),
+        labelLarge = base.labelLarge.copy(fontFamily = RobotoFamily),
+        labelMedium = base.labelMedium.copy(fontFamily = RobotoFamily),
+        labelSmall = base.labelSmall.copy(fontFamily = RobotoFamily)
+    )
+}
+
 /**
  * Root theme for NexusStream.
  */
@@ -292,6 +336,7 @@ fun NexusTheme(
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
+            typography = robotoTypography(),
             content = content
         )
     }

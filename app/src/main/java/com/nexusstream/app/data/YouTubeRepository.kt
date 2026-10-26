@@ -13,6 +13,9 @@ import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
+import org.schabi.newpipe.extractor.comments.CommentsInfo
+import org.schabi.newpipe.extractor.playlist.PlaylistInfo
+import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import org.schabi.newpipe.extractor.stream.AudioStream
@@ -24,6 +27,19 @@ import kotlin.math.abs
 
 /** A titled row of tracks for the YT Music home screen. */
 data class MusicShelf(val title: String, val subtitle: String, val items: List<MediaItemModel>)
+
+/** A top-level comment on a video. */
+data class CommentModel(
+    val author: String,
+    val avatarUrl: String,
+    val text: String,
+    val likes: Int,
+    val date: String,
+    val pinned: Boolean
+)
+
+/** A single downloadable file. */
+data class DownloadTarget(val url: String, val extension: String)
 
 /** Direct, short-lived stream URLs for one video. */
 data class ResolvedStream(val audioUrl: String, val videoOnlyUrl: String?)
@@ -77,7 +93,7 @@ object YouTubeRepository {
             Triple(title, subtitle, query)
         }
         coroutineScope {
-            shelves.map { (title, subtitle, query) ->
+            val songShelves = shelves.map { (title, subtitle, query) ->
                 async {
                     MusicShelf(
                         title,
@@ -87,7 +103,16 @@ object YouTubeRepository {
                         }.getOrDefault(emptyList())
                     )
                 }
-            }.awaitAll()
+            }
+            val albums = async {
+                val query = if (mood.isBlank()) "new albums ${java.time.Year.now().value}" else "$mood albums"
+                MusicShelf(
+                    "Albums for you",
+                    "Fresh releases to explore",
+                    runCatching { searchAlbums(query) }.getOrDefault(emptyList())
+                )
+            }
+            songShelves.awaitAll() + albums.await()
         }.filter { it.items.isNotEmpty() }
             .also { check(it.isNotEmpty()) { "No music results" } }
     }
@@ -106,7 +131,73 @@ object YouTubeRepository {
         ResolvedStream(audioUrl = audio.content, videoOnlyUrl = video?.content)
     }
 
+    /** Tracks of an album / playlist, as playable music items. */
+    suspend fun playlistTracks(playlistUrl: String): Result<List<MediaItemModel>> = io {
+        PlaylistInfo.getInfo(youtube, playlistUrl).relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .filter { it.duration > 0 }
+            .mapNotNull { toModel(it, isMusic = true) }
+            .distinctBy { it.id }
+            .also { check(it.isNotEmpty()) { "This album has no playable tracks" } }
+    }
+
+    /** Top-level comments for a video. */
+    suspend fun comments(watchUrl: String): Result<List<CommentModel>> = io {
+        CommentsInfo.getInfo(youtube, watchUrl).relatedItems.map { c ->
+            CommentModel(
+                author = c.uploaderName.orEmpty(),
+                avatarUrl = bestImage(c.uploaderAvatars),
+                text = c.commentText?.content.orEmpty(),
+                likes = c.likeCount,
+                date = c.textualUploadDate.orEmpty(),
+                pinned = c.isPinned
+            )
+        }
+    }
+
+    /** Picks a single file to save offline: muxed video for videos, audio for music. */
+    suspend fun resolveDownload(watchUrl: String, audioOnly: Boolean): Result<DownloadTarget> = io {
+        val info = StreamInfo.getInfo(youtube, watchUrl)
+        val muxed = if (audioOnly) null else info.videoStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+            .maxByOrNull { it.height }
+        if (muxed != null) {
+            DownloadTarget(muxed.content, muxed.format?.suffix ?: "mp4")
+        } else {
+            val audio = info.audioStreams
+                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+                .maxByOrNull(::audioScore)
+                ?: error("No downloadable stream")
+            DownloadTarget(audio.content, audio.format?.suffix ?: "m4a")
+        }
+    }
+
     // ---- internals ----
+
+    private fun searchAlbums(query: String): List<MediaItemModel> {
+        val handler = youtube.searchQHFactory.fromQuery(query, listOf(YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS), "")
+        return SearchInfo.getInfo(youtube, handler).relatedItems
+            .filterIsInstance<PlaylistInfoItem>()
+            .map { album ->
+                val key = album.url.hashCode().toString().removePrefix("-")
+                val (primary, secondary) = colorsFor(key)
+                MediaItemModel(
+                    id = "pl_$key",
+                    title = album.name,
+                    artistOrChannel = album.uploaderName.orEmpty(),
+                    audioUrl = "",
+                    videoUrl = "",
+                    artworkUrl = bestImage(album.thumbnails),
+                    durationMs = 0L,
+                    dominantColor = primary,
+                    secondaryColor = secondary,
+                    contentType = MediaContentType.MUSIC_TRACK,
+                    sourceUrl = album.url,
+                    isCollection = true
+                )
+            }
+    }
+
 
     private suspend fun <T> io(block: suspend () -> T): Result<T> = withContext(Dispatchers.IO) {
         runCatching {

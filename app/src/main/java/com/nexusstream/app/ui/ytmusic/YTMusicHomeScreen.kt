@@ -46,6 +46,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.ui.components.OriginalEmptyState
+import com.nexusstream.app.model.MediaContentType
+import com.nexusstream.app.data.LibraryRepository
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -108,9 +114,29 @@ fun YTMusicHomeScreen(
         delay(450)
         searchState = YouTubeRepository.searchSongs(query).toFeedState()
     }
-    // Library / Explore are built from whatever has been loaded so far.
-    val allLoaded = remember(shelves) {
-        ((shelves as? FeedState.Data)?.value.orEmpty()).flatMap { it.items }.distinctBy { it.id }
+    val history by LibraryRepository.history.collectAsState()
+    val savedItems by LibraryRepository.saved.collectAsState()
+    val downloadedItems by LibraryRepository.downloads.collectAsState()
+    val listenAgain = remember(history) {
+        MusicShelf(
+            "Listen again",
+            "Pick up where you left off",
+            history.filter { it.contentType == MediaContentType.MUSIC_TRACK && !it.isCollection }.take(12)
+        )
+    }
+
+    // Albums open by loading their tracks; everything else plays directly.
+    val scope = rememberCoroutineScope()
+    val playOrOpen: (MediaItemModel, List<MediaItemModel>) -> Unit = { track, queue ->
+        if (track.isCollection) {
+            scope.launch {
+                YouTubeRepository.playlistTracks(track.sourceUrl).onSuccess { tracks ->
+                    onSelectTrack(tracks.first(), tracks)
+                }
+            }
+        } else {
+            onSelectTrack(track, queue)
+        }
     }
 
     val moods = remember { listOf("Energize", "Relax", "Workout", "Focus", "Commute") }
@@ -188,13 +214,22 @@ fun YTMusicHomeScreen(
                     }
                 }
             } else if (selectedTab == 2) {
-                val library = allLoaded
-                LazyColumn(
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(library, key = { "lib_${it.id}" }) { track ->
-                        YTMusicSearchResultRow(item = track, onClick = { onSelectTrack(track, library) })
+                val library = remember(downloadedItems, savedItems) {
+                    (downloadedItems + savedItems).distinctBy { it.id }
+                }
+                if (library.isEmpty()) {
+                    OriginalEmptyState(
+                        title = "Your library",
+                        message = "Songs you like and download will show up here."
+                    )
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(library, key = { "lib_${it.id}" }) { track ->
+                            YTMusicSearchResultRow(item = track, onClick = { playOrOpen(track, library) })
+                        }
                     }
                 }
             } else if (isSearchActive && searchQuery.isNotBlank()) {
@@ -208,7 +243,7 @@ fun YTMusicHomeScreen(
                         items(state.value, key = { "ytm_search_${it.id}" }) { track ->
                             YTMusicSearchResultRow(
                                 item = track,
-                                onClick = { onSelectTrack(track, state.value) }
+                                onClick = { playOrOpen(track, state.value) }
                             )
                         }
                     }
@@ -222,10 +257,15 @@ fun YTMusicHomeScreen(
                         verticalArrangement = Arrangement.spacedBy(28.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(state.value, key = { it.title }) { shelf ->
+                        val rows = if (selectedMood.isBlank() && listenAgain.items.isNotEmpty()) {
+                            listOf(listenAgain) + state.value
+                        } else {
+                            state.value
+                        }
+                        items(rows, key = { it.title }) { shelf ->
                             YTMusicShelfCarousel(
                                 shelf = shelf,
-                                onSelectTrack = { track -> onSelectTrack(track, shelf.items) }
+                                onSelectTrack = { track -> playOrOpen(track, shelf.items) }
                             )
                         }
                     }

@@ -50,6 +50,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nexusstream.app.ui.components.toFeedState
+import com.nexusstream.app.ui.components.OriginalLoading
+import com.nexusstream.app.ui.components.OriginalError
+import com.nexusstream.app.ui.components.OriginalEmptyState
+import com.nexusstream.app.ui.components.FeedState
+import com.nexusstream.app.data.watchUrl
+import com.nexusstream.app.data.LibraryRepository
+import com.nexusstream.app.data.DownloadState
+import com.nexusstream.app.data.DownloadRepository
+import com.nexusstream.app.data.CommentModel
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.rounded.Bookmark
+import android.content.Intent
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -77,6 +95,7 @@ import com.nexusstream.app.ui.components.OriginalColors
  * - Recommended Up Next video feed.
  */
 @OptIn(UnstableApi::class)
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoWatchScreen(
     playbackService: MediaPlaybackService,
@@ -90,6 +109,22 @@ fun VideoWatchScreen(
     val recommendedVideos = remember(mediaItem) {
         YouTubeRepository.lastVideoFeed.filter { it.id != mediaItem.id }
     }
+
+    val context = LocalContext.current
+    val savedItems by LibraryRepository.saved.collectAsState()
+    val offlineItems by LibraryRepository.downloads.collectAsState()
+    val downloadStates by DownloadRepository.states.collectAsState()
+    val isSaved = savedItems.any { it.id == mediaItem.id }
+    val isDownloaded = offlineItems.any { it.id == mediaItem.id }
+    val downloadState = downloadStates[mediaItem.id]
+
+    var comments by remember(mediaItem.id) { mutableStateOf<FeedState<List<CommentModel>>>(FeedState.Loading) }
+    var commentsReload by remember { mutableStateOf(0) }
+    LaunchedEffect(mediaItem.id, commentsReload) {
+        comments = FeedState.Loading
+        comments = YouTubeRepository.comments(mediaItem.watchUrl).toFeedState()
+    }
+    var showComments by remember { mutableStateOf(false) }
 
     var isSubscribed by remember { mutableStateOf(false) }
     var isLiked by remember { mutableStateOf(false) }
@@ -130,6 +165,15 @@ fun VideoWatchScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+                if (playbackState.isResolving) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(36.dp)
+                    )
+                }
                 IconButton(
                     onClick = onCollapse,
                     modifier = Modifier.align(Alignment.TopStart)
@@ -265,43 +309,171 @@ fun VideoWatchScreen(
                             onClick = { isLiked = !isLiked }
                         )
                     }
-                    item { WatchActionChip(Icons.Rounded.Share, "Share") { } }
-                    item { WatchActionChip(Icons.Rounded.Download, "Download") { } }
-                    item { WatchActionChip(Icons.Rounded.BookmarkBorder, "Save") { } }
+                    item {
+                        WatchActionChip(Icons.Rounded.Share, "Share") {
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, mediaItem.watchUrl)
+                            }
+                            context.startActivity(Intent.createChooser(send, "Share"))
+                        }
+                    }
+                    item {
+                        WatchActionChip(
+                            icon = Icons.Rounded.Download,
+                            label = when {
+                                isDownloaded -> "Downloaded"
+                                downloadState is DownloadState.Downloading ->
+                                    "${(downloadState.progress * 100).toInt()}%"
+                                downloadState is DownloadState.Error -> "Retry"
+                                else -> "Download"
+                            },
+                            highlighted = isDownloaded
+                        ) {
+                            when {
+                                isDownloaded -> DownloadRepository.remove(mediaItem.id)
+                                downloadState is DownloadState.Downloading -> Unit
+                                else -> DownloadRepository.start(context, mediaItem)
+                            }
+                        }
+                    }
+                    item {
+                        WatchActionChip(
+                            icon = if (isSaved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                            label = if (isSaved) "Saved" else "Save",
+                            highlighted = isSaved
+                        ) { LibraryRepository.toggleSave(mediaItem) }
+                    }
                 }
             }
 
-            // Comments card
+            // Comments card with the top comment as a preview
             item {
-                Row(
+                val topComment = (comments as? FeedState.Data)?.value?.firstOrNull()
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(OriginalColors.Chip)
-                        .clickable { isCommentsExpanded = !isCommentsExpanded }
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .clickable { showComments = true }
+                        .padding(12.dp)
                 ) {
-                    Text(
-                        text = "Comments",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(
-                        imageVector = Icons.Rounded.Comment,
-                        contentDescription = null,
-                        tint = OriginalColors.TextSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Comments",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White
+                        )
+                        (comments as? FeedState.Data)?.value?.size?.takeIf { it > 0 }?.let {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "$it+", fontSize = 12.sp, color = OriginalColors.TextSecondary)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    when {
+                        topComment != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                            CommentAvatar(topComment, 24.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = topComment.text,
+                                fontSize = 13.sp,
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        comments is FeedState.Loading -> Text("Loading comments...", fontSize = 13.sp, color = OriginalColors.TextSecondary)
+                        comments is FeedState.Error -> Text("Comments unavailable", fontSize = 13.sp, color = OriginalColors.TextSecondary)
+                        else -> Text("No comments yet", fontSize = 13.sp, color = OriginalColors.TextSecondary)
+                    }
                 }
             }
 
             // Up next: same large cards as the home feed
             items(recommendedVideos, key = { "rec_${it.id}" }) { rec ->
                 YouTubeVideoCard(item = rec, onClick = { onSelectVideo(rec) })
+            }
+        }
+    }
+
+    if (showComments) {
+        ModalBottomSheet(
+            onDismissRequest = { showComments = false },
+            containerColor = Color(0xFF212121),
+            contentColor = Color.White
+        ) {
+            Column(modifier = Modifier.fillMaxHeight(0.8f)) {
+                Text(
+                    text = "Comments",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                when (val state = comments) {
+                    is FeedState.Loading -> OriginalLoading()
+                    is FeedState.Error -> OriginalError(
+                        message = state.message,
+                        onRetry = { commentsReload++ }
+                    )
+                    is FeedState.Data -> if (state.value.isEmpty()) {
+                        OriginalEmptyState("No comments", "Comments may be turned off for this video.")
+                    } else {
+                        LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                            items(state.value) { comment -> CommentRow(comment) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentAvatar(comment: CommentModel, size: androidx.compose.ui.unit.Dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(OriginalColors.Divider)
+    ) {
+        if (comment.avatarUrl.isNotEmpty()) {
+            AsyncImage(
+                model = comment.avatarUrl,
+                contentDescription = comment.author,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommentRow(comment: CommentModel) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        CommentAvatar(comment, 36.dp)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(
+                text = listOfNotNull(
+                    if (comment.pinned) "Pinned" else null,
+                    comment.author.takeIf { it.isNotBlank() },
+                    comment.date.takeIf { it.isNotBlank() }
+                ).joinToString(" • "),
+                fontSize = 12.sp,
+                color = OriginalColors.TextSecondary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(text = comment.text, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp)
+            if (comment.likes > 0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = "${comment.likes} likes", fontSize = 12.sp, color = OriginalColors.TextSecondary)
             }
         }
     }

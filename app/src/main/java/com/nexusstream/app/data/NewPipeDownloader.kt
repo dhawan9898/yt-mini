@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
  * OkHttp-backed [Downloader] that NewPipeExtractor uses for every network call.
  */
 class NewPipeDownloader private constructor(
-    private val client: OkHttpClient
+    val client: OkHttpClient
 ) : Downloader() {
 
     override fun execute(request: Request): Response {
