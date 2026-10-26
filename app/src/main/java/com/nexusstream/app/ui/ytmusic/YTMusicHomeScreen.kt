@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,13 +57,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.nexusstream.app.data.MediaRepository
-import com.nexusstream.app.model.MediaCategory
+import kotlinx.coroutines.delay
+import com.nexusstream.app.data.MusicShelf
+import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.components.BottomNavEntry
 import com.nexusstream.app.ui.components.OriginalBottomNav
 import com.nexusstream.app.ui.components.OriginalColors
+import com.nexusstream.app.ui.components.FeedState
+import com.nexusstream.app.ui.components.OriginalError
 import com.nexusstream.app.ui.components.OriginalFilterChips
+import com.nexusstream.app.ui.components.OriginalLoading
+import com.nexusstream.app.ui.components.toFeedState
 import com.nexusstream.app.ui.components.OriginalMiniPlayer
 
 /**
@@ -81,14 +87,31 @@ fun YTMusicHomeScreen(
     onTogglePlayPause: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val repository = remember { MediaRepository() }
-    val categories = remember { repository.getYTMusicCategories() }
-    val allItems = remember { repository.getAllItems() }
-    
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableStateOf(0) }
     var selectedMood by remember { mutableStateOf("") }
+    var selectedTab by remember { mutableStateOf(0) }
+    var reloadKey by remember { mutableStateOf(0) }
+    var shelves by remember { mutableStateOf<FeedState<List<MusicShelf>>>(FeedState.Loading) }
+    var searchState by remember { mutableStateOf<FeedState<List<MediaItemModel>>>(FeedState.Loading) }
+
+    // Live shelves, refetched when the mood changes or on retry.
+    LaunchedEffect(selectedMood, reloadKey) {
+        shelves = FeedState.Loading
+        shelves = YouTubeRepository.musicShelves(selectedMood).toFeedState()
+    }
+    // Live song search, debounced.
+    LaunchedEffect(searchQuery, reloadKey) {
+        val query = searchQuery.trim()
+        if (query.isEmpty()) return@LaunchedEffect
+        searchState = FeedState.Loading
+        delay(450)
+        searchState = YouTubeRepository.searchSongs(query).toFeedState()
+    }
+    // Library / Explore are built from whatever has been loaded so far.
+    val allLoaded = remember(shelves) {
+        ((shelves as? FeedState.Data)?.value.orEmpty()).flatMap { it.items }.distinctBy { it.id }
+    }
 
     val moods = remember { listOf("Energize", "Relax", "Workout", "Focus", "Commute") }
     val navEntries = remember {
@@ -131,7 +154,7 @@ fun YTMusicHomeScreen(
         ) {
             if (selectedTab == 1) {
                 // Explore: tap a genre to search it.
-                val genres = remember(allItems) { allItems.map { it.genre }.distinct() }
+                val genres = remember { listOf("Pop", "Hip-Hop", "Rock", "Electronic", "Indie", "Jazz", "Classical", "Bollywood", "K-Pop", "Lo-fi") }
                 LazyColumn(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -165,7 +188,7 @@ fun YTMusicHomeScreen(
                     }
                 }
             } else if (selectedTab == 2) {
-                val library = remember(allItems) { allItems.filter { !it.isShort && !it.isGame } }
+                val library = allLoaded
                 LazyColumn(
                     contentPadding = PaddingValues(vertical = 8.dp),
                     modifier = Modifier.fillMaxSize()
@@ -175,29 +198,36 @@ fun YTMusicHomeScreen(
                     }
                 }
             } else if (isSearchActive && searchQuery.isNotBlank()) {
-                val searchResults = remember(searchQuery) { repository.search(searchQuery) }
-                LazyColumn(
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(searchResults, key = { "ytm_search_${it.id}" }) { track ->
-                        YTMusicSearchResultRow(
-                            item = track,
-                            onClick = { onSelectTrack(track, searchResults) }
-                        )
+                when (val state = searchState) {
+                    is FeedState.Loading -> OriginalLoading()
+                    is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
+                    is FeedState.Data -> LazyColumn(
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(state.value, key = { "ytm_search_${it.id}" }) { track ->
+                            YTMusicSearchResultRow(
+                                item = track,
+                                onClick = { onSelectTrack(track, state.value) }
+                            )
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(28.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(categories, key = { it.id }) { cat ->
-                        YTMusicCategoryCarousel(
-                            category = cat,
-                            onSelectTrack = { track -> onSelectTrack(track, cat.items) }
-                        )
+                when (val state = shelves) {
+                    is FeedState.Loading -> OriginalLoading()
+                    is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
+                    is FeedState.Data -> LazyColumn(
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(28.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(state.value, key = { it.title }) { shelf ->
+                            YTMusicShelfCarousel(
+                                shelf = shelf,
+                                onSelectTrack = { track -> onSelectTrack(track, shelf.items) }
+                            )
+                        }
                     }
                 }
             }
@@ -309,21 +339,21 @@ private fun YTMusicHeader(
 }
 
 @Composable
-private fun YTMusicCategoryCarousel(
-    category: MediaCategory,
+private fun YTMusicShelfCarousel(
+    shelf: MusicShelf,
     onSelectTrack: (MediaItemModel) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // Category Title & Subtitle
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
             Text(
-                text = category.title,
+                text = shelf.title,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
             Text(
-                text = category.subtitle,
+                text = shelf.subtitle,
                 fontSize = 12.sp,
                 color = OriginalColors.TextSecondary,
                 maxLines = 1,
@@ -338,7 +368,7 @@ private fun YTMusicCategoryCarousel(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(category.items, key = { "carousel_${category.id}_${it.id}" }) { item ->
+            items(shelf.items, key = { "carousel_${shelf.title}_${it.id}" }) { item ->
                 YTMusicAlbumCard(
                     item = item,
                     onClick = { onSelectTrack(item) }

@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,13 +61,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.nexusstream.app.data.MediaRepository
+import kotlinx.coroutines.delay
+import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
 import com.nexusstream.app.ui.components.BottomNavEntry
 import com.nexusstream.app.ui.components.OriginalBottomNav
 import com.nexusstream.app.ui.components.OriginalColors
+import com.nexusstream.app.ui.components.FeedState
 import com.nexusstream.app.ui.components.OriginalEmptyState
+import com.nexusstream.app.ui.components.OriginalError
+import com.nexusstream.app.ui.components.OriginalLoading
+import com.nexusstream.app.ui.components.toFeedState
 import com.nexusstream.app.ui.components.OriginalFilterChips
 import com.nexusstream.app.ui.components.OriginalMiniPlayer
 
@@ -87,26 +93,28 @@ fun YouTubeHomeScreen(
     onTogglePlayPause: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val repository = remember { MediaRepository() }
-    val videoFeed = remember { repository.getFilteredYouTubeFeed() }
-    
     var selectedCategory by remember { mutableStateOf("All") }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
+    var reloadKey by remember { mutableStateOf(0) }
+    var feed by remember { mutableStateOf<FeedState<List<MediaItemModel>>>(FeedState.Loading) }
 
-    val filteredList = remember(selectedCategory, searchQuery) {
-        var result = videoFeed
-        if (selectedCategory != "All") {
-            result = result.filter { it.genre.equals(selectedCategory, ignoreCase = true) }
+    // Live data: refetch on category / search / retry. Search is debounced.
+    LaunchedEffect(selectedCategory, searchQuery, reloadKey) {
+        val query = searchQuery.trim()
+        if (isSearchActive && query.isEmpty()) return@LaunchedEffect
+        feed = FeedState.Loading
+        if (query.isNotEmpty()) delay(450)
+        feed = if (query.isNotEmpty()) {
+            YouTubeRepository.searchVideos(query).toFeedState()
+        } else {
+            YouTubeRepository.videoFeed(selectedCategory).toFeedState()
         }
-        if (searchQuery.isNotBlank()) {
-            result = repository.search(searchQuery).filter { !it.isShort && !it.isGame }
-        }
-        result
     }
+    val filteredList = (feed as? FeedState.Data)?.value.orEmpty()
 
-    val categories = remember { listOf("All", "Synthwave", "Cyberpunk", "Ambient", "Chillout", "Electronic") }
+    val categories = remember { listOf("All", "Music", "Gaming", "News", "Sports", "Movies", "Technology", "Cooking") }
     val navEntries = remember {
         listOf(
             BottomNavEntry("Home", Icons.Rounded.Home),
@@ -146,7 +154,7 @@ fun YouTubeHomeScreen(
         ) {
             if (selectedTab == 1) {
                 // Subscriptions: channels from the feed, then their videos grouped by channel.
-                val byChannel = remember(videoFeed) { videoFeed.sortedBy { it.artistOrChannel } }
+                val byChannel = remember(filteredList) { filteredList.sortedBy { it.artistOrChannel } }
                 LazyColumn(
                     contentPadding = PaddingValues(vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -161,13 +169,20 @@ fun YouTubeHomeScreen(
                     title = "Your library",
                     message = "Watch history and playlists will show up here."
                 )
+            } else if (feed is FeedState.Loading) {
+                OriginalLoading()
+            } else if (feed is FeedState.Error) {
+                OriginalError(
+                    message = (feed as FeedState.Error).message,
+                    onRetry = { reloadKey++ }
+                )
             } else if (filteredList.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No videos match your filter",
+                        text = "No results found",
                         fontSize = 15.sp,
                         color = OriginalColors.TextSecondary
                     )

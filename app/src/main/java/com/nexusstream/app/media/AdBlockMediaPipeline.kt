@@ -12,6 +12,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
+import com.nexusstream.app.data.NewPipeDownloader
 import java.io.IOException
 import java.util.regex.Pattern
 
@@ -22,7 +23,7 @@ import java.util.regex.Pattern
 @OptIn(UnstableApi::class)
 class AdBlockMediaPipeline(
     private val context: Context,
-    private val userAgent: String = "NexusStream/2.4 (Android; LiquidEngine)"
+    private val userAgent: String = NewPipeDownloader.USER_AGENT
 ) {
 
     companion object {
@@ -33,13 +34,13 @@ class AdBlockMediaPipeline(
             Pattern.compile(".*doubleclick\\.net.*", Pattern.CASE_INSENSITIVE),
             Pattern.compile(".*youtube\\.com/api/stats/ads.*", Pattern.CASE_INSENSITIVE),
             Pattern.compile(".*youtube\\.com/pagead/.*", Pattern.CASE_INSENSITIVE),
-            Pattern.compile(".*googlevideo\\.com/videoplayback.*[&?]adformat=.*", Pattern.CASE_INSENSITIVE),
-            Pattern.compile(".*googlevideo\\.com/videoplayback.*[&?]ctier=.*", Pattern.CASE_INSENSITIVE),
-            Pattern.compile(".*googlevideo\\.com/videoplayback.*[&?]oad=.*", Pattern.CASE_INSENSITIVE)
+            Pattern.compile(".*googlevideo\\.com/videoplayback.*[&?]adformat=.*", Pattern.CASE_INSENSITIVE)
         )
 
+        // NOTE: "ctier" and "oad" appear on ordinary (non-ad) googlevideo stream URLs, so they
+        // must not be treated as ad markers or every real stream would be blocked.
         private val AD_QUERY_PARAMS = setOf(
-            "adformat", "ad_type", "ad_unit", "ctier", "oad", "masthead"
+            "adformat", "ad_type", "ad_unit", "masthead"
         )
     }
 
@@ -111,6 +112,8 @@ class AdBlockMediaPipeline(
     private fun sanitizeDataSpec(original: DataSpec): DataSpec {
         val uri = original.uri
         if (!uri.isHierarchical || uri.query.isNullOrEmpty()) return original
+        // Signed stream URLs must be passed through untouched or the signature breaks.
+        if (uri.host.orEmpty().endsWith("googlevideo.com")) return original
 
         val queryParams = uri.queryParameterNames
         var hasAdParam = false

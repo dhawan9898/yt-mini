@@ -25,13 +25,17 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
 import com.nexusstream.app.model.StreamRepeatMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -68,6 +72,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var loadJob: Job? = null
 
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var mediaSession: MediaSession
@@ -259,10 +264,16 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         playQueue(listOf(item), 0, startInVideoMode)
     }
 
-    private fun loadTrack(item: MediaItemModel, startInVideoMode: Boolean = false) {
+    private fun loadTrack(
+        item: MediaItemModel,
+        startInVideoMode: Boolean = false,
+        isRetry: Boolean = false,
+        startPositionMs: Long = 0L
+    ) {
         if (!::exoPlayer.isInitialized) return
 
-        retryCount = 0
+        loadJob?.cancel()
+        if (!isRetry) retryCount = 0
         currentMode = if (startInVideoMode) PlaybackMode.VIDEO else PlaybackMode.AUDIO_ONLY
         applyPlaybackModeTracks(currentMode)
 
@@ -272,31 +283,65 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             .setDisplayTitle(item.title)
             .build()
 
-        val streamUrl = if (currentMode == PlaybackMode.VIDEO) item.videoUrl else item.audioUrl
-
-        val mediaItem = MediaItem.Builder()
-            .setMediaId(item.id)
-            .setUri(streamUrl)
-            .setMediaMetadata(metadata)
-            .build()
-
-        exoPlayer.setMediaItem(mediaItem)
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
-
         val validDuration = if (item.durationMs > 0) item.durationMs else 0L
 
         _playbackState.value = _playbackState.value.copy(
             currentItem = item,
             playbackMode = currentMode,
             durationMs = validDuration,
-            currentPositionMs = 0L,
+            currentPositionMs = startPositionMs,
             bufferedPositionMs = 0L,
             hasError = false,
             errorMessage = null
         )
-
         updateForegroundNotification()
+
+        if (item.sourceUrl.isEmpty()) {
+            // Item already carries direct URLs.
+            val streamUrl = if (currentMode == PlaybackMode.VIDEO) item.videoUrl else item.audioUrl
+            val mediaItem = MediaItem.Builder()
+                .setMediaId(item.id)
+                .setUri(streamUrl)
+                .setMediaMetadata(metadata)
+                .build()
+            exoPlayer.setMediaItem(mediaItem, startPositionMs)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+            return
+        }
+
+        // Live YouTube item: resolve fresh stream URLs first (they expire), then play.
+        loadJob = serviceScope.launch {
+            val resolved = YouTubeRepository.resolveStream(item.sourceUrl).getOrElse { error ->
+                Log.e(TAG, "Stream resolution failed for ${item.id}: ${error.message}", error)
+                _playbackState.value = _playbackState.value.copy(
+                    hasError = true,
+                    errorMessage = "Couldn't load stream: ${error.message ?: "unknown error"}"
+                )
+                return@launch
+            }
+
+            val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
+            val audioSource = factory.createMediaSource(
+                MediaItem.Builder()
+                    .setMediaId(item.id)
+                    .setUri(resolved.audioUrl)
+                    .setMediaMetadata(metadata)
+                    .build()
+            )
+            // Always merge video when available; the video renderer stays disabled (and
+            // downloads nothing) in audio-only mode, so toggling modes is instant.
+            val source = resolved.videoOnlyUrl?.let { videoUrl ->
+                MergingMediaSource(
+                    factory.createMediaSource(MediaItem.fromUri(videoUrl)),
+                    audioSource
+                )
+            } ?: audioSource
+
+            exoPlayer.setMediaSource(source, startPositionMs)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+        }
     }
 
     fun skipToNext() {
@@ -426,9 +471,19 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         if (retryCount < MAX_RETRY_ATTEMPTS) {
             retryCount++
             Log.i(TAG, "Retrying playback attempt $retryCount of $MAX_RETRY_ATTEMPTS...")
+            val current = _playbackState.value.currentItem
             serviceScope.launch {
                 delay(1000L * retryCount)
-                if (::exoPlayer.isInitialized) {
+                if (!::exoPlayer.isInitialized) return@launch
+                if (current != null && current.sourceUrl.isNotEmpty()) {
+                    // Stream URLs expire; fetch fresh ones and resume where we were.
+                    loadTrack(
+                        current,
+                        startInVideoMode = currentMode == PlaybackMode.VIDEO,
+                        isRetry = true,
+                        startPositionMs = exoPlayer.currentPosition
+                    )
+                } else {
                     exoPlayer.prepare()
                     exoPlayer.play()
                 }

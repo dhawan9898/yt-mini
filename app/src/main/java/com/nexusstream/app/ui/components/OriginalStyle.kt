@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -230,5 +231,50 @@ fun OriginalEmptyState(title: String, message: String, modifier: Modifier = Modi
         Text(text = title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
         Spacer(modifier = Modifier.height(6.dp))
         Text(text = message, fontSize = 14.sp, color = OriginalColors.TextSecondary)
+    }
+}
+
+/** Load state for a network-backed list. */
+sealed interface FeedState<out T> {
+    data object Loading : FeedState<Nothing>
+    data class Error(val message: String) : FeedState<Nothing>
+    data class Data<T>(val value: T) : FeedState<T>
+}
+
+/** Converts a [Result] into a [FeedState]. */
+fun <T> Result<T>.toFeedState(): FeedState<T> = fold(
+    onSuccess = { FeedState.Data(it) },
+    onFailure = { FeedState.Error(it.message ?: "Something went wrong") }
+)
+
+@Composable
+fun OriginalLoading(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+    }
+}
+
+@Composable
+fun OriginalError(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(text = "Couldn't load content", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(text = message, fontSize = 13.sp, color = OriginalColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Spacer(modifier = Modifier.height(16.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.White)
+                .clickable(onClick = onRetry)
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            Text(text = "Retry", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black)
+        }
     }
 }

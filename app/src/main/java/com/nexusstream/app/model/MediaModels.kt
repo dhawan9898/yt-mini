@@ -60,8 +60,10 @@ data class MediaItemModel(
     val isGame: Boolean = false,
     val channelAvatarUrl: String = "",
     val publishDate: String = "2 days ago",
-    val likesCount: String = "142K",
-    val description: String = ""
+    val likesCount: String = "Like",
+    val description: String = "",
+    /** Public watch URL; when set, direct stream URLs are resolved at play time. */
+    val sourceUrl: String = ""
 )
 
 /**

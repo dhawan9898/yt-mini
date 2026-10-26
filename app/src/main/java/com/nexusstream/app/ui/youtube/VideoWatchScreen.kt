@@ -62,7 +62,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.nexusstream.app.data.MediaRepository
+import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.theme.DynamicMeshBackground
@@ -87,9 +87,8 @@ fun VideoWatchScreen(
     val playbackState by playbackService.playbackState.collectAsState()
     val mediaItem = playbackState.currentItem ?: return
 
-    val repository = remember { MediaRepository() }
     val recommendedVideos = remember(mediaItem) {
-        repository.getFilteredYouTubeFeed().filter { it.id != mediaItem.id }
+        YouTubeRepository.lastVideoFeed.filter { it.id != mediaItem.id }
     }
 
     var isSubscribed by remember { mutableStateOf(false) }
@@ -208,7 +207,7 @@ fun VideoWatchScreen(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
-                            text = "${mediaItem.viewsOrPlays} views • ${mediaItem.publishDate} • #${mediaItem.genre}",
+                            text = listOf("${mediaItem.viewsOrPlays} views", mediaItem.publishDate).filter { it.isNotBlank() }.joinToString(" • "),
                             fontSize = 12.sp,
                             color = Color.White.copy(alpha = 0.6f)
                         )
