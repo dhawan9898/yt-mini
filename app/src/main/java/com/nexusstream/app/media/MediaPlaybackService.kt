@@ -455,7 +455,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", playPauseIntent)
             .addAction(android.R.drawable.ic_media_next, "Next", nextIntent)
             .setStyle(
-                androidx.media.app.NotificationCompat.MediaStyle()
+                androidx.media3.session.MediaStyleNotificationHelper.MediaStyle(mediaSession)
                     .setShowActionsInCompactView(0, 1, 2)
             )
             .setPriority(NotificationCompat.PRIORITY_LOW)

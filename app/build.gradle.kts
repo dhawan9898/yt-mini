@@ -70,6 +70,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // AndroidX Media (legacy notification support)
+    implementation("androidx.media:media:1.7.0")
+
     // Coil Image Loading
     implementation("io.coil-kt:coil-compose:2.7.0")
 }
