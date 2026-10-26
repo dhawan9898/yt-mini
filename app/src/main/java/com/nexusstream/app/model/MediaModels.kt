@@ -29,6 +29,16 @@ enum class AudioQuality(val label: String, val bitrateKbps: Int) {
 }
 
 /**
+ * Media content classification type.
+ */
+enum class MediaContentType {
+    MUSIC_TRACK,
+    YOUTUBE_VIDEO,
+    YOUTUBE_SHORT,
+    GAME_PLAYABLE
+}
+
+/**
  * Represents a track or video item within the NexusStream unified ecosystem.
  */
 data class MediaItemModel(
@@ -44,7 +54,14 @@ data class MediaItemModel(
     val isExplicit: Boolean = false,
     val viewsOrPlays: String = "2.4M",
     val lyrics: List<LyricLine> = emptyList(),
-    val genre: String = "Electronic"
+    val genre: String = "Electronic",
+    val contentType: MediaContentType = MediaContentType.YOUTUBE_VIDEO,
+    val isShort: Boolean = false,
+    val isGame: Boolean = false,
+    val channelAvatarUrl: String = "",
+    val publishDate: String = "2 days ago",
+    val likesCount: String = "142K",
+    val description: String = ""
 )
 
 /**

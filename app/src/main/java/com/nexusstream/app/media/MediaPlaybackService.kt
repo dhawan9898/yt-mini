@@ -11,12 +11,14 @@ import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
@@ -39,7 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * State representing continuous playback and queue status for Jetpack Compose UI.
+ * State representing continuous playback, error conditions, and queue status for Jetpack Compose UI.
  */
 data class PlaybackState(
     val currentItem: MediaItemModel? = null,
@@ -52,12 +54,14 @@ data class PlaybackState(
     val queue: List<MediaItemModel> = emptyList(),
     val queueIndex: Int = 0,
     val shuffleEnabled: Boolean = false,
-    val repeatMode: StreamRepeatMode = StreamRepeatMode.ALL
+    val repeatMode: StreamRepeatMode = StreamRepeatMode.ALL,
+    val hasError: Boolean = false,
+    val errorMessage: String? = null
 )
 
 /**
  * AndroidX MediaSessionService enabling foreground audio streaming,
- * ad-blocked media pipelines, queue navigation, and seamless instant audio <-> video toggling.
+ * ad-blocked media pipelines, queue navigation, and error-recovering playback.
  */
 @OptIn(UnstableApi::class)
 class MediaPlaybackService : MediaSessionService(), Player.Listener {
@@ -74,11 +78,12 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     private var currentMode: PlaybackMode = PlaybackMode.AUDIO_ONLY
     private var isReceiverRegistered = false
+    private var retryCount = 0
 
     private val becomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                if (exoPlayer.isPlaying) {
+                if (::exoPlayer.isInitialized && exoPlayer.isPlaying) {
                     exoPlayer.pause()
                 }
             }
@@ -86,6 +91,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     companion object {
+        private const val TAG = "MediaPlaybackService"
         const val NOTIFICATION_CHANNEL_ID = "nexus_stream_playback_channel"
         const val NOTIFICATION_ID = 1001
         const val ACTION_PLAY = "com.nexusstream.action.PLAY"
@@ -93,6 +99,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         const val ACTION_NEXT = "com.nexusstream.action.NEXT"
         const val ACTION_PREV = "com.nexusstream.action.PREV"
         const val ACTION_STOP = "com.nexusstream.action.STOP"
+        private const val MAX_RETRY_ATTEMPTS = 3
     }
 
     inner class LocalBinder : Binder() {
@@ -106,22 +113,23 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     override fun onCreate() {
         super.onCreate()
+        createNotificationChannel()
+        startForegroundWithInitialNotification()
         initAdBlockPipeline()
         initExoPlayer()
         initMediaSession()
-        createNotificationChannel()
         registerBecomingNoisyReceiver()
         startPositionTrackingLoop()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PLAY -> if (!exoPlayer.isPlaying) exoPlayer.play()
-            ACTION_PAUSE -> if (exoPlayer.isPlaying) exoPlayer.pause()
+            ACTION_PLAY -> if (::exoPlayer.isInitialized && !exoPlayer.isPlaying) exoPlayer.play()
+            ACTION_PAUSE -> if (::exoPlayer.isInitialized && exoPlayer.isPlaying) exoPlayer.pause()
             ACTION_NEXT -> skipToNext()
             ACTION_PREV -> skipToPrevious()
             ACTION_STOP -> {
-                exoPlayer.pause()
+                if (::exoPlayer.isInitialized) exoPlayer.pause()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -172,7 +180,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        return mediaSession
+        return if (::mediaSession.isInitialized) mediaSession else null
     }
 
     private fun registerBecomingNoisyReceiver() {
@@ -187,14 +195,15 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         if (isReceiverRegistered) {
             try {
                 unregisterReceiver(becomingNoisyReceiver)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Receiver unregister failed: ${e.message}")
+            }
             isReceiverRegistered = false
         }
     }
 
     /**
-     * Seamless video-to-audio-only seamless toggle.
-     * Preserves exact millisecond position without reloading the pipeline.
+     * Seamless video-to-audio-only toggle preserving position.
      */
     fun togglePlaybackMode(targetMode: PlaybackMode) {
         if (currentMode == targetMode) return
@@ -205,6 +214,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     private fun applyPlaybackModeTracks(mode: PlaybackMode) {
+        if (!::exoPlayer.isInitialized) return
         val currentParameters = exoPlayer.trackSelectionParameters
         val newParameters: TrackSelectionParameters = when (mode) {
             PlaybackMode.AUDIO_ONLY -> {
@@ -234,7 +244,9 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
         _playbackState.value = _playbackState.value.copy(
             queue = items,
-            queueIndex = validIndex
+            queueIndex = validIndex,
+            hasError = false,
+            errorMessage = null
         )
 
         loadTrack(items[validIndex], startInVideoMode)
@@ -248,6 +260,9 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     private fun loadTrack(item: MediaItemModel, startInVideoMode: Boolean = false) {
+        if (!::exoPlayer.isInitialized) return
+
+        retryCount = 0
         currentMode = if (startInVideoMode) PlaybackMode.VIDEO else PlaybackMode.AUDIO_ONLY
         applyPlaybackModeTracks(currentMode)
 
@@ -269,12 +284,16 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
 
+        val validDuration = if (item.durationMs > 0) item.durationMs else 0L
+
         _playbackState.value = _playbackState.value.copy(
             currentItem = item,
             playbackMode = currentMode,
-            durationMs = item.durationMs,
+            durationMs = validDuration,
             currentPositionMs = 0L,
-            bufferedPositionMs = 0L
+            bufferedPositionMs = 0L,
+            hasError = false,
+            errorMessage = null
         )
 
         updateForegroundNotification()
@@ -286,7 +305,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         if (queue.isEmpty()) return
 
         val nextIndex = if (currentState.shuffleEnabled) {
-            queue.indices.filter { it != currentState.queueIndex }.randomOrNull() ?: 0
+            val remainingIndices = queue.indices.filter { it != currentState.queueIndex }
+            if (remainingIndices.isNotEmpty()) remainingIndices.random() else currentState.queueIndex
         } else {
             if (currentState.queueIndex + 1 < queue.size) {
                 currentState.queueIndex + 1
@@ -306,8 +326,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         val queue = currentState.queue
         if (queue.isEmpty()) return
 
-        // If played more than 3 seconds, rewind to beginning
-        if (exoPlayer.currentPosition > 3000) {
+        if (::exoPlayer.isInitialized && exoPlayer.currentPosition > 3000) {
             seekTo(0)
             return
         }
@@ -340,6 +359,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     fun togglePlayPause() {
+        if (!::exoPlayer.isInitialized) return
         if (exoPlayer.isPlaying) {
             exoPlayer.pause()
         } else {
@@ -348,6 +368,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     fun seekTo(positionMs: Long) {
+        if (!::exoPlayer.isInitialized) return
         exoPlayer.seekTo(positionMs)
         _playbackState.value = _playbackState.value.copy(currentPositionMs = positionMs)
     }
@@ -360,8 +381,16 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
+        if (!::exoPlayer.isInitialized) return
+
         val isBuffering = playbackState == Player.STATE_BUFFERING
-        val duration = if (exoPlayer.duration > 0) exoPlayer.duration else (_playbackState.value.currentItem?.durationMs ?: 0L)
+        val playerDuration = exoPlayer.duration
+        val duration = if (playerDuration > 0 && playerDuration != C.TIME_UNSET) {
+            playerDuration
+        } else {
+            (_playbackState.value.currentItem?.durationMs ?: 0L)
+        }
+
         _playbackState.value = _playbackState.value.copy(
             isBuffering = isBuffering,
             durationMs = duration
@@ -379,19 +408,64 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         }
     }
 
+    override fun onPlayerError(error: PlaybackException) {
+        Log.e(TAG, "ExoPlayer error occurred: ${error.message}", error)
+        
+        val cause = error.cause
+        if (cause is AdBlockedException) {
+            Log.i(TAG, "Ad request intercepted cleanly. Resuming main playback stream.")
+            // Resume or prepare next segment seamlessly
+            if (::exoPlayer.isInitialized) {
+                exoPlayer.prepare()
+                exoPlayer.play()
+            }
+            return
+        }
+
+        // Handle transient stream loading or network errors
+        if (retryCount < MAX_RETRY_ATTEMPTS) {
+            retryCount++
+            Log.i(TAG, "Retrying playback attempt $retryCount of $MAX_RETRY_ATTEMPTS...")
+            serviceScope.launch {
+                delay(1000L * retryCount)
+                if (::exoPlayer.isInitialized) {
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                }
+            }
+        } else {
+            // Auto-advance to next track if retry limit reached
+            Log.w(TAG, "Max retry attempts reached. Auto-skipping to next queue item.")
+            _playbackState.value = _playbackState.value.copy(
+                hasError = true,
+                errorMessage = "Stream playback failed. Auto-skipping..."
+            )
+            skipToNext()
+        }
+    }
+
     private fun startPositionTrackingLoop() {
         serviceScope.launch {
             while (true) {
-                if (exoPlayer.isPlaying) {
-                    val currentPos = exoPlayer.currentPosition
-                    val bufferedPos = exoPlayer.bufferedPosition
-                    val dur = if (exoPlayer.duration > 0) exoPlayer.duration else (_playbackState.value.currentItem?.durationMs ?: 0L)
+                try {
+                    if (::exoPlayer.isInitialized && exoPlayer.isPlaying) {
+                        val currentPos = exoPlayer.currentPosition.coerceAtLeast(0L)
+                        val bufferedPos = exoPlayer.bufferedPosition.coerceAtLeast(0L)
+                        val playerDur = exoPlayer.duration
+                        val dur = if (playerDur > 0 && playerDur != C.TIME_UNSET) {
+                            playerDur
+                        } else {
+                            (_playbackState.value.currentItem?.durationMs ?: 0L)
+                        }
 
-                    _playbackState.value = _playbackState.value.copy(
-                        currentPositionMs = currentPos,
-                        bufferedPositionMs = bufferedPos,
-                        durationMs = dur
-                    )
+                        _playbackState.value = _playbackState.value.copy(
+                            currentPositionMs = currentPos,
+                            bufferedPositionMs = bufferedPos,
+                            durationMs = dur
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Position tracking loop error: ${e.message}")
                 }
                 delay(200)
             }
@@ -413,8 +487,22 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         }
     }
 
+    private fun startForegroundWithInitialNotification() {
+        val initialNotification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle("NexusStream Engine")
+            .setContentText("Unified Audio & Video Pipeline Active")
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        startForeground(NOTIFICATION_ID, initialNotification)
+    }
+
     private fun updateForegroundNotification() {
         val item = _playbackState.value.currentItem ?: return
+        if (!::exoPlayer.isInitialized || !::mediaSession.isInitialized) return
+
         val isPlaying = exoPlayer.isPlaying
 
         val prevIntent = PendingIntent.getService(
@@ -467,9 +555,17 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     override fun onDestroy() {
         unregisterBecomingNoisyReceiver()
         serviceScope.cancel()
-        exoPlayer.removeListener(this)
-        exoPlayer.release()
-        mediaSession.release()
+        try {
+            if (::exoPlayer.isInitialized) {
+                exoPlayer.removeListener(this)
+                exoPlayer.release()
+            }
+            if (::mediaSession.isInitialized) {
+                mediaSession.release()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning up playback service resources: ${e.message}")
+        }
         super.onDestroy()
     }
 }

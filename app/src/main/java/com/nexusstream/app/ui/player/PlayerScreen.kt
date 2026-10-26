@@ -297,6 +297,9 @@ private fun TopControlBar(
     isLyricsActive: Boolean,
     onToggleQueue: () -> Unit
 ) {
+    var selectedQualityIndex by remember { mutableStateOf(0) }
+    val qualities = listOf("320K", "192K", "96K")
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -328,7 +331,31 @@ private fun TopControlBar(
             onModeSelected = onModeSelected
         )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Audio Quality Toggle Pill
+            Box(
+                modifier = Modifier
+                    .liquidGlassSurface(
+                        shape = RoundedCornerShape(12.dp),
+                        backgroundColor = Color(0xFFFF4757).copy(alpha = 0.25f),
+                        borderWidth = 0.8.dp
+                    )
+                    .clickable {
+                        selectedQualityIndex = (selectedQualityIndex + 1) % qualities.size
+                    }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = qualities[selectedQualityIndex],
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
             // Queue Toggle Button
             IconButton(
                 onClick = onToggleQueue,
@@ -643,8 +670,8 @@ private fun FluidFloatingControlsPanel(
     var isDraggingSlider by remember { mutableStateOf(false) }
     var sliderTempPosition by remember { mutableFloatStateOf(0f) }
 
-    val currentMs = if (isDraggingSlider) sliderTempPosition.toLong() else playbackState.currentPositionMs
-    val totalMs = playbackState.durationMs.coerceAtLeast(1L)
+    val totalMs = if (playbackState.durationMs > 0L) playbackState.durationMs else (mediaItem.durationMs.takeIf { it > 0L } ?: 1L)
+    val currentMs = (if (isDraggingSlider) sliderTempPosition.toLong() else playbackState.currentPositionMs).coerceIn(0L, totalMs)
     val sliderProgress = (currentMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
 
     Column(
@@ -869,7 +896,7 @@ private fun QueueSheet(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                itemsIndexed(queue) { index, item ->
+                itemsIndexed(queue, key = { index, item -> "${index}_${item.id}" }) { index, item ->
                     val isCurrent = index == currentIndex
 
                     Row(

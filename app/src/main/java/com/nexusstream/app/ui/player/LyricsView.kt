@@ -97,7 +97,7 @@ fun LyricsView(
             verticalArrangement = Arrangement.spacedBy(26.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            itemsIndexed(lyrics, key = { _, line -> line.startTimeMs }) { index, line ->
+            itemsIndexed(lyrics, key = { index, line -> "${index}_${line.startTimeMs}" }) { index, line ->
                 val isActive = index == activeIndex
                 val isPast = index < activeIndex
 
