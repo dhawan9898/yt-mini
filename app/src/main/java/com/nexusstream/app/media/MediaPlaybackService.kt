@@ -29,6 +29,7 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.nexusstream.app.data.ResolvedStream
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
@@ -57,6 +58,15 @@ data class PlaybackState(
     val isBuffering: Boolean = false,
     /** True while fresh stream URLs are being fetched, before the player has a source. */
     val isResolving: Boolean = false,
+    /** Video heights (e.g. 1080, 720) offered for the current live item, best first. */
+    val availableVideoHeights: List<Int> = emptyList(),
+    /** Audio bitrates in kbps offered for the current live item, best first. */
+    val availableAudioKbps: List<Int> = emptyList(),
+    val selectedVideoHeight: Int? = null,
+    val selectedAudioKbps: Int? = null,
+    /** True when the user has not pinned a video / audio quality. */
+    val videoQualityAuto: Boolean = true,
+    val audioQualityAuto: Boolean = true,
     val queue: List<MediaItemModel> = emptyList(),
     val queueIndex: Int = 0,
     val shuffleEnabled: Boolean = false,
@@ -75,6 +85,9 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var loadJob: Job? = null
+    private var currentResolved: ResolvedStream? = null
+    private var preferredVideoHeight: Int? = null
+    private var preferredAudioKbps: Int? = null
 
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var mediaSession: MediaSession
@@ -275,6 +288,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         if (!::exoPlayer.isInitialized) return
 
         loadJob?.cancel()
+        currentResolved = null
         if (!isRetry) retryCount = 0
         currentMode = if (startInVideoMode) PlaybackMode.VIDEO else PlaybackMode.AUDIO_ONLY
         applyPlaybackModeTracks(currentMode)
@@ -294,7 +308,11 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             currentPositionMs = startPositionMs,
             bufferedPositionMs = 0L,
             hasError = false,
-            errorMessage = null
+            errorMessage = null,
+            availableVideoHeights = emptyList(),
+            availableAudioKbps = emptyList(),
+            selectedVideoHeight = null,
+            selectedAudioKbps = null
         )
         updateForegroundNotification()
         _playbackState.value = _playbackState.value.copy(isResolving = false)
@@ -326,28 +344,73 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
                 return@launch
             }
 
-            val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
-            val audioSource = factory.createMediaSource(
-                MediaItem.Builder()
-                    .setMediaId(item.id)
-                    .setUri(resolved.audioUrl)
-                    .setMediaMetadata(metadata)
-                    .build()
-            )
-            // Always merge video when available; the video renderer stays disabled (and
-            // downloads nothing) in audio-only mode, so toggling modes is instant.
-            val source = resolved.videoOnlyUrl?.let { videoUrl ->
-                MergingMediaSource(
-                    factory.createMediaSource(MediaItem.fromUri(videoUrl)),
-                    audioSource
-                )
-            } ?: audioSource
-
-            exoPlayer.setMediaSource(source, startPositionMs)
-            exoPlayer.prepare()
-            exoPlayer.playWhenReady = true
+            currentResolved = resolved
+            applyResolved(item, resolved, metadata, startPositionMs, playWhenReady = true)
             _playbackState.value = _playbackState.value.copy(isResolving = false)
         }
+    }
+
+    /** Builds and starts the merged video + audio source for the preferred qualities. */
+    private fun applyResolved(
+        item: MediaItemModel,
+        resolved: ResolvedStream,
+        metadata: MediaMetadata,
+        positionMs: Long,
+        playWhenReady: Boolean
+    ) {
+        val audio = resolved.pickAudio(preferredAudioKbps) ?: return
+        val video = resolved.pickVideo(preferredVideoHeight)
+
+        val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
+        val audioSource = factory.createMediaSource(
+            MediaItem.Builder()
+                .setMediaId(item.id)
+                .setUri(audio.url)
+                .setMediaMetadata(metadata)
+                .build()
+        )
+        // Always merge video when available; the video renderer stays disabled (and
+        // downloads nothing) in audio-only mode, so toggling modes is instant.
+        val source = video?.let {
+            MergingMediaSource(factory.createMediaSource(MediaItem.fromUri(it.url)), audioSource)
+        } ?: audioSource
+
+        exoPlayer.setMediaSource(source, positionMs)
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = playWhenReady
+
+        _playbackState.value = _playbackState.value.copy(
+            availableVideoHeights = resolved.videoOptions.map { it.height },
+            availableAudioKbps = resolved.audioOptions.map { it.kbps },
+            selectedVideoHeight = video?.height,
+            selectedAudioKbps = audio.kbps,
+            videoQualityAuto = preferredVideoHeight == null,
+            audioQualityAuto = preferredAudioKbps == null
+        )
+    }
+
+    /** Pins the video quality (null = auto, capped at 720p). Keeps position and play state. */
+    fun setVideoQuality(height: Int?) {
+        preferredVideoHeight = height
+        reapplyQuality()
+    }
+
+    /** Pins the audio quality (null = best available). Keeps position and play state. */
+    fun setAudioQuality(kbps: Int?) {
+        preferredAudioKbps = kbps
+        reapplyQuality()
+    }
+
+    private fun reapplyQuality() {
+        val item = _playbackState.value.currentItem ?: return
+        val resolved = currentResolved ?: return
+        if (!::exoPlayer.isInitialized) return
+        val metadata = MediaMetadata.Builder()
+            .setTitle(item.title)
+            .setArtist(item.artistOrChannel)
+            .setDisplayTitle(item.title)
+            .build()
+        applyResolved(item, resolved, metadata, exoPlayer.currentPosition, exoPlayer.playWhenReady)
     }
 
     fun skipToNext() {

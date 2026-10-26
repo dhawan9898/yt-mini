@@ -50,6 +50,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlin.math.abs
+import com.nexusstream.app.ui.components.PlayerOptionsSheet
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material.icons.rounded.Settings
+import androidx.activity.compose.BackHandler
+import android.view.MotionEvent
+import android.view.GestureDetector
+import android.content.pm.ActivityInfo
+import android.content.ContextWrapper
+import android.content.Context
+import android.app.Activity
 import com.nexusstream.app.ui.components.toFeedState
 import com.nexusstream.app.ui.components.OriginalLoading
 import com.nexusstream.app.ui.components.OriginalError
@@ -131,49 +146,39 @@ fun VideoWatchScreen(
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var isCommentsExpanded by remember { mutableStateOf(false) }
 
+    var isFullscreen by remember { mutableStateOf(false) }
+    var showOptions by remember { mutableStateOf(false) }
+
+    FullscreenEffect(isFullscreen)
+    BackHandler(enabled = isFullscreen) { isFullscreen = false }
+    BackHandler(enabled = !isFullscreen, onBack = onCollapse)
+
+    Box(modifier = modifier.fillMaxSize()) {
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .background(OriginalColors.YouTubeBackground)
             .navigationBarsPadding()
     ) {
-        // Video viewport on a black status-bar-height backdrop, with collapse chevron overlaid.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.Black)
-                .statusBarsPadding()
-        ) {
+        // Video viewport on a black status-bar-height backdrop. Swipe down to minimize,
+        // swipe up (or the player's fullscreen button) for fullscreen.
+        if (!isFullscreen) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                    .background(Color.Black)
+                    .statusBarsPadding()
             ) {
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            useController = true
-                            player = playbackService.getPlayer()
-                        }
-                    },
-                    update = { playerView ->
-                        playerView.player = playbackService.getPlayer()
-                    },
-                    modifier = Modifier.fillMaxSize()
+                WatchPlayerSurface(
+                    playbackService = playbackService,
+                    isResolving = playbackState.isResolving,
+                    onSwipeUp = { isFullscreen = true },
+                    onSwipeDown = onCollapse,
+                    onFullscreenClick = { isFullscreen = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
                 )
-                if (playbackState.isResolving) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .size(36.dp)
-                    )
-                }
                 IconButton(
                     onClick = onCollapse,
                     modifier = Modifier.align(Alignment.TopStart)
@@ -183,6 +188,17 @@ fun VideoWatchScreen(
                         contentDescription = "Minimize",
                         tint = Color.White,
                         modifier = Modifier.size(28.dp)
+                    )
+                }
+                IconButton(
+                    onClick = { showOptions = true },
+                    modifier = Modifier.align(Alignment.TopEnd)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Settings,
+                        contentDescription = "Quality and download",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
@@ -330,11 +346,7 @@ fun VideoWatchScreen(
                             },
                             highlighted = isDownloaded
                         ) {
-                            when {
-                                isDownloaded -> DownloadRepository.remove(mediaItem.id)
-                                downloadState is DownloadState.Downloading -> Unit
-                                else -> DownloadRepository.start(context, mediaItem)
-                            }
+                            if (downloadState !is DownloadState.Downloading) showOptions = true
                         }
                     }
                     item {
@@ -396,6 +408,48 @@ fun VideoWatchScreen(
                 YouTubeVideoCard(item = rec, onClick = { onSelectVideo(rec) })
             }
         }
+    }
+
+    if (isFullscreen) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            WatchPlayerSurface(
+                playbackService = playbackService,
+                isResolving = playbackState.isResolving,
+                onSwipeUp = { },
+                onSwipeDown = { isFullscreen = false },
+                onFullscreenClick = { isFullscreen = false },
+                modifier = Modifier.fillMaxSize()
+            )
+            IconButton(
+                onClick = { showOptions = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Settings,
+                    contentDescription = "Quality and download",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
+    }
+
+    if (showOptions) {
+        PlayerOptionsSheet(
+            item = mediaItem,
+            state = playbackState,
+            showVideoQuality = true,
+            onVideoQuality = playbackService::setVideoQuality,
+            onAudioQuality = playbackService::setAudioQuality,
+            onDismiss = { showOptions = false }
+        )
     }
 
     if (showComments) {
@@ -504,4 +558,101 @@ private fun WatchActionChip(
         Spacer(modifier = Modifier.width(6.dp))
         Text(text = label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
     }
+}
+
+/** PlayerView that reports vertical flings so the page can minimize / go fullscreen. */
+@OptIn(UnstableApi::class)
+private class SwipePlayerView(context: Context) : PlayerView(context) {
+    var onSwipeUp: () -> Unit = {}
+    var onSwipeDown: () -> Unit = {}
+
+    private val detector = GestureDetector(
+        context,
+        object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                val start = e1 ?: return false
+                val dy = e2.y - start.y
+                val dx = e2.x - start.x
+                val vertical = abs(dy) > 120f && abs(dy) > 2 * abs(dx) && abs(velocityY) > 300f
+                if (!vertical) return false
+                if (dy < 0) onSwipeUp() else onSwipeDown()
+                return true
+            }
+        }
+    )
+
+    // Observe every touch without consuming it, so the controller and seek bar keep working.
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        detector.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun WatchPlayerSurface(
+    playbackService: MediaPlaybackService,
+    isResolving: Boolean,
+    onSwipeUp: () -> Unit,
+    onSwipeDown: () -> Unit,
+    onFullscreenClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        AndroidView(
+            factory = { ctx ->
+                SwipePlayerView(ctx).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    useController = true
+                    player = playbackService.getPlayer()
+                }
+            },
+            update = { view ->
+                view.player = playbackService.getPlayer()
+                view.onSwipeUp = onSwipeUp
+                view.onSwipeDown = onSwipeDown
+                view.setFullscreenButtonClickListener { onFullscreenClick() }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+        if (isResolving) {
+            CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = 2.dp,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(36.dp)
+            )
+        }
+    }
+}
+
+/** Landscape + hidden system bars while [isFullscreen]; restored when it ends or the screen leaves. */
+@Composable
+private fun FullscreenEffect(isFullscreen: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(isFullscreen) {
+        val activity = view.context.findActivity()
+        val controller = activity?.window?.let { WindowCompat.getInsetsController(it, view) }
+        if (isFullscreen) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller?.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            if (isFullscreen) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                controller?.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

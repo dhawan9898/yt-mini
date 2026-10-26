@@ -21,7 +21,7 @@ object DownloadRepository {
     private val _states = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
     val states: StateFlow<Map<String, DownloadState>> = _states.asStateFlow()
 
-    fun start(context: Context, item: MediaItemModel) {
+    fun start(context: Context, item: MediaItemModel, option: DownloadOption) {
         val current = _states.value[item.id]
         if (current is DownloadState.Downloading) return
         val dir = File(context.applicationContext.getExternalFilesDir(null) ?: context.applicationContext.filesDir, "downloads")
@@ -30,10 +30,9 @@ object DownloadRepository {
 
         scope.launch {
             val result = runCatching {
-                val target = YouTubeRepository.resolveDownload(item.watchUrl, audioOnly = item.isMusic()).getOrThrow()
-                val file = File(dir, "${item.id}.${target.extension}")
+                val file = File(dir, "${item.id}.${option.extension}")
                 val request = okhttp3.Request.Builder()
-                    .url(target.url)
+                    .url(option.url)
                     .header("User-Agent", NewPipeDownloader.USER_AGENT)
                     .build()
                 NewPipeDownloader.instance.client.newCall(request).execute().use { response ->
@@ -74,6 +73,4 @@ object DownloadRepository {
     private fun setState(id: String, state: DownloadState) {
         _states.value = _states.value + (id to state)
     }
-
-    private fun MediaItemModel.isMusic() = contentType == com.nexusstream.app.model.MediaContentType.MUSIC_TRACK
 }

@@ -38,11 +38,39 @@ data class CommentModel(
     val pinned: Boolean
 )
 
-/** A single downloadable file. */
-data class DownloadTarget(val url: String, val extension: String)
+/** One selectable video rendition (video-only stream). */
+data class VideoOption(val height: Int, val url: String)
 
-/** Direct, short-lived stream URLs for one video. */
-data class ResolvedStream(val audioUrl: String, val videoOnlyUrl: String?)
+/** One selectable audio rendition. */
+data class AudioOption(val kbps: Int, val url: String)
+
+/** A downloadable file with a human label such as "720p video" or "128 kbps audio". */
+data class DownloadOption(val label: String, val url: String, val extension: String, val isVideo: Boolean)
+
+/**
+ * Direct, short-lived stream URLs for one video, with every quality that is available.
+ * Both lists are sorted best-first.
+ */
+data class ResolvedStream(
+    val audioOptions: List<AudioOption>,
+    val videoOptions: List<VideoOption>
+) {
+    /** Highest rendition not above [maxHeight]; null selects the default (720p cap, saves data). */
+    fun pickVideo(maxHeight: Int?): VideoOption? {
+        val cap = maxHeight ?: DEFAULT_MAX_HEIGHT
+        return videoOptions.firstOrNull { it.height <= cap } ?: videoOptions.lastOrNull()
+    }
+
+    /** Closest rendition at or below [kbps]; null selects the best. */
+    fun pickAudio(kbps: Int?): AudioOption? {
+        if (kbps == null) return audioOptions.firstOrNull()
+        return audioOptions.firstOrNull { it.kbps <= kbps } ?: audioOptions.lastOrNull()
+    }
+
+    companion object {
+        const val DEFAULT_MAX_HEIGHT = 720
+    }
+}
 
 /**
  * Live YouTube / YouTube Music data (search, feeds) and stream URL resolution,
@@ -122,13 +150,40 @@ object YouTubeRepository {
         val info = StreamInfo.getInfo(youtube, watchUrl)
         val audio = info.audioStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
-            .maxByOrNull(::audioScore)
-            ?: error("No playable audio stream")
+            .groupBy { it.averageBitrate }
+            .mapValues { (_, streams) -> streams.maxByOrNull(::audioScore)!! }
+            .values
+            .sortedByDescending { it.averageBitrate }
+            .map { AudioOption(it.averageBitrate, it.content) }
+        check(audio.isNotEmpty()) { "No playable audio stream" }
         val video = info.videoOnlyStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height > 0 }
+            .groupBy { it.height }
+            .mapValues { (_, streams) -> streams.maxByOrNull(::videoScore)!! }
+            .values
+            .sortedByDescending { it.height }
+            .map { VideoOption(it.height, it.content) }
+        ResolvedStream(audioOptions = audio, videoOptions = video)
+    }
+
+    /** Every file that can be saved offline: muxed video renditions, then audio-only renditions. */
+    suspend fun downloadOptions(watchUrl: String): Result<List<DownloadOption>> = io {
+        val info = StreamInfo.getInfo(youtube, watchUrl)
+        val videos = info.videoStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height > 0 }
+            .groupBy { it.height }
+            .mapValues { (_, streams) -> streams.maxByOrNull(::videoScore)!! }
+            .values
+            .sortedByDescending { it.height }
+            .map { DownloadOption("${it.height}p video", it.content, it.format?.suffix ?: "mp4", true) }
+        val audios = info.audioStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
-            .filter { it.height in 1..720 }
-            .maxByOrNull(::videoScore)
-        ResolvedStream(audioUrl = audio.content, videoOnlyUrl = video?.content)
+            .groupBy { it.averageBitrate }
+            .mapValues { (_, streams) -> streams.maxByOrNull(::audioScore)!! }
+            .values
+            .sortedByDescending { it.averageBitrate }
+            .map { DownloadOption("${it.averageBitrate} kbps audio", it.content, it.format?.suffix ?: "m4a", false) }
+        (videos + audios).also { check(it.isNotEmpty()) { "No downloadable streams" } }
     }
 
     /** Tracks of an album / playlist, as playable music items. */
@@ -152,23 +207,6 @@ object YouTubeRepository {
                 date = c.textualUploadDate.orEmpty(),
                 pinned = c.isPinned
             )
-        }
-    }
-
-    /** Picks a single file to save offline: muxed video for videos, audio for music. */
-    suspend fun resolveDownload(watchUrl: String, audioOnly: Boolean): Result<DownloadTarget> = io {
-        val info = StreamInfo.getInfo(youtube, watchUrl)
-        val muxed = if (audioOnly) null else info.videoStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
-            .maxByOrNull { it.height }
-        if (muxed != null) {
-            DownloadTarget(muxed.content, muxed.format?.suffix ?: "mp4")
-        } else {
-            val audio = info.audioStreams
-                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
-                .maxByOrNull(::audioScore)
-                ?: error("No downloadable stream")
-            DownloadTarget(audio.content, audio.format?.suffix ?: "m4a")
         }
     }
 

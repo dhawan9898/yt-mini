@@ -81,6 +81,7 @@ import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.PlaybackMode
 import com.nexusstream.app.model.StreamRepeatMode
 import com.nexusstream.app.ui.components.OriginalColors
+import com.nexusstream.app.ui.components.PlayerOptionsSheet
 
 private enum class PlayerPanel { NONE, UP_NEXT, LYRICS }
 
@@ -99,6 +100,7 @@ fun MusicPlayerScreen(
     val state by playbackService.playbackState.collectAsState()
     val item = state.currentItem ?: return
     var panel by remember { mutableStateOf(PlayerPanel.NONE) }
+    var showOptions by remember { mutableStateOf(false) }
     val savedItems by LibraryRepository.saved.collectAsState()
     val isLiked = savedItems.any { it.id == item.id }
 
@@ -161,8 +163,8 @@ fun MusicPlayerScreen(
             IconButton(onClick = { /* Cast */ }) {
                 Icon(Icons.Rounded.Cast, "Cast", tint = Color.White)
             }
-            IconButton(onClick = { /* More */ }) {
-                Icon(Icons.Rounded.MoreVert, "More", tint = Color.White)
+            IconButton(onClick = { showOptions = true }) {
+                Icon(Icons.Rounded.MoreVert, "Quality and download", tint = Color.White)
             }
         }
 
@@ -344,6 +346,17 @@ fun MusicPlayerScreen(
                 panel = if (panel == PlayerPanel.LYRICS) PlayerPanel.NONE else PlayerPanel.LYRICS
             }
         }
+    }
+
+    if (showOptions) {
+        PlayerOptionsSheet(
+            item = item,
+            state = state,
+            showVideoQuality = state.playbackMode == PlaybackMode.VIDEO,
+            onVideoQuality = playbackService::setVideoQuality,
+            onAudioQuality = playbackService::setAudioQuality,
+            onDismiss = { showOptions = false }
+        )
     }
 }
 
