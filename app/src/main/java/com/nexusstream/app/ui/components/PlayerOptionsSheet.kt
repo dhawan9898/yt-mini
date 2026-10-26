@@ -2,7 +2,6 @@ package com.nexusstream.app.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -32,25 +31,32 @@ import com.nexusstream.app.data.DownloadOption
 import com.nexusstream.app.data.DownloadRepository
 import com.nexusstream.app.data.DownloadState
 import com.nexusstream.app.data.LibraryRepository
+import com.nexusstream.app.data.ResolvedStream
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.data.watchUrl
+import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.media.PlaybackState
 import com.nexusstream.app.model.MediaItemModel
+import com.nexusstream.app.model.StreamRepeatMode
+
+private val SPEEDS = listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+private val SLEEP_MINUTES = listOf(15, 30, 45, 60)
+
+private fun speedLabel(speed: Float) = if (speed == 1f) "Normal" else "${speed}x"
 
 /**
- * Playback quality (video + audio) and download quality for the current item.
- * Quality rows only appear once the stream has been resolved.
+ * Everything adjustable for the current item: video and audio quality, audio language, captions,
+ * playback speed, sleep timer, loop, autoplay, and download quality.
+ * With a null [service] (e.g. opened from a feed menu) only the Download section is shown.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerOptionsSheet(
     item: MediaItemModel,
     state: PlaybackState,
+    service: MediaPlaybackService?,
     showVideoQuality: Boolean,
-    onVideoQuality: (Int?) -> Unit,
-    onAudioQuality: (Int?) -> Unit,
-    onDismiss: () -> Unit,
-    onAudioTrack: (String?) -> Unit = {}
+    onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val downloadStates by DownloadRepository.states.collectAsState()
@@ -76,64 +82,139 @@ fun PlayerOptionsSheet(
             modifier = Modifier.fillMaxHeight(0.85f),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            if (showVideoQuality && state.availableVideoHeights.isNotEmpty()) {
-                item { SectionTitle("Video quality") }
+            if (service != null) {
+                if (showVideoQuality && state.availableVideoHeights.isNotEmpty()) {
+                    item { SectionTitle("Video quality") }
+                    item {
+                        OptionRow(
+                            label = "Auto (up to ${ResolvedStream.DEFAULT_MAX_HEIGHT}p)",
+                            selected = state.videoQualityAuto,
+                            onClick = { service.setVideoQuality(null) }
+                        )
+                    }
+                    state.availableVideoHeights.forEach { height ->
+                        item(key = "v_$height") {
+                            OptionRow(
+                                label = "${height}p",
+                                selected = !state.videoQualityAuto && state.selectedVideoHeight == height,
+                                onClick = { service.setVideoQuality(height) }
+                            )
+                        }
+                    }
+                }
+
+                // Several tracks = original plus auto-dubbed / other languages. Original is the default.
+                if (state.availableAudioTracks.size > 1) {
+                    item { SectionTitle("Audio language") }
+                    state.availableAudioTracks.forEachIndexed { index, track ->
+                        item(key = "t_$index") {
+                            val label = track.name.ifBlank { "Audio" } +
+                                if (track.isOriginal && !track.name.contains("original", ignoreCase = true)) " (original)" else ""
+                            OptionRow(
+                                label = label,
+                                selected = state.selectedAudioTrackId == track.id,
+                                // Choosing the original track resets to the default instead of pinning it.
+                                onClick = { service.setAudioTrack(if (track.isOriginal) null else track.id) }
+                            )
+                        }
+                    }
+                }
+
+                if (state.availableAudioKbps.isNotEmpty()) {
+                    item { SectionTitle("Audio quality") }
+                    item {
+                        OptionRow(
+                            label = "Best available",
+                            selected = state.audioQualityAuto,
+                            onClick = { service.setAudioQuality(null) }
+                        )
+                    }
+                    state.availableAudioKbps.forEach { kbps ->
+                        item(key = "a_$kbps") {
+                            OptionRow(
+                                label = "$kbps kbps",
+                                selected = !state.audioQualityAuto && state.selectedAudioKbps == kbps,
+                                onClick = { service.setAudioQuality(kbps) }
+                            )
+                        }
+                    }
+                } else if (state.isResolving) {
+                    item { SectionTitle("Quality") }
+                    item { Hint("Loading available qualities...") }
+                }
+
+                if (state.availableSubtitles.isNotEmpty()) {
+                    item { SectionTitle("Captions") }
+                    item {
+                        OptionRow(
+                            label = "Off",
+                            selected = state.selectedSubtitleTag == null,
+                            onClick = { service.setSubtitle(null) }
+                        )
+                    }
+                    state.availableSubtitles.forEachIndexed { index, sub ->
+                        item(key = "s_$index") {
+                            OptionRow(
+                                label = sub.label,
+                                selected = state.selectedSubtitleTag == sub.languageTag,
+                                onClick = { service.setSubtitle(sub.languageTag) }
+                            )
+                        }
+                    }
+                }
+
+                item { SectionTitle("Playback speed") }
+                SPEEDS.forEach { speed ->
+                    item(key = "sp_$speed") {
+                        OptionRow(
+                            label = speedLabel(speed),
+                            selected = state.playbackSpeed == speed,
+                            onClick = { service.setPlaybackSpeed(speed) }
+                        )
+                    }
+                }
+
+                item { SectionTitle("Sleep timer") }
                 item {
                     OptionRow(
-                        label = "Auto (up to ${com.nexusstream.app.data.ResolvedStream.DEFAULT_MAX_HEIGHT}p)",
-                        selected = state.videoQualityAuto,
-                        onClick = { onVideoQuality(null) }
+                        label = if (state.sleepTimerEndsAtMs > 0) {
+                            val minutesLeft = ((state.sleepTimerEndsAtMs - System.currentTimeMillis()) / 60_000L + 1).coerceAtLeast(1)
+                            "Off (pauses in about $minutesLeft min)"
+                        } else {
+                            "Off"
+                        },
+                        selected = state.sleepTimerEndsAtMs == 0L,
+                        onClick = { service.setSleepTimer(0) }
                     )
                 }
-                state.availableVideoHeights.forEach { height ->
-                    item(key = "v_$height") {
+                SLEEP_MINUTES.forEach { minutes ->
+                    item(key = "sl_$minutes") {
                         OptionRow(
-                            label = "${height}p",
-                            selected = !state.videoQualityAuto && state.selectedVideoHeight == height,
-                            onClick = { onVideoQuality(height) }
+                            label = "$minutes minutes",
+                            selected = false,
+                            onClick = {
+                                service.setSleepTimer(minutes)
+                                onDismiss()
+                            }
                         )
                     }
                 }
-            }
 
-            // Several tracks = original plus auto-dubbed / other languages. Original is the default.
-            if (state.availableAudioTracks.size > 1) {
-                item { SectionTitle("Audio language") }
-                state.availableAudioTracks.forEachIndexed { index, track ->
-                    item(key = "t_$index") {
-                        val label = track.name.ifBlank { "Audio" } +
-                            if (track.isOriginal && !track.name.contains("original", ignoreCase = true)) " (original)" else ""
-                        OptionRow(
-                            label = label,
-                            selected = state.selectedAudioTrackId == track.id,
-                            // Choosing the original track resets to the default instead of pinning it.
-                            onClick = { onAudioTrack(if (track.isOriginal) null else track.id) }
-                        )
-                    }
-                }
-            }
-
-            if (state.availableAudioKbps.isNotEmpty()) {
-                item { SectionTitle("Audio quality") }
+                item { SectionTitle("Playback") }
                 item {
                     OptionRow(
-                        label = "Best available",
-                        selected = state.audioQualityAuto,
-                        onClick = { onAudioQuality(null) }
+                        label = "Loop video",
+                        selected = state.repeatMode == StreamRepeatMode.ONE,
+                        onClick = { service.setLoopOne(state.repeatMode != StreamRepeatMode.ONE) }
                     )
                 }
-                state.availableAudioKbps.forEach { kbps ->
-                    item(key = "a_$kbps") {
-                        OptionRow(
-                            label = "$kbps kbps",
-                            selected = !state.audioQualityAuto && state.selectedAudioKbps == kbps,
-                            onClick = { onAudioQuality(kbps) }
-                        )
-                    }
+                item {
+                    OptionRow(
+                        label = "Autoplay next video",
+                        selected = state.autoplayNext,
+                        onClick = { service.setAutoplayNext(!state.autoplayNext) }
+                    )
                 }
-            } else if (state.isResolving) {
-                item { SectionTitle("Quality") }
-                item { Hint("Loading available qualities...") }
             }
 
             item { SectionTitle("Download") }

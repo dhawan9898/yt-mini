@@ -36,7 +36,8 @@ class MiniPlayerHooks(
     val item: MediaItemModel?,
     val isPlaying: Boolean,
     val onExpand: () -> Unit,
-    val onTogglePlay: () -> Unit
+    val onTogglePlay: () -> Unit,
+    val onClose: (() -> Unit)? = null
 )
 
 /**
@@ -92,6 +93,7 @@ fun PageScaffold(
                 isPlaying = miniPlayer.isPlaying,
                 onExpand = miniPlayer.onExpand,
                 onTogglePlay = miniPlayer.onTogglePlay,
+                onClose = miniPlayer.onClose,
                 modifier = Modifier
                     .padding(horizontal = 8.dp, vertical = 6.dp)
                     .navigationBarsPadding()

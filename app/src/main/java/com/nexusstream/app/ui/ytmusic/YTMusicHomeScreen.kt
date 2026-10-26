@@ -91,6 +91,7 @@ fun YTMusicHomeScreen(
     onSelectTrack: (MediaItemModel, List<MediaItemModel>) -> Unit,
     onExpandPlayer: () -> Unit,
     onTogglePlayPause: () -> Unit,
+    onClosePlayer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -288,6 +289,7 @@ fun YTMusicHomeScreen(
                 isPlaying = isPlaying,
                 onExpand = onExpandPlayer,
                 onTogglePlay = onTogglePlayPause,
+                onClose = onClosePlayer,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
             )
         }

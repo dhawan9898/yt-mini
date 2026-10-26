@@ -25,6 +25,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.IconButton
+import kotlin.math.roundToInt
+import kotlin.math.abs
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -109,7 +122,8 @@ fun OriginalFilterChips(
 }
 
 /**
- * Flat docked mini player with a thin red progress hairline, as in the original apps.
+ * Flat docked mini player with a thin progress hairline.
+ * Swipe up to expand, swipe sideways (or tap ✕) to close it and stop playback.
  */
 @Composable
 fun OriginalMiniPlayer(
@@ -117,13 +131,43 @@ fun OriginalMiniPlayer(
     isPlaying: Boolean,
     onExpand: () -> Unit,
     onTogglePlay: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClose: (() -> Unit)? = null
 ) {
+    val currentOnExpand by rememberUpdatedState(onExpand)
+    val currentOnClose by rememberUpdatedState(onClose)
+    var dragX by remember { mutableFloatStateOf(0f) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .offset { IntOffset(dragX.roundToInt(), 0) }
             .clip(RoundedCornerShape(10.dp))
             .background(OriginalColors.MiniPlayer)
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = {
+                        val closeThreshold = size.width * 0.35f
+                        val expandThreshold = 48.dp.toPx()
+                        if (abs(dragX) > closeThreshold && currentOnClose != null) {
+                            currentOnClose?.invoke()
+                        } else if (dragY < -expandThreshold && abs(dragY) > abs(dragX)) {
+                            currentOnExpand()
+                        }
+                        dragX = 0f
+                        dragY = 0f
+                    },
+                    onDragCancel = {
+                        dragX = 0f
+                        dragY = 0f
+                    }
+                ) { change, amount ->
+                    change.consume()
+                    dragX += amount.x
+                    dragY += amount.y
+                }
+            }
             .clickable(onClick = onExpand)
     ) {
         Row(
@@ -173,6 +217,16 @@ fun OriginalMiniPlayer(
                 glowColor = Color.Transparent,
                 flatBackground = Color.White.copy(alpha = 0.10f)
             )
+            if (onClose != null) {
+                IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Close player",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
         }
         Box(
             modifier = Modifier

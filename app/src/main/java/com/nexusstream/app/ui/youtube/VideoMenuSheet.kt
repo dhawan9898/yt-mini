@@ -62,9 +62,8 @@ fun VideoMenuSheet(
         PlayerOptionsSheet(
             item = item,
             state = PlaybackState(),
+            service = null,
             showVideoQuality = false,
-            onVideoQuality = {},
-            onAudioQuality = {},
             onDismiss = onDismiss
         )
         return

@@ -3,6 +3,7 @@ package com.nexusstream.app
 import android.Manifest
 import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -31,14 +32,28 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
+        PipController.enter = { enterPictureInPictureIfSupported() }
+
         setContent {
             NexusApp()
         }
     }
 
+    override fun onDestroy() {
+        PipController.enter = null
+        PipController.canAutoEnter = false
+        super.onDestroy()
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        enterPictureInPictureIfSupported()
+        // Only a playing video on the watch page goes to PiP; music and browsing do not.
+        if (PipController.canAutoEnter) enterPictureInPictureIfSupported()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        PipController.setInPip(isInPictureInPictureMode)
     }
 
     private fun enterPictureInPictureIfSupported() {

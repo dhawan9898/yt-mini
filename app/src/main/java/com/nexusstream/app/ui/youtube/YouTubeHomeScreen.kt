@@ -81,6 +81,7 @@ fun YouTubeHomeScreen(
     onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit,
     onExpandPlayer: () -> Unit,
     onTogglePlayPause: () -> Unit,
+    onClosePlayer: () -> Unit,
     nav: YouTubeNav,
     modifier: Modifier = Modifier
 ) {
@@ -243,6 +244,7 @@ fun YouTubeHomeScreen(
                 isPlaying = isPlaying,
                 onExpand = onExpandPlayer,
                 onTogglePlay = onTogglePlayPause,
+                onClose = onClosePlayer,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
             )
         }

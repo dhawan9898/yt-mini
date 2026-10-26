@@ -352,10 +352,8 @@ fun MusicPlayerScreen(
         PlayerOptionsSheet(
             item = item,
             state = state,
+            service = playbackService,
             showVideoQuality = state.playbackMode == PlaybackMode.VIDEO,
-            onVideoQuality = playbackService::setVideoQuality,
-            onAudioQuality = playbackService::setAudioQuality,
-            onAudioTrack = playbackService::setAudioTrack,
             onDismiss = { showOptions = false }
         )
     }

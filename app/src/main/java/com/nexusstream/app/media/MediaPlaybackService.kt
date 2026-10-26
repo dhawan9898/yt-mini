@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -25,12 +26,15 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.source.SingleSampleMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.nexusstream.app.data.AudioTrack
 import com.nexusstream.app.data.ResolvedStream
+import com.nexusstream.app.data.SubtitleOption
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
@@ -68,13 +72,21 @@ data class PlaybackState(
     /** Language / audio tracks offered for the current live item (original first). */
     val availableAudioTracks: List<AudioTrack> = emptyList(),
     val selectedAudioTrackId: String? = null,
+    val availableSubtitles: List<SubtitleOption> = emptyList(),
+    /** Language tag of the shown captions; null = captions off. */
+    val selectedSubtitleTag: String? = null,
+    val playbackSpeed: Float = 1f,
+    /** Epoch millis when the sleep timer pauses playback; 0 = no timer. */
+    val sleepTimerEndsAtMs: Long = 0L,
+    /** Play a related video automatically when the current one ends. */
+    val autoplayNext: Boolean = true,
     /** True when the user has not pinned a video / audio quality. */
     val videoQualityAuto: Boolean = true,
     val audioQualityAuto: Boolean = true,
     val queue: List<MediaItemModel> = emptyList(),
     val queueIndex: Int = 0,
     val shuffleEnabled: Boolean = false,
-    val repeatMode: StreamRepeatMode = StreamRepeatMode.ALL,
+    val repeatMode: StreamRepeatMode = StreamRepeatMode.OFF,
     val hasError: Boolean = false,
     val errorMessage: String? = null
 )
@@ -93,6 +105,10 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private var preferredVideoHeight: Int? = null
     private var preferredAudioKbps: Int? = null
     private var preferredAudioTrackId: String? = null
+    private var preferredSubtitleTag: String? = null
+    private var sleepJob: Job? = null
+    /** Related videos to continue with when the queue runs out (set by the watch page). */
+    private var autoplayQueue: List<MediaItemModel> = emptyList()
 
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var mediaSession: MediaSession
@@ -266,6 +282,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     ) {
         if (items.isEmpty()) return
         val validIndex = startIndex.coerceIn(0, items.lastIndex)
+        // Related-video autoplay belongs to the video watch page, never to music playback.
+        if (!startInVideoMode) autoplayQueue = emptyList()
 
         _playbackState.value = _playbackState.value.copy(
             queue = items,
@@ -318,6 +336,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             availableAudioKbps = emptyList(),
             availableAudioTracks = emptyList(),
             selectedAudioTrackId = null,
+            availableSubtitles = emptyList(),
+            selectedSubtitleTag = null,
             selectedVideoHeight = null,
             selectedAudioKbps = null
         )
@@ -378,9 +398,22 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         )
         // Always merge video when available; the video renderer stays disabled (and
         // downloads nothing) in audio-only mode, so toggling modes is instant.
-        val source = video?.let {
-            MergingMediaSource(factory.createMediaSource(MediaItem.fromUri(it.url)), audioSource)
-        } ?: audioSource
+        val subtitle = preferredSubtitleTag?.let { tag -> resolved.subtitles.firstOrNull { it.languageTag == tag } }
+        val subtitleSource = subtitle?.let { sub ->
+            val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
+                .setMimeType(sub.mimeType)
+                .setLanguage(sub.languageTag)
+                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                .build()
+            SingleSampleMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
+                .createMediaSource(config, C.TIME_UNSET)
+        }
+        val sources = listOfNotNull(
+            video?.let { factory.createMediaSource(MediaItem.fromUri(it.url)) },
+            audioSource,
+            subtitleSource
+        )
+        val source: MediaSource = if (sources.size == 1) sources.first() else MergingMediaSource(*sources.toTypedArray())
 
         exoPlayer.setMediaSource(source, positionMs)
         exoPlayer.prepare()
@@ -391,6 +424,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             availableAudioKbps = resolved.kbpsFor(audio.trackId),
             availableAudioTracks = resolved.audioTracks,
             selectedAudioTrackId = audio.trackId,
+            availableSubtitles = resolved.subtitles,
+            selectedSubtitleTag = subtitle?.languageTag,
             selectedVideoHeight = video?.height,
             selectedAudioKbps = audio.kbps,
             videoQualityAuto = preferredVideoHeight == null,
@@ -408,6 +443,65 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     fun setAudioQuality(kbps: Int?) {
         preferredAudioKbps = kbps
         reapplyQuality()
+    }
+
+    /** Shows captions in the given language, or turns them off (null). */
+    fun setSubtitle(languageTag: String?) {
+        preferredSubtitleTag = languageTag
+        reapplyQuality()
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        if (!::exoPlayer.isInitialized) return
+        exoPlayer.setPlaybackSpeed(speed)
+        _playbackState.value = _playbackState.value.copy(playbackSpeed = speed)
+    }
+
+    /** Pauses playback after [minutes]; 0 cancels the timer. */
+    fun setSleepTimer(minutes: Int) {
+        sleepJob?.cancel()
+        if (minutes <= 0) {
+            _playbackState.value = _playbackState.value.copy(sleepTimerEndsAtMs = 0L)
+            return
+        }
+        val endsAt = System.currentTimeMillis() + minutes * 60_000L
+        _playbackState.value = _playbackState.value.copy(sleepTimerEndsAtMs = endsAt)
+        sleepJob = serviceScope.launch {
+            delay(minutes * 60_000L)
+            if (::exoPlayer.isInitialized) exoPlayer.pause()
+            _playbackState.value = _playbackState.value.copy(sleepTimerEndsAtMs = 0L)
+        }
+    }
+
+    fun setAutoplayNext(enabled: Boolean) {
+        _playbackState.value = _playbackState.value.copy(autoplayNext = enabled)
+    }
+
+    /** Loop the current video / track. */
+    fun setLoopOne(enabled: Boolean) {
+        _playbackState.value = _playbackState.value.copy(
+            repeatMode = if (enabled) StreamRepeatMode.ONE else StreamRepeatMode.OFF
+        )
+    }
+
+    /** Related videos to play when the queue runs out (ignored when autoplay is off). */
+    fun setAutoplayQueue(related: List<MediaItemModel>) {
+        autoplayQueue = related
+    }
+
+    /** Stops playback, clears the queue and removes the notification (the "close video" action). */
+    fun closePlayback() {
+        loadJob?.cancel()
+        sleepJob?.cancel()
+        currentResolved = null
+        autoplayQueue = emptyList()
+        if (::exoPlayer.isInitialized) {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+            exoPlayer.setPlaybackSpeed(1f)
+        }
+        _playbackState.value = PlaybackState()
+        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
     /** Switches the audio language track (null = original). Keeps position and play state. */
@@ -444,6 +538,11 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             } else if (currentState.repeatMode == StreamRepeatMode.ALL) {
                 0
             } else {
+                // Queue exhausted: continue with a related video if autoplay is on.
+                val upNext = autoplayQueue.firstOrNull { rel -> queue.none { it.id == rel.id } }
+                if (currentState.autoplayNext && upNext != null) {
+                    playQueue(listOf(upNext), 0, currentMode == PlaybackMode.VIDEO)
+                }
                 return
             }
         }

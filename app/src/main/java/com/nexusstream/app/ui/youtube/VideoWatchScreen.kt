@@ -50,6 +50,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
+import com.nexusstream.app.ui.components.OnReachEnd
+import com.nexusstream.app.model.PlaybackMode
+import com.nexusstream.app.data.Paged
+import com.nexusstream.app.PipController
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.outlined.PictureInPictureAlt
+import androidx.compose.foundation.lazy.rememberLazyListState
 import com.nexusstream.app.data.VideoDetails
 import com.nexusstream.app.data.CommentsPage
 import androidx.compose.ui.text.withStyle
@@ -130,6 +142,7 @@ fun VideoWatchScreen(
     onCollapse: () -> Unit,
     onSelectVideo: (MediaItemModel) -> Unit,
     onOpenChannel: (MediaItemModel) -> Unit,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val playbackState by playbackService.playbackState.collectAsState()
@@ -138,6 +151,10 @@ fun VideoWatchScreen(
     var details by remember(mediaItem.id) { mutableStateOf<VideoDetails?>(null) }
     LaunchedEffect(mediaItem.id) {
         details = YouTubeRepository.details(mediaItem.watchUrl).getOrNull()
+    }
+    // Related videos are what autoplay continues with when this video ends.
+    LaunchedEffect(mediaItem.id, details) {
+        playbackService.setAutoplayQueue(details?.related.orEmpty())
     }
     // Real related videos when available, otherwise the last home feed.
     val recommendedVideos = remember(mediaItem.id, details) {
@@ -169,10 +186,33 @@ fun VideoWatchScreen(
 
     var isFullscreen by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
+    var showChapters by remember { mutableStateOf(false) }
+    val inPip by PipController.isInPip.collectAsState()
+
+    // Leaving the app while a video plays on this page starts picture-in-picture.
+    DisposableEffect(playbackState.isPlaying, playbackState.playbackMode) {
+        PipController.canAutoEnter = playbackState.isPlaying && playbackState.playbackMode == PlaybackMode.VIDEO
+        onDispose { PipController.canAutoEnter = false }
+    }
 
     FullscreenEffect(isFullscreen)
     BackHandler(enabled = isFullscreen) { isFullscreen = false }
     BackHandler(enabled = !isFullscreen, onBack = onCollapse)
+
+    if (inPip) {
+        Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
+            WatchPlayerSurface(
+                playbackService = playbackService,
+                isResolving = playbackState.isResolving,
+                showController = false,
+                onSwipeUp = {},
+                onSwipeDown = {},
+                onFullscreenClick = {},
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
     Column(
@@ -211,16 +251,31 @@ fun VideoWatchScreen(
                         modifier = Modifier.size(28.dp)
                     )
                 }
-                IconButton(
-                    onClick = { showOptions = true },
-                    modifier = Modifier.align(Alignment.TopEnd)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Settings,
-                        contentDescription = "Quality and download",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
+                Row(modifier = Modifier.align(Alignment.TopEnd)) {
+                    IconButton(onClick = { PipController.enter?.invoke() }) {
+                        Icon(
+                            imageVector = Icons.Outlined.PictureInPictureAlt,
+                            contentDescription = "Picture in picture",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    IconButton(onClick = { showOptions = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = "Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Close video",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
@@ -284,11 +339,42 @@ fun VideoWatchScreen(
                     val description = details?.description?.takeIf { it.isNotBlank() } ?: mediaItem.description
                     if (isDescriptionExpanded && description.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text(
+                        LinkifiedText(
                             text = description,
+                            onSeek = { ms -> playbackService.seekTo(ms) }
+                        )
+                    }
+                }
+            }
+
+            // Chapters: current chapter, tap for the full list
+            details?.chapters?.takeIf { it.isNotEmpty() }?.let { chapters ->
+                item(key = "chapters") {
+                    val current = chapters.lastOrNull { it.startMs <= playbackState.currentPositionMs } ?: chapters.first()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(OriginalColors.Chip)
+                            .clickable { showChapters = true }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Chapters",
                             fontSize = 14.sp,
-                            color = Color.White,
-                            lineHeight = 20.sp
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = current.title,
+                            fontSize = 14.sp,
+                            color = OriginalColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
@@ -481,12 +567,50 @@ fun VideoWatchScreen(
         PlayerOptionsSheet(
             item = mediaItem,
             state = playbackState,
+            service = playbackService,
             showVideoQuality = true,
-            onVideoQuality = playbackService::setVideoQuality,
-            onAudioQuality = playbackService::setAudioQuality,
-            onAudioTrack = playbackService::setAudioTrack,
             onDismiss = { showOptions = false }
         )
+    }
+
+    if (showChapters) {
+        val chapters = details?.chapters.orEmpty()
+        ModalBottomSheet(
+            onDismissRequest = { showChapters = false },
+            containerColor = Color(0xFF212121),
+            contentColor = Color.White
+        ) {
+            LazyColumn(modifier = Modifier.fillMaxHeight(0.7f), contentPadding = PaddingValues(bottom = 24.dp)) {
+                item {
+                    Text(
+                        text = "Chapters",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                items(chapters) { chapter ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                playbackService.seekTo(chapter.startMs)
+                                showChapters = false
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = formatVideoDuration(chapter.startMs),
+                            fontSize = 14.sp,
+                            color = Color(0xFF3EA6FF),
+                            modifier = Modifier.width(64.dp)
+                        )
+                        Text(text = chapter.title, fontSize = 14.sp, color = Color.White)
+                    }
+                }
+            }
+        }
     }
 
     if (showComments) {
@@ -512,14 +636,75 @@ fun VideoWatchScreen(
                     is FeedState.Data -> if (state.value.items.isEmpty()) {
                         OriginalEmptyState("No comments", "Comments may be turned off for this video.")
                     } else {
-                        LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                            items(state.value.items) { comment -> CommentRow(comment) }
-                        }
+                        CommentsList(state.value)
                     }
                 }
             }
         }
     }
+}
+
+/** Comments with infinite scroll; each comment can expand its replies. */
+@Composable
+private fun CommentsList(page: CommentsPage) {
+    var items by remember(page) { mutableStateOf(page.items) }
+    var cursor by remember(page) { mutableStateOf<Paged<CommentModel>?>(page.paged) }
+    var loadingMore by remember(page) { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    fun loadMore() {
+        val current = cursor ?: return
+        if (!current.hasMore || loadingMore) return
+        loadingMore = true
+        scope.launch {
+            current.next().onSuccess { next ->
+                items = items + next.items
+                cursor = next
+            }
+            loadingMore = false
+        }
+    }
+
+    LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
+        items(items) { comment -> CommentRow(comment) }
+        if (loadingMore) {
+            item(key = "loading_more") {
+                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                }
+            }
+        }
+    }
+    OnReachEnd(listState) { loadMore() }
+}
+
+/** Description text with tappable web links and timestamps (timestamps seek the video). */
+@Composable
+private fun LinkifiedText(text: String, onSeek: (Long) -> Unit) {
+    val currentSeek by rememberUpdatedState(onSeek)
+    val annotated = remember(text) {
+        buildAnnotatedString {
+            var cursor = 0
+            val linkStyle = SpanStyle(color = Color(0xFF3EA6FF))
+            DescriptionLinks.find(text).forEach { link ->
+                if (link.start < cursor) return@forEach
+                append(text.substring(cursor, link.start))
+                val shown = text.substring(link.start, link.end)
+                when (link.kind) {
+                    DescriptionLink.Kind.URL ->
+                        withLink(LinkAnnotation.Url(link.value)) { withStyle(linkStyle) { append(shown) } }
+                    DescriptionLink.Kind.TIMESTAMP ->
+                        withLink(LinkAnnotation.Clickable("timestamp") { currentSeek(link.value.toLong()) }) {
+                            withStyle(linkStyle) { append(shown) }
+                        }
+                }
+                cursor = link.end
+            }
+            append(text.substring(cursor))
+        }
+    }
+    Text(text = annotated, fontSize = 14.sp, color = Color.White, lineHeight = 20.sp)
 }
 
 @Composable
@@ -542,39 +727,69 @@ private fun CommentAvatar(comment: CommentModel, size: androidx.compose.ui.unit.
 }
 
 @Composable
-private fun CommentRow(comment: CommentModel) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-    ) {
-        CommentAvatar(comment, 36.dp)
-        Spacer(modifier = Modifier.width(12.dp))
-        Column {
-            Text(
-                text = listOfNotNull(
-                    if (comment.pinned) "Pinned" else null,
-                    comment.author.takeIf { it.isNotBlank() },
-                    comment.date.takeIf { it.isNotBlank() }
-                ).joinToString(" • "),
-                fontSize = 12.sp,
-                color = OriginalColors.TextSecondary
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(text = comment.text, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp)
-            if (comment.likes > 0) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(text = "${comment.likes} likes", fontSize = 12.sp, color = OriginalColors.TextSecondary)
+private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
+    var replies by remember(comment) { mutableStateOf<List<CommentModel>?>(null) }
+    var loadingReplies by remember(comment) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Column(modifier = Modifier.padding(start = if (isReply) 48.dp else 0.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            CommentAvatar(comment, if (isReply) 28.dp else 36.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = listOfNotNull(
+                        if (comment.pinned) "Pinned" else null,
+                        comment.author.takeIf { it.isNotBlank() },
+                        comment.date.takeIf { it.isNotBlank() }
+                    ).joinToString(" • "),
+                    fontSize = 12.sp,
+                    color = OriginalColors.TextSecondary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(text = comment.text, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp)
+                if (comment.likes > 0) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = "${comment.likes} likes", fontSize = 12.sp, color = OriginalColors.TextSecondary)
+                }
+                val loader = comment.loadReplies
+                if (!isReply && loader != null && comment.replyCount > 0 && replies == null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (loadingReplies) "Loading replies..." else "${comment.replyCount} replies",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF3EA6FF),
+                        modifier = Modifier.clickable(enabled = !loadingReplies) {
+                            loadingReplies = true
+                            scope.launch {
+                                replies = loader().getOrDefault(emptyList())
+                                loadingReplies = false
+                            }
+                        }
+                    )
+                }
             }
         }
+        replies?.forEach { reply -> CommentRow(reply, isReply = true) }
     }
 }
 
-/** PlayerView that reports vertical flings so the page can minimize / go fullscreen. */
+/**
+ * PlayerView that reports vertical flings (minimize / fullscreen), double-tap to seek 10 s
+ * (left / right third of the screen) and hold to play at 2x.
+ */
 @OptIn(UnstableApi::class)
 private class SwipePlayerView(context: Context) : PlayerView(context) {
     var onSwipeUp: () -> Unit = {}
     var onSwipeDown: () -> Unit = {}
+
+    private var boostActive = false
+    private var speedBeforeBoost = 1f
 
     private val detector = GestureDetector(
         context,
@@ -588,13 +803,42 @@ private class SwipePlayerView(context: Context) : PlayerView(context) {
                 if (dy < 0) onSwipeUp() else onSwipeDown()
                 return true
             }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                val p = player ?: return false
+                val third = width / 3f
+                val delta = when {
+                    e.x < third -> -SEEK_STEP_MS
+                    e.x > 2 * third -> SEEK_STEP_MS
+                    else -> return false
+                }
+                val duration = p.duration
+                val target = p.currentPosition + delta
+                p.seekTo(if (duration > 0) target.coerceIn(0L, duration) else target.coerceAtLeast(0L))
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                val p = player ?: return
+                speedBeforeBoost = p.playbackParameters.speed
+                boostActive = true
+                p.setPlaybackSpeed(2f)
+            }
         }
     )
 
     // Observe every touch without consuming it, so the controller and seek bar keep working.
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         detector.onTouchEvent(ev)
+        if (boostActive && (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL)) {
+            boostActive = false
+            player?.setPlaybackSpeed(speedBeforeBoost)
+        }
         return super.dispatchTouchEvent(ev)
+    }
+
+    private companion object {
+        const val SEEK_STEP_MS = 10_000L
     }
 }
 
@@ -606,7 +850,8 @@ private fun WatchPlayerSurface(
     onSwipeUp: () -> Unit,
     onSwipeDown: () -> Unit,
     onFullscreenClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showController: Boolean = true
 ) {
     Box(modifier = modifier) {
         AndroidView(
@@ -622,6 +867,7 @@ private fun WatchPlayerSurface(
             },
             update = { view ->
                 view.player = playbackService.getPlayer()
+                view.useController = showController
                 view.onSwipeUp = onSwipeUp
                 view.onSwipeDown = onSwipeDown
                 view.setFullscreenButtonClickListener { onFullscreenClick() }

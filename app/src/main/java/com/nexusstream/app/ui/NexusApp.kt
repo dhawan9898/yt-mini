@@ -169,9 +169,17 @@ fun NexusApp() {
     BackHandler(enabled = backStack.isNotEmpty() && currentScreen == AppScreen.HOME) { nav.back() }
 
     val playVideo: (MediaItemModel, List<MediaItemModel>) -> Unit = { item, queue ->
-        val idx = queue.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
-        activeService?.playQueue(queue, idx, startInVideoMode = true)
+        // Playlists play in order; everywhere else the video plays alone and then continues
+        // with related videos (autoplay), like the original app.
+        val inPlaylist = backStack.lastOrNull() is Route.Playlist
+        val playQueue = if (inPlaylist) queue else listOf(item)
+        val idx = playQueue.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+        activeService?.playQueue(playQueue, idx, startInVideoMode = true)
         currentScreen = AppScreen.WATCH
+    }
+    val closePlayer: () -> Unit = {
+        activeService?.closePlayback()
+        currentScreen = AppScreen.HOME
     }
     val expandPlayer: () -> Unit = {
         currentScreen = if (playbackState?.playbackMode == PlaybackMode.VIDEO) AppScreen.WATCH else AppScreen.PLAYER
@@ -216,7 +224,8 @@ fun NexusApp() {
                                         onSelectVideo = { item ->
                                             activeService.playMediaItem(item, startInVideoMode = true)
                                         },
-                                        onOpenChannel = { item -> nav.openChannelOf(item) }
+                                        onOpenChannel = { item -> nav.openChannelOf(item) },
+                                        onClose = closePlayer
                                     )
                                 }
                             }
@@ -233,7 +242,8 @@ fun NexusApp() {
                                     item = currentItem,
                                     isPlaying = playbackState?.isPlaying == true,
                                     onExpand = expandPlayer,
-                                    onTogglePlay = { activeService?.togglePlayPause() }
+                                    onTogglePlay = { activeService?.togglePlayPause() },
+                                    onClose = closePlayer
                                 )
                                 Box(modifier = Modifier.fillMaxSize()) {
                                     // Home stays composed underneath so its tab and scroll state survive.
@@ -243,6 +253,7 @@ fun NexusApp() {
                                         onSelectVideo = playVideo,
                                         onExpandPlayer = expandPlayer,
                                         onTogglePlayPause = { activeService?.togglePlayPause() },
+                                        onClosePlayer = closePlayer,
                                         nav = nav
                                     )
                                     backStack.forEachIndexed { index, route ->
@@ -267,7 +278,8 @@ fun NexusApp() {
                                         currentScreen = AppScreen.PLAYER
                                     },
                                     onExpandPlayer = { currentScreen = AppScreen.PLAYER },
-                                    onTogglePlayPause = { activeService?.togglePlayPause() }
+                                    onTogglePlayPause = { activeService?.togglePlayPause() },
+                                    onClosePlayer = closePlayer
                                 )
                             }
                         }
