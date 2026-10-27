@@ -25,6 +25,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,15 +58,16 @@ fun GlassNavBar(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val onSelectState by rememberUpdatedState(onSelect)
     val dark = ThemeState.palette.isDark
-    val shape = RoundedCornerShape(34.dp)
+    val shape = RoundedCornerShape(28.dp)
     val tint = if (dark) Color(0xFF16161B) else Color(0xFFFFFFFF)
     val rim = if (dark) Color.White else Color(0xFF9A9AA5)
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(68.dp)
+            .height(56.dp)
             .shadow(
                 elevation = 18.dp,
                 shape = shape,
@@ -100,7 +104,25 @@ fun GlassNavBar(
                 ),
                 shape = shape
             )
-            .padding(6.dp)
+            .padding(4.dp)
+            .pointerInput(entries.size) {
+                // Slide a finger along the bar to move the selection.
+                var last = -1
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        last = (offset.x / size.width * entries.size).toInt().coerceIn(0, entries.lastIndex)
+                        onSelectState(last)
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        change.consume()
+                        val index = (change.position.x / size.width * entries.size).toInt().coerceIn(0, entries.lastIndex)
+                        if (index != last) {
+                            last = index
+                            onSelectState(index)
+                        }
+                    }
+                )
+            }
     ) {
         val itemWidth = maxWidth / entries.size
         val bubbleX by animateDpAsState(
@@ -115,7 +137,7 @@ fun GlassNavBar(
                 .offset(x = bubbleX)
                 .width(itemWidth)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(28.dp))
+                .clip(RoundedCornerShape(24.dp))
                 .background(
                     Brush.verticalGradient(
                         listOf(
@@ -124,14 +146,14 @@ fun GlassNavBar(
                         )
                     )
                 )
-                .border(0.8.dp, rim.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
+                .border(0.8.dp, rim.copy(alpha = 0.35f), RoundedCornerShape(24.dp))
         )
 
         Row(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
             entries.forEachIndexed { index, entry ->
                 val selected = index == selectedIndex
                 val scale by animateFloatAsState(
-                    targetValue = if (selected) 1.14f else 1f,
+                    targetValue = if (selected) 1.38f else 1f,
                     animationSpec = spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMedium),
                     label = "GlassIconScale"
                 )
@@ -154,13 +176,13 @@ fun GlassNavBar(
                         contentDescription = entry.label,
                         tint = color,
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(20.dp)
                             .scale(scale)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(if (selected) 4.dp else 1.dp))
                     Text(
                         text = entry.label,
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         color = color,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                         maxLines = 1

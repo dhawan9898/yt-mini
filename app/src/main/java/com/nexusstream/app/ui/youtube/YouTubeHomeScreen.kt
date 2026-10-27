@@ -2,6 +2,21 @@ package com.nexusstream.app.ui.youtube
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -189,11 +204,26 @@ fun YouTubeHomeScreen(
         )
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(OriginalColors.YouTubeBackground)
-    ) {
+    val homeState = playbackService?.playbackState?.collectAsState()?.value
+    val floatingVideo = currentPlayingItem != null && playbackService != null && homeState != null &&
+        homeState.playbackMode == PlaybackMode.VIDEO && selectedTab != 1
+    // The bottom bar floats over the content. It slides away while scrolling down and returns on
+    // scrolling up (or when switching tab).
+    var navVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(selectedTab) { navVisible = true }
+    val scrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -6f) navVisible = false else if (available.y > 6f) navVisible = true
+                return Offset.Zero
+            }
+        }
+    }
+    val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val navSpace = NAV_BAR_SPACE + navBarInset
+
+    Box(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground)) {
+    Column(modifier = Modifier.fillMaxSize()) {
         val inbox by LibraryRepository.inbox.collectAsState()
         val inboxSeenAt by LibraryRepository.inboxSeenAtMs.collectAsState()
         // Shorts is full screen: no header or chips there.
@@ -216,13 +246,16 @@ fun YouTubeHomeScreen(
             )
         }
 
-        val homeState = playbackService?.playbackState?.collectAsState()?.value
-        val floatingVideo = currentPlayingItem != null && playbackService != null && homeState != null &&
-            homeState.playbackMode == PlaybackMode.VIDEO && selectedTab != 1
+        val floatingBottom by animateDpAsState(
+            targetValue = if (navVisible) navSpace else navBarInset,
+            animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
+            label = "FloatingBottom"
+        )
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .nestedScroll(scrollConnection)
         ) {
             if (floatingVideo && currentPlayingItem != null && playbackService != null && homeState != null) {
                 FloatingMiniPlayer(
@@ -233,14 +266,15 @@ fun YouTubeHomeScreen(
                     onClose = onClosePlayer,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(12.dp)
+                        .padding(end = 12.dp, bottom = floatingBottom + 12.dp)
                         .zIndex(2f)
                 )
             }
             when (selectedTab) {
                 1 -> ShortsScreen(
                     playbackService = playbackService,
-                    onOpenChannel = { nav.openChannelOf(it) }
+                    onOpenChannel = { nav.openChannelOf(it) },
+                    modifier = Modifier.padding(bottom = navSpace)
                 )
                 2 -> SubscriptionsTab(nav = nav, onSelectVideo = onSelectVideo)
                 3 -> YouTab(nav = nav, onSelectVideo = onSelectVideo)
@@ -272,7 +306,7 @@ fun YouTubeHomeScreen(
                                 LazyVerticalGrid(
                                     state = listState,
                                     columns = GridCells.Adaptive(minSize = 340.dp),
-                                    contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
+                                    contentPadding = PaddingValues(top = 4.dp, bottom = navSpace + 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxSize()
@@ -310,6 +344,10 @@ fun YouTubeHomeScreen(
             }
         }
 
+    }
+
+    // Bottom overlay: the mini player (audio) and the navigation bar float over the scrolling content.
+    Column(modifier = Modifier.align(Alignment.BottomCenter)) {
         if (currentPlayingItem != null && selectedTab != 1 && !floatingVideo) {
             OriginalMiniPlayer(
                 item = currentPlayingItem,
@@ -320,17 +358,26 @@ fun YouTubeHomeScreen(
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
             )
         }
-
-        GlassNavBar(
-            entries = navEntries,
-            selectedIndex = selectedTab,
-            onSelect = { selectedTab = it },
-            modifier = Modifier
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
-        )
+        AnimatedVisibility(
+            visible = navVisible || selectedTab == 1,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+        ) {
+            GlassNavBar(
+                entries = navEntries,
+                selectedIndex = selectedTab,
+                onSelect = { selectedTab = it },
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(horizontal = 36.dp, vertical = 8.dp)
+            )
+        }
+    }
     }
 }
+
+/** Height of the floating bar plus its vertical padding. */
+private val NAV_BAR_SPACE = 72.dp
 
 /** Subscriptions + the most-watched channels, used to mix personal uploads into the feed. */
 private fun personalChannels(): List<String> {
