@@ -119,6 +119,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var mediaSession: MediaSession
     private lateinit var adBlockPipeline: AdBlockMediaPipeline
+    private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -170,6 +171,11 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
                 _playbackState.value = _playbackState.value.copy(autoplayNext = enabled)
             }
         }
+        serviceScope.launch {
+            AppSettings.stableVolume.collect { enabled ->
+                updateStableVolume(enabled)
+            }
+        }
         createNotificationChannel()
         startForegroundWithInitialNotification()
         initAdBlockPipeline()
@@ -177,6 +183,21 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         initMediaSession()
         registerBecomingNoisyReceiver()
         startPositionTrackingLoop()
+    }
+
+    private fun updateStableVolume(enabled: Boolean) {
+        if (!::exoPlayer.isInitialized) return
+        val sessionId = exoPlayer.audioSessionId
+        if (sessionId == C.AUDIO_SESSION_ID_UNSET) return
+        try {
+            if (loudnessEnhancer == null) {
+                loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId)
+            }
+            loudnessEnhancer?.setTargetGain(if (enabled) 600 else 0) // +6 dB normalization
+            loudnessEnhancer?.enabled = enabled
+        } catch (e: Exception) {
+            Log.w(TAG, "LoudnessEnhancer could not be configured: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -684,6 +705,10 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             durationMs = duration
         )
 
+        if (playbackState == Player.STATE_READY) {
+            updateStableVolume(AppSettings.stableVolume.value)
+        }
+
         // Handle track completion
         if (playbackState == Player.STATE_ENDED) {
             when (_playbackState.value.repeatMode) {
@@ -883,6 +908,12 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     override fun onDestroy() {
         unregisterBecomingNoisyReceiver()
         serviceScope.cancel()
+        try {
+            loudnessEnhancer?.release()
+            loudnessEnhancer = null
+        } catch (e: Exception) {
+            Log.w(TAG, "Error releasing LoudnessEnhancer: ${e.message}")
+        }
         try {
             if (::exoPlayer.isInitialized) {
                 exoPlayer.removeListener(this)

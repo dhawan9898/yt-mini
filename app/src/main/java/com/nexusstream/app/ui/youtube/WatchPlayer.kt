@@ -57,6 +57,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import com.nexusstream.app.data.AppSettings
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.getValue
@@ -121,11 +127,24 @@ fun WatchPlayerViewport(
     topActions: @Composable RowScope.() -> Unit = {}
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val ambientMode by AppSettings.ambientMode.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
     var hud by remember { mutableStateOf<String?>(null) }
     var boosting by remember { mutableStateOf(false) }
     var speedBeforeBoost by remember { mutableFloatStateOf(1f) }
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var panOffsetX by remember { mutableFloatStateOf(0f) }
+    var panOffsetY by remember { mutableFloatStateOf(0f) }
+
+    val glowColor = remember(item.dominantColor) {
+        if (item.dominantColor == Color.Unspecified || item.dominantColor == Color.Transparent || item.dominantColor == Color.Black) {
+            Color(0xFF383838)
+        } else {
+            item.dominantColor
+        }
+    }
 
     // Controls fade out a few seconds after the last touch while playing.
     LaunchedEffect(controlsVisible, interaction, state.isPlaying) {
@@ -173,7 +192,27 @@ fun WatchPlayerViewport(
         hud = "Volume ${audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / max}%"
     }
 
-    Box(modifier = modifier.background(Color.Black)) {
+    Box(
+        modifier = modifier
+            .background(Color.Black)
+            .then(
+                if (ambientMode && !fullscreen) {
+                    Modifier.drawBehind {
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    glowColor.copy(alpha = 0.55f),
+                                    glowColor.copy(alpha = 0.18f),
+                                    Color.Transparent
+                                ),
+                                center = center,
+                                radius = size.width * 0.90f
+                            )
+                        )
+                    }
+                } else Modifier
+            )
+    ) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -187,7 +226,14 @@ fun WatchPlayerViewport(
                 }
             },
             update = { it.player = playbackService.getPlayer() },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = zoomScale
+                    scaleY = zoomScale
+                    translationX = panOffsetX
+                    translationY = panOffsetY
+                }
         )
 
         if (controlsEnabled) {
@@ -195,6 +241,22 @@ fun WatchPlayerViewport(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .pointerInput(fullscreen) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (zoomScale * zoom).coerceIn(1f, 3f)
+                            zoomScale = newScale
+                            if (newScale > 1f) {
+                                val maxPanX = (size.width * (newScale - 1f)) / 2f
+                                val maxPanY = (size.height * (newScale - 1f)) / 2f
+                                panOffsetX = (panOffsetX + pan.x).coerceIn(-maxPanX, maxPanX)
+                                panOffsetY = (panOffsetY + pan.y).coerceIn(-maxPanY, maxPanY)
+                                hud = "Zoom ${(newScale * 10).toInt() / 10f}x"
+                            } else {
+                                panOffsetX = 0f
+                                panOffsetY = 0f
+                            }
+                        }
+                    }
                     .pointerInput(fullscreen) {
                         detectTapGestures(
                             onPress = {
@@ -206,18 +268,26 @@ fun WatchPlayerViewport(
                                 }
                             },
                             onLongPress = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 val player = playbackService.getPlayer()
                                 speedBeforeBoost = player.playbackParameters.speed
                                 boosting = true
                                 player.setPlaybackSpeed(2f)
-                                hud = "2x speed"
+                                hud = "2x speed \u25B6\u25B6"
                             },
                             onDoubleTap = { offset ->
-                                val third = size.width / 3f
-                                when {
-                                    offset.x < third -> seekBy(-SEEK_STEP_MS)
-                                    offset.x > 2 * third -> seekBy(SEEK_STEP_MS)
-                                    else -> playbackService.togglePlayPause()
+                                if (zoomScale > 1f) {
+                                    zoomScale = 1f
+                                    panOffsetX = 0f
+                                    panOffsetY = 0f
+                                    hud = "1x Zoom"
+                                } else {
+                                    val third = size.width / 3f
+                                    when {
+                                        offset.x < third -> seekBy(-SEEK_STEP_MS)
+                                        offset.x > 2 * third -> seekBy(SEEK_STEP_MS)
+                                        else -> playbackService.togglePlayPause()
+                                    }
                                 }
                                 interaction++
                             },

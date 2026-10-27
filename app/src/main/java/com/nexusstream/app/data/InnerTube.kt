@@ -17,6 +17,7 @@ import java.security.MessageDigest
  */
 object InnerTube {
     private const val ENDPOINT = "https://www.youtube.com/youtubei/v1/browse?prettyPrint=false"
+    private const val NEXT_ENDPOINT = "https://www.youtube.com/youtubei/v1/next?prettyPrint=false"
     private const val ORIGIN = "https://www.youtube.com"
     private const val CLIENT_VERSION = "2.20250101.00.00"
     private val JSON = "application/json".toMediaType()
@@ -32,6 +33,32 @@ object InnerTube {
     fun history(): Page = browse(JSONObject().put("browseId", "FEhistory"))
 
     fun more(continuation: String): Page = browse(JSONObject().put("continuation", continuation))
+
+    /** Fetches the official continuous YouTube / YT Music radio queue for a track seed. */
+    fun radio(videoId: String): Page {
+        val extra = JSONObject().put("videoId", videoId).put("playlistId", "RDAMVM$videoId")
+        return parse(postEndpoint(NEXT_ENDPOINT, extra))
+    }
+
+    /** Submits a like or removes a like on YouTube servers if the account is signed in. */
+    fun likeVideo(videoId: String, remove: Boolean = false): Boolean = runCatching {
+        if (!GoogleAccount.isSignedIn()) return false
+        val action = if (remove) "removelike" else "like"
+        val endpoint = "https://www.youtube.com/youtubei/v1/like/$action?prettyPrint=false"
+        val body = JSONObject().put("target", JSONObject().put("videoId", videoId))
+        postEndpoint(endpoint, body)
+        true
+    }.getOrDefault(false)
+
+    /** Subscribes or unsubscribes from a channel on YouTube servers if the account is signed in. */
+    fun subscribeChannel(channelId: String, unsubscribe: Boolean = false): Boolean = runCatching {
+        if (!GoogleAccount.isSignedIn() || channelId.isBlank()) return false
+        val action = if (unsubscribe) "unsubscribe" else "subscribe"
+        val endpoint = "https://www.youtube.com/youtubei/v1/subscription/$action?prettyPrint=false"
+        val body = JSONObject().put("channelIds", JSONArray().put(channelId))
+        postEndpoint(endpoint, body)
+        true
+    }.getOrDefault(false)
 
     private fun browse(extra: JSONObject): Page = parse(browseRaw(extra))
 
@@ -62,7 +89,9 @@ object InnerTube {
         )
     }
 
-    private fun browseRaw(extra: JSONObject): JSONObject {
+    private fun browseRaw(extra: JSONObject): JSONObject = postEndpoint(ENDPOINT, extra)
+
+    private fun postEndpoint(endpoint: String, extra: JSONObject): JSONObject {
         val body = JSONObject().apply {
             put("context", JSONObject().put("client", JSONObject()
                 .put("clientName", "WEB")
@@ -72,7 +101,7 @@ object InnerTube {
             extra.keys().forEach { put(it, extra.get(it)) }
         }
         val builder = Request.Builder()
-            .url(ENDPOINT)
+            .url(endpoint)
             .post(body.toString().toRequestBody(JSON))
             .header("User-Agent", NewPipeDownloader.USER_AGENT)
             .header("Origin", ORIGIN)
@@ -107,12 +136,13 @@ object InnerTube {
                 is JSONObject -> {
                     node.optJSONObject("videoRenderer")?.let { video(it)?.let(items::add) }
                     node.optJSONObject("lockupViewModel")?.let { lockup(it)?.let(items::add) }
+                    node.optJSONObject("playlistPanelVideoRenderer")?.let { playlistPanelVideo(it)?.let(items::add) }
                     node.optJSONObject("continuationItemRenderer")?.let {
                         continuation = it.optJSONObject("continuationEndpoint")
                             ?.optJSONObject("continuationCommand")?.optString("token")?.takeIf { t -> t.isNotEmpty() }
                     }
                     node.keys().forEach { key ->
-                        if (key != "videoRenderer" && key != "lockupViewModel") walk(node.opt(key))
+                        if (key != "videoRenderer" && key != "lockupViewModel" && key != "playlistPanelVideoRenderer") walk(node.opt(key))
                     }
                 }
                 is JSONArray -> for (i in 0 until node.length()) walk(node.opt(i))
@@ -178,6 +208,24 @@ object InnerTube {
             views = lines.getOrNull(1).orEmpty(), published = lines.getOrNull(2).orEmpty(),
             channelUrl = "", live = false
         )
+    }
+
+    private fun playlistPanelVideo(p: JSONObject): MediaItemModel? {
+        val id = p.optString("videoId").takeIf { it.length == 11 } ?: return null
+        val durationText = text(p.optJSONObject("lengthText"))
+        val owner = p.optJSONObject("shortBylineText") ?: p.optJSONObject("longBylineText")
+        return build(
+            id = id,
+            title = text(p.optJSONObject("title")),
+            channel = text(owner),
+            thumbnail = lastThumbnail(p.optJSONObject("thumbnail")),
+            avatar = "",
+            seconds = parseDuration(durationText),
+            views = "",
+            published = "",
+            channelUrl = "",
+            live = durationText.isEmpty()
+        ).copy(contentType = MediaContentType.MUSIC_TRACK)
     }
 
     private fun build(

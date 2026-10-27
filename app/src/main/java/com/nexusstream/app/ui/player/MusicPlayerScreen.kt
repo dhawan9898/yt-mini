@@ -94,12 +94,12 @@ import com.nexusstream.app.ui.theme.DarkPalette
 import com.nexusstream.app.ui.theme.SystemBarIcons
 import com.nexusstream.app.ui.components.PlayerOptionsSheet
 
-private enum class PlayerPanel { NONE, UP_NEXT, LYRICS }
+private enum class PlayerPanel { NONE, UP_NEXT, LYRICS, RELATED }
 
 /**
  * Now-playing screen laid out like the YouTube Music app: Song / Video toggle on top,
  * square album art, title + artist, seek bar, transport controls and an
- * UP NEXT / LYRICS tab row at the bottom.
+ * UP NEXT / LYRICS / RELATED tab row at the bottom.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -115,10 +115,15 @@ fun MusicPlayerScreen(
     val scope = rememberCoroutineScope()
     // Lyrics are looked up the first time the Lyrics tab is opened for a song.
     var lyrics by remember(item.id) { mutableStateOf<FeedState<List<LyricLine>>?>(null) }
+    var related by remember(item.id) { mutableStateOf<FeedState<List<MediaItemModel>>?>(null) }
     LaunchedEffect(panel, item.id) {
         if (panel == PlayerPanel.LYRICS && lyrics == null) {
             lyrics = FeedState.Loading
             lyrics = LyricsRepository.fetch(item.title, item.artistOrChannel).toFeedState()
+        }
+        if (panel == PlayerPanel.RELATED && related == null) {
+            related = FeedState.Loading
+            related = YouTubeRepository.radio(item).toFeedState()
         }
     }
     val savedItems by LibraryRepository.liked.collectAsState()
@@ -226,6 +231,24 @@ fun MusicPlayerScreen(
                         message = "No synced lyrics found for this song",
                         currentPositionMs = state.currentPositionMs,
                         onSeek = { playbackService.seekTo(it) }
+                    )
+                }
+                PlayerPanel.RELATED -> when (val r = related) {
+                    null, is FeedState.Loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+                    }
+                    is FeedState.Error -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Couldn't load related tracks (${r.message})", color = DarkPalette.textSecondary, fontSize = 13.sp)
+                    }
+                    is FeedState.Data -> RelatedPanel(
+                        tracks = r.value,
+                        onSelectTrack = { selected ->
+                            playbackService.playQueue(
+                                r.value,
+                                r.value.indexOf(selected).coerceAtLeast(0),
+                                startInVideoMode = state.playbackMode == PlaybackMode.VIDEO
+                            )
+                        }
                     )
                 }
                 PlayerPanel.NONE -> Column(
@@ -370,7 +393,7 @@ fun MusicPlayerScreen(
             }
         }
 
-        // Bottom tabs: UP NEXT | LYRICS (tap again to return to the art)
+        // Bottom tabs: UP NEXT | LYRICS | RELATED (tap active tab to return to the art)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -382,6 +405,9 @@ fun MusicPlayerScreen(
             }
             PanelTab("LYRICS", panel == PlayerPanel.LYRICS) {
                 panel = if (panel == PlayerPanel.LYRICS) PlayerPanel.NONE else PlayerPanel.LYRICS
+            }
+            PanelTab("RELATED", panel == PlayerPanel.RELATED) {
+                panel = if (panel == PlayerPanel.RELATED) PlayerPanel.NONE else PlayerPanel.RELATED
             }
         }
     }
@@ -595,4 +621,75 @@ private fun LyricsPanel(
 private fun formatTime(ms: Long): String {
     val total = (ms / 1000).coerceAtLeast(0)
     return "%d:%02d".format(total / 60, total % 60)
+}
+
+@Composable
+private fun RelatedPanel(
+    tracks: List<MediaItemModel>,
+    onSelectTrack: (MediaItemModel) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Text(
+                text = "You Might Also Like",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+        }
+        itemsIndexed(tracks) { _, track ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onSelectTrack(track) }
+                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF222222))
+                ) {
+                    if (track.artworkUrl.isNotEmpty()) {
+                        AsyncImage(
+                            model = track.artworkUrl,
+                            contentDescription = track.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = track.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = track.artistOrChannel,
+                        fontSize = 12.sp,
+                        color = DarkPalette.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(onClick = { onSelectTrack(track) }) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = Color.White)
+                }
+            }
+        }
+    }
 }

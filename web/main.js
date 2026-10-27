@@ -891,23 +891,77 @@ class NexusMasterApp {
     }
   }
 
-  handleSearch(query) {
+  async handleSearch(query) {
     if (!query.trim()) {
       elements.searchResultsSection.classList.add("hidden");
       return;
     }
     elements.searchResultsSection.classList.remove("hidden");
-    elements.searchResultsList.innerHTML = "";
+    elements.searchResultsList.innerHTML = '<div style="text-align: center; color: rgba(255,255,255,0.6); padding: 16px;"><span class="material-symbols-rounded">sync</span> Searching unified feed...</div>';
 
     const q = query.toLowerCase();
     const songMatches = MUSIC_CATALOG.filter((s) => s.title.toLowerCase().includes(q) || s.artistOrChannel.toLowerCase().includes(q));
     const videoMatches = YOUTUBE_VIDEOS.filter((v) => v.title.toLowerCase().includes(q) || v.channel.toLowerCase().includes(q));
     const shortsMatches = YOUTUBE_SHORTS.filter((sh) => sh.title.toLowerCase().includes(q) || sh.channel.toLowerCase().includes(q));
 
-    if (songMatches.length === 0 && videoMatches.length === 0 && shortsMatches.length === 0) {
+    let liveResults = [];
+    try {
+      const res = await fetch(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(query)}&type=video`, { signal: AbortSignal.timeout(2800) });
+      if (res.ok) {
+        const data = await res.json();
+        liveResults = data.slice(0, 8).map((item) => ({
+          id: item.videoId,
+          title: item.title,
+          artistOrChannel: item.author,
+          artworkUrl: item.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
+          videoUrl: `https://www.youtube.com/watch?v=${item.videoId}`,
+          durationMs: (item.lengthSeconds || 180) * 1000,
+          viewsOrPlays: `${(item.viewCount / 1000).toFixed(0)}K`,
+          dominantColor: "#0984e3",
+          secondaryColor: "#00cec9",
+          isLiveResult: true
+        }));
+      }
+    } catch (_) {}
+
+    elements.searchResultsList.innerHTML = "";
+
+    if (songMatches.length === 0 && videoMatches.length === 0 && shortsMatches.length === 0 && liveResults.length === 0) {
       elements.searchResultsList.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.4); padding: 20px;">No matching results</p>';
       return;
     }
+
+    liveResults.forEach((live) => {
+      const row = document.createElement("div");
+      row.className = "quick-pick-item";
+      row.innerHTML = `
+        <img src="${live.artworkUrl}" class="quick-pick-thumb" alt="${live.title}">
+        <div class="quick-pick-info">
+          <div class="quick-pick-title">${live.title}</div>
+          <div class="quick-pick-meta">YouTube • ${live.artistOrChannel} • ${live.viewsOrPlays} views</div>
+        </div>
+        <span class="material-symbols-rounded">play_circle</span>
+      `;
+      row.addEventListener("click", () => {
+        const item = {
+          id: live.id,
+          title: live.title,
+          artistOrChannel: live.artistOrChannel,
+          audioUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+          videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+          artworkUrl: live.artworkUrl,
+          durationMs: live.durationMs,
+          dominantColor: live.dominantColor,
+          secondaryColor: live.secondaryColor
+        };
+        state.queue = [item, ...MUSIC_CATALOG];
+        state.currentTrackIndex = 0;
+        this.setPlaybackMode("VIDEO");
+        this.loadTrack(item, true);
+        this.showMasterPlayer(true);
+      });
+      elements.searchResultsList.appendChild(row);
+    });
 
     // Render matches
     songMatches.forEach((song) => {

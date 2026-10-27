@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -305,10 +306,32 @@ fun VideoWatchScreen(
             )
         }
 
+        val ambientMode by AppSettings.ambientMode.collectAsState()
+        val ambientGlowColor = remember(mediaItem.dominantColor) {
+            if (mediaItem.dominantColor == Color.Unspecified || mediaItem.dominantColor == Color.Transparent || mediaItem.dominantColor == Color.Black) {
+                Color(0xFF282828)
+            } else {
+                mediaItem.dominantColor
+            }
+        }
+
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .then(
+                    if (ambientMode) {
+                        Modifier.background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    ambientGlowColor.copy(alpha = 0.28f),
+                                    OriginalColors.YouTubeBackground
+                                ),
+                                endY = 400f
+                            )
+                        )
+                    } else Modifier
+                ),
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {

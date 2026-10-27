@@ -5,6 +5,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import com.nexusstream.app.model.MediaContentType
 import com.nexusstream.app.model.MediaItemModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,18 +55,27 @@ object LibraryRepository {
         val lastNotifiedMs: Long = 0L
     )
 
+    private val repoScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     private val _subscriptions = MutableStateFlow<List<ChannelSub>>(emptyList())
     val subscriptions: StateFlow<List<ChannelSub>> = _subscriptions.asStateFlow()
 
     fun isSubscribed(name: String): Boolean = _subscriptions.value.any { it.name == name }
 
     fun toggleSubscribe(name: String, avatarUrl: String, channelUrl: String = "") {
-        _subscriptions.value = if (isSubscribed(name)) {
+        val willSub = !isSubscribed(name)
+        _subscriptions.value = if (!willSub) {
             _subscriptions.value.filter { it.name != name }
         } else {
             _subscriptions.value + ChannelSub(name, avatarUrl, channelUrl, lastSeenMs = System.currentTimeMillis())
         }
         persistSubscriptions()
+        val channelId = channelUrl.substringAfterLast("/channel/").substringAfterLast("/")
+        if (channelId.startsWith("UC")) {
+            repoScope.launch {
+                InnerTube.subscribeChannel(channelId, unsubscribe = !willSub)
+            }
+        }
     }
 
     /** Clears the "new" dot for a channel. */
@@ -303,8 +316,12 @@ object LibraryRepository {
     fun isLiked(id: String): Boolean = _liked.value.any { it.id == id }
 
     fun toggleLike(item: MediaItemModel) {
-        _liked.value = if (isLiked(item.id)) _liked.value.filter { it.id != item.id } else listOf(item) + _liked.value
+        val willLike = !isLiked(item.id)
+        _liked.value = if (!willLike) _liked.value.filter { it.id != item.id } else listOf(item) + _liked.value
         persist("liked", _liked.value)
+        repoScope.launch {
+            InnerTube.likeVideo(item.id, remove = !willLike)
+        }
         // Liking and disliking are mutually exclusive.
         if (isLiked(item.id) && isDisliked(item.id)) toggleDislike(item)
     }

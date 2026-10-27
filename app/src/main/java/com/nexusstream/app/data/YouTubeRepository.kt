@@ -436,6 +436,10 @@ object YouTubeRepository {
 
     /** "Start radio": songs related to [item], for a music queue. */
     suspend fun radio(item: MediaItemModel): Result<List<MediaItemModel>> = io {
+        val innerTubeRadio = runCatching { InnerTube.radio(item.id).items }.getOrNull().orEmpty()
+        if (innerTubeRadio.isNotEmpty()) {
+            return@io innerTubeRadio
+        }
         val related = details(item.watchUrlOrSource()).getOrThrow().related
         related.map { it.copy(contentType = MediaContentType.MUSIC_TRACK) }
             .also { check(it.isNotEmpty()) { "No related songs found" } }

@@ -63,6 +63,14 @@ object AppSettings {
     private val _contentCountry = MutableStateFlow("US")
     val contentCountry: StateFlow<String> = _contentCountry.asStateFlow()
 
+    /** Glow matching the current video's dominant colors around the player. */
+    private val _ambientMode = MutableStateFlow(true)
+    val ambientMode: StateFlow<Boolean> = _ambientMode.asStateFlow()
+
+    /** Normalizes audio levels across videos (Stable Volume). */
+    private val _stableVolume = MutableStateFlow(true)
+    val stableVolume: StateFlow<Boolean> = _stableVolume.asStateFlow()
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -76,6 +84,8 @@ object AppSettings {
         _wifiOnlyDownloads.value = p.getBoolean("wifi_only_downloads", false)
         _contentCountry.value = p.getString("country", "US") ?: "US"
         _showDislikeCounts.value = p.getBoolean("dislike_counts", false)
+        _ambientMode.value = p.getBoolean("ambient_mode", true)
+        _stableVolume.value = p.getBoolean("stable_volume", true)
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -118,6 +128,16 @@ object AppSettings {
         prefs?.edit()?.putBoolean("dislike_counts", enabled)?.apply()
     }
 
+    fun setAmbientMode(enabled: Boolean) {
+        _ambientMode.value = enabled
+        prefs?.edit()?.putBoolean("ambient_mode", enabled)?.apply()
+    }
+
+    fun setStableVolume(enabled: Boolean) {
+        _stableVolume.value = enabled
+        prefs?.edit()?.putBoolean("stable_volume", enabled)?.apply()
+    }
+
     /** All settings as JSON, for backups. */
     fun exportJson(): org.json.JSONObject = org.json.JSONObject()
         .put("theme", _themeMode.value.name)
@@ -128,6 +148,8 @@ object AppSettings {
         .put("wifiOnly", _wifiOnlyDownloads.value)
         .put("country", _contentCountry.value)
         .put("dislikeCounts", _showDislikeCounts.value)
+        .put("ambientMode", _ambientMode.value)
+        .put("stableVolume", _stableVolume.value)
 
     /** Applies settings from a backup; missing or unknown values are left as they are. */
     fun importJson(json: org.json.JSONObject) {
@@ -139,5 +161,7 @@ object AppSettings {
         if (json.has("wifiOnly")) setWifiOnlyDownloads(json.optBoolean("wifiOnly"))
         json.optString("country").takeIf { c -> ContentRegions.countries.any { it.first == c } }?.let { setContentCountry(it) }
         if (json.has("dislikeCounts")) setShowDislikeCounts(json.optBoolean("dislikeCounts"))
+        if (json.has("ambientMode")) setAmbientMode(json.optBoolean("ambientMode"))
+        if (json.has("stableVolume")) setStableVolume(json.optBoolean("stableVolume"))
     }
 }
