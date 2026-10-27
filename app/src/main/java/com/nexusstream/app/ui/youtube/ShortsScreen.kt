@@ -171,6 +171,7 @@ private fun ShortsPager(
             item = item,
             isActive = isActive,
             resolving = isActive && playback?.isResolving == true,
+            playing = isActive && playback?.currentItem?.id == item.id && playback.isPlaying,
             playbackService = playbackService,
             onOpenChannel = onOpenChannel
         )
@@ -183,6 +184,7 @@ private fun ShortPage(
     item: MediaItemModel,
     isActive: Boolean,
     resolving: Boolean,
+    playing: Boolean,
     playbackService: MediaPlaybackService?,
     onOpenChannel: (MediaItemModel) -> Unit
 ) {
@@ -190,6 +192,9 @@ private fun ShortPage(
     val liked by LibraryRepository.liked.collectAsState()
     val saved by LibraryRepository.saved.collectAsState()
     var showSave by remember { mutableStateOf(false) }
+    // Once this short has really played, the thumbnail cover is removed for good (pausing keeps the frame).
+    var started by remember(item.id) { mutableStateOf(false) }
+    LaunchedEffect(playing) { if (playing) started = true }
 
     Box(
         modifier = Modifier
@@ -199,13 +204,6 @@ private fun ShortPage(
                 if (isActive) playbackService?.togglePlayPause()
             }
     ) {
-        // The thumbnail shows until the video has started (and for pages that are not playing).
-        AsyncImage(
-            model = item.artworkUrl,
-            contentDescription = item.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
         if (isActive && playbackService != null) {
             AndroidView(
                 factory = { ctx ->
@@ -223,7 +221,17 @@ private fun ShortPage(
                 modifier = Modifier.fillMaxSize()
             )
         }
-        if (resolving) {
+        // The thumbnail covers the picture until this short has started (and on pages that are not
+        // playing), so the previous short's last frame is never shown.
+        if (!started) {
+            AsyncImage(
+                model = item.artworkUrl,
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        if (resolving || (isActive && !started)) {
             CircularProgressIndicator(
                 color = Color.White,
                 strokeWidth = 2.dp,

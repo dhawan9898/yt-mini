@@ -126,6 +126,10 @@ fun FloatingMiniPlayer(
             AndroidView(
                 factory = { ctx ->
                     (LayoutInflater.from(ctx).inflate(R.layout.view_player_texture, null, false) as PlayerView).apply {
+                        layoutParams = android.widget.FrameLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        )
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         player = playbackService.getPlayer()
                     }

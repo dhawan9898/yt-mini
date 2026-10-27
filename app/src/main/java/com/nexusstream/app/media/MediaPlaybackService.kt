@@ -401,6 +401,10 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         }
 
         // Live YouTube item: resolve fresh stream URLs first (they expire), then play.
+        // Drop the previous video now, so it neither keeps playing nor shows its last frame while
+        // the new one resolves.
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
         _playbackState.value = _playbackState.value.copy(isResolving = true)
         loadJob = serviceScope.launch {
             val resolved = YouTubeRepository.resolveStream(item.sourceUrl).getOrElse { error ->
