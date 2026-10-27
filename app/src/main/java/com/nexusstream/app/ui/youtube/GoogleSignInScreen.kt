@@ -92,7 +92,7 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
 
                     // Remove X-Requested-With header to prevent Google from detecting embedded WebView
                     if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
-                        WebSettingsCompat.setRequestedWithHeaderAllowList(settings, emptySet())
+                        WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, setOf<String>())
                     }
 
                     // Present as standard Mobile Chrome browser without WebView markers (no '; wv' or 'Version/4.0')

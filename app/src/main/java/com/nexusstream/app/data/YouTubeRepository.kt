@@ -411,7 +411,7 @@ object YouTubeRepository {
         val initialItems = (channelShortsList + (primaryPaged?.items.orEmpty())).distinctBy { it.id }
 
         val pagedResult = if (initialItems.isNotEmpty() && primaryPaged != null) {
-            Paged(initialItems, primaryPaged.nextLoader)
+            Paged(initialItems, primaryPaged.loadMore)
         } else {
             fetchShortsSearchPaged("trending shorts")
         }
@@ -582,7 +582,7 @@ object YouTubeRepository {
     }
 
     /** Forces a refresh of subscribed channels from Google Account into LibraryRepository. */
-    suspend fun refreshGoogleSubscriptions(): List<LibraryRepository.ChannelSub> = io {
+    suspend fun refreshGoogleSubscriptions(): Result<List<LibraryRepository.ChannelSub>> = io {
         if (!GoogleAccount.isSignedIn()) return@io emptyList()
         val channels = runCatching { InnerTube.channels() }.getOrDefault(emptyList())
         if (channels.isNotEmpty()) {
