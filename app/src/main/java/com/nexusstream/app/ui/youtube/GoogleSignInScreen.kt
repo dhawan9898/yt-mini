@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
@@ -43,6 +44,7 @@ private const val SIGN_IN_URL =
 @Composable
 fun GoogleSignInScreen(nav: YouTubeNav) {
     var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
 
     BackHandler {
@@ -66,6 +68,9 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
             }
             Text("Sign in to Google", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = OriginalColors.TextPrimary)
         }
+        loadError?.let {
+            Text(it, fontSize = 12.sp, color = androidx.compose.ui.graphics.Color(0xFFFF6B6B), modifier = Modifier.padding(12.dp))
+        }
         if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = OriginalColors.Red)
 
         AndroidView(
@@ -74,14 +79,26 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     // Google refuses sign-in from embedded WebViews; present as plain mobile Chrome.
-                    settings.userAgentString = settings.userAgentString
-                        .replace("; wv", "")
-                        .replace(Regex("Version/\\d+\\.\\d+ "), "")
+                    settings.userAgentString =
+                        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                            "Chrome/126.0.0.0 Mobile Safari/537.36"
+                    settings.setSupportMultipleWindows(false)
+                    settings.javaScriptCanOpenWindowsAutomatically = true
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                             loading = true
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView,
+                            request: android.webkit.WebResourceRequest,
+                            error: android.webkit.WebResourceError
+                        ) {
+                            if (request.isForMainFrame) {
+                                loadError = "${error.description} (${request.url.host})"
+                            }
                         }
 
                         override fun onPageFinished(view: WebView, url: String) {

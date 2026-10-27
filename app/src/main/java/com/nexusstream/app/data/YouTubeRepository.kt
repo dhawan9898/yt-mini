@@ -553,7 +553,11 @@ object YouTubeRepository {
 
     /** Resolves fresh direct stream URLs for a watch URL. Call right before playback. */
     suspend fun resolveStream(watchUrl: String): Result<ResolvedStream> = io {
-        val info = streamInfo(watchUrl)
+        val info = try {
+            streamInfo(watchUrl)
+        } catch (e: org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) {
+            throw IllegalStateException("Age-restricted video: YouTube only serves it to signed-in adult accounts, which this app cannot do yet")
+        }
         // YouTube serves several language tracks (original, auto-dubbed, audio description).
         // Keep the best stream per (track, bitrate) and list the original track first.
         val audio = info.audioStreams
@@ -648,15 +652,32 @@ object YouTubeRepository {
             description = info.description?.content.orEmpty(),
             subscribers = info.uploaderSubscriberCount,
             tags = info.tags.orEmpty(),
-            related = info.relatedItems
-                .filterIsInstance<StreamInfoItem>()
-                .filter { it.duration > 60 && !it.isShortFormContent }
-                .mapNotNull { toModel(it, isMusic = false) }
-                .distinctBy { it.id },
+            related = relatedFor(info),
             chapters = info.streamSegments.orEmpty()
                 .filter { !it.title.isNullOrBlank() }
                 .map { Chapter(it.title, it.startTimeSeconds * 1000L) }
         )
+    }
+
+    /**
+     * Suggestions: the extractor's related list (often short or generic) mixed with videos that
+     * match this video's title and more from the same channel, so the list is relevant and long.
+     */
+    private fun relatedFor(info: StreamInfo): List<MediaItemModel> {
+        val own = info.relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .filter { it.duration > 60 && !it.isShortFormContent }
+            .mapNotNull { toModel(it, isMusic = false) }
+        val byTitle = runCatching {
+            searchItems(info.name.replace(Regex("[\\[(].*?[\\])]"), " ").take(70), YoutubeSearchQueryHandlerFactory.VIDEOS, 60)
+        }.getOrDefault(emptyList())
+        val byChannel = runCatching {
+            searchItems(info.uploaderName.orEmpty(), YoutubeSearchQueryHandlerFactory.VIDEOS, 60)
+                .filter { it.artistOrChannel == info.uploaderName }
+        }.getOrDefault(emptyList())
+        return interleave(listOf(own, byTitle, byChannel))
+            .distinctBy { it.id }
+            .filter { it.id != info.id }
     }
 
     /** Tracks of an album / playlist, as playable music items. */

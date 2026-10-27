@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -52,12 +53,12 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -377,24 +378,10 @@ private fun WatchControls(
             horizontalArrangement = Arrangement.spacedBy(if (fullscreen) 64.dp else 36.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .clickable { onTouched(); playbackService.skipToPrevious() },
-                contentAlignment = Alignment.Center
-            ) {
+            GlassCircle(size = 48.dp, onClick = { onTouched(); playbackService.skipToPrevious() }) {
                 Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Color.White, modifier = Modifier.size(28.dp))
             }
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.4f))
-                    .clickable { onTouched(); playbackService.togglePlayPause() },
-                contentAlignment = Alignment.Center
-            ) {
+            GlassCircle(size = 68.dp, onClick = { onTouched(); playbackService.togglePlayPause() }) {
                 Icon(
                     imageVector = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = if (state.isPlaying) "Pause" else "Play",
@@ -402,14 +389,7 @@ private fun WatchControls(
                     modifier = Modifier.size(44.dp)
                 )
             }
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .clickable { onTouched(); playbackService.skipToNext() },
-                contentAlignment = Alignment.Center
-            ) {
+            GlassCircle(size = 48.dp, onClick = { onTouched(); playbackService.skipToNext() }) {
                 Icon(Icons.Rounded.SkipNext, "Next", tint = Color.White, modifier = Modifier.size(28.dp))
             }
         }
@@ -441,22 +421,18 @@ private fun WatchControls(
                     )
                 }
             }
-            Slider(
-                value = fraction,
-                onValueChange = {
+            YouTubeSeekBar(
+                fraction = fraction,
+                bufferedFraction = (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f),
+                onScrub = {
                     onTouched()
                     dragFraction = it
                 },
-                onValueChangeFinished = {
+                onScrubEnd = {
                     dragFraction?.let { playbackService.seekTo((it * duration).toLong()) }
                     dragFraction = null
                 },
-                colors = SliderDefaults.colors(
-                    thumbColor = OriginalColors.Red,
-                    activeTrackColor = OriginalColors.Red,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                ),
-                modifier = Modifier.height(24.dp)
+                modifier = Modifier.fillMaxWidth().height(28.dp)
             )
         }
     }
@@ -611,4 +587,79 @@ internal tailrec fun Context.hostActivity(): android.app.Activity? = when (this)
     is android.app.Activity -> this
     is ContextWrapper -> baseContext.hostActivity()
     else -> null
+}
+
+/** Frosted-glass round button: translucent fill, bright rim, and a springy squash while pressed. */
+@Composable
+private fun GlassCircle(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit, content: @Composable () -> Unit) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed) 0.86f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 380f),
+        label = "glassPress"
+    )
+    Box(
+        modifier = Modifier
+            .size(size)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.08f))
+                )
+            )
+            .border(
+                1.dp,
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    listOf(Color.White.copy(alpha = 0.6f), Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.3f))
+                ),
+                CircleShape
+            )
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) { content() }
+}
+
+/** YouTube's seek bar: thin track, grey buffered part, red progress and a dot that grows on touch. */
+@Composable
+private fun YouTubeSeekBar(
+    fraction: Float,
+    bufferedFraction: Float,
+    onScrub: (Float) -> Unit,
+    onScrubEnd: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var scrubbing by remember { mutableStateOf(false) }
+    val thumb by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (scrubbing) 16.dp else 12.dp,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
+        label = "thumb"
+    )
+    androidx.compose.foundation.Canvas(
+        modifier = modifier
+            .pointerInput(Unit) {
+                detectTapGestures { offset -> onScrub((offset.x / size.width).coerceIn(0f, 1f)); onScrubEnd() }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset -> scrubbing = true; onScrub((offset.x / size.width).coerceIn(0f, 1f)) },
+                    onDragEnd = { scrubbing = false; onScrubEnd() },
+                    onDragCancel = { scrubbing = false; onScrubEnd() },
+                    onHorizontalDrag = { change, _ ->
+                        change.consume()
+                        onScrub((change.position.x / size.width).coerceIn(0f, 1f))
+                    }
+                )
+            }
+    ) {
+        val cy = size.height / 2f
+        val trackHeight = (if (scrubbing) 4.dp else 3.dp).toPx()
+        val radius = androidx.compose.ui.geometry.CornerRadius(trackHeight / 2f)
+        val top = androidx.compose.ui.geometry.Offset(0f, cy - trackHeight / 2f)
+        drawRoundRect(Color.White.copy(alpha = 0.3f), top, androidx.compose.ui.geometry.Size(size.width, trackHeight), radius)
+        drawRoundRect(Color.White.copy(alpha = 0.5f), top, androidx.compose.ui.geometry.Size(size.width * bufferedFraction, trackHeight), radius)
+        drawRoundRect(OriginalColors.Red, top, androidx.compose.ui.geometry.Size(size.width * fraction, trackHeight), radius)
+        drawCircle(OriginalColors.Red, thumb.toPx() / 2f, androidx.compose.ui.geometry.Offset(size.width * fraction, cy))
+    }
 }
