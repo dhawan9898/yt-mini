@@ -1,5 +1,9 @@
 package com.nexusstream.app.ui.youtube
 
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +27,13 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Subscriptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,21 +41,26 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusstream.app.data.GoogleAccount
 import com.nexusstream.app.data.LibraryRepository
+import com.nexusstream.app.data.TakeoutParsing
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
+import com.nexusstream.app.ui.Route
 import com.nexusstream.app.ui.YouTubeNav
 import com.nexusstream.app.ui.components.FeedState
 import com.nexusstream.app.ui.components.MiniPlayerHooks
@@ -55,6 +71,9 @@ import com.nexusstream.app.ui.components.OriginalFilterChips
 import com.nexusstream.app.ui.components.OriginalLoading
 import com.nexusstream.app.ui.components.PageScaffold
 import com.nexusstream.app.ui.components.toFeedState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val NewDotBlue = Color(0xFF3EA6FF)
 private const val DAY_MS = 24 * 60 * 60 * 1000L
@@ -88,14 +107,6 @@ internal fun SubscriptionsTab(
         feed = YouTubeRepository.subscriptionFeed(subs, refresh = force).toFeedState()
     }
 
-    if (!signedIn && subs.isEmpty()) {
-        OriginalEmptyState(
-            title = "No subscriptions yet",
-            message = "Sign in to your Google Account or tap Subscribe on a video to see new uploads here."
-        )
-        return
-    }
-
     val now = System.currentTimeMillis()
     val items = (feed as? FeedState.Data)?.value.orEmpty()
         .filter { it.id !in hidden.videoIds && it.artistOrChannel !in hidden.channels }
@@ -114,6 +125,11 @@ internal fun SubscriptionsTab(
                 lastSeenMs = 0L
             )
         }
+    }
+
+    if (subs.isEmpty() && shown.isEmpty() && feed !is FeedState.Loading) {
+        SubscriptionsDiscoveryView(nav = nav)
+        return
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -209,6 +225,174 @@ internal fun SubscriptionsTab(
                                 ?.let { { nav.openChannelOf(video) } }
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Shown when the user has no subscriptions yet.
+ * Gives 1-tap Google sign in, Google Takeout CSV import, Search, and popular creator subscribe buttons.
+ */
+@Composable
+private fun SubscriptionsDiscoveryView(nav: YouTubeNav) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val signedIn by GoogleAccount.signedIn.collectAsState()
+    val subs by LibraryRepository.subscriptions.collectAsState()
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val text = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    }.getOrNull()
+                }
+                if (text != null) {
+                    val imported = TakeoutParsing.parseSubscriptionsCsv(text)
+                    if (imported.isNotEmpty()) {
+                        val count = LibraryRepository.importSubscriptions(imported)
+                        Toast.makeText(context, "Imported $count subscriptions!", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "No subscriptions found in that file.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    val featuredChannels = remember {
+        listOf(
+            Triple("MKBHD", "https://yt3.googleusercontent.com/lkH37D712tiyphnu0Id0D5MwwQ7IRuwgQLVD05iMXlDWO-kDHqqd8EM52qDxYdraQac7Geat=s176-c-k-c0x00ffffff-no-rj", "https://www.youtube.com/@mkbhd"),
+            Triple("MrBeast", "https://yt3.googleusercontent.com/fxGKYucJAVme-YzgnKiYGasPuoJ1NpdPfNutv5af4oN45DisgEBlcxCraIYAzTvAM-hTxC19=s176-c-k-c0x00ffffff-no-rj", "https://www.youtube.com/@MrBeast"),
+            Triple("Veritasium", "https://yt3.googleusercontent.com/ytc/AIdro_n_9n25J4_8_o04_v=s176-c-k-c0x00ffffff-no-rj", "https://www.youtube.com/@veritasium"),
+            Triple("Lofi Girl", "https://yt3.googleusercontent.com/w2Y_b4a8eA5PZ1g5z2Q=s176-c-k-c0x00ffffff-no-rj", "https://www.youtube.com/@LofiGirl"),
+            Triple("Kurzgesagt – In a Nutshell", "https://yt3.googleusercontent.com/ytc/AIdro_nU8k=s176-c-k-c0x00ffffff-no-rj", "https://www.youtube.com/@kurzgesagt"),
+            Triple("IGN", "https://yt3.googleusercontent.com/H_2Y=s176-c-k-c0x00ffffff-no-rj", "https://www.youtube.com/@IGN"),
+            Triple("National Geographic", "https://yt3.googleusercontent.com/ytc/AIdro_k2=s176-c-k-c0x00ffffff-no-rj", "https://www.youtube.com/@NatGeo")
+        )
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        contentPadding = PaddingValues(top = 28.dp, bottom = 32.dp)
+    ) {
+        item {
+            Icon(
+                Icons.Rounded.Subscriptions,
+                contentDescription = null,
+                tint = OriginalColors.Red,
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Don't miss new videos",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = OriginalColors.TextPrimary,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Subscribe to channels you love to see their latest uploads here, or import your existing YouTube subscriptions.",
+                fontSize = 14.sp,
+                color = OriginalColors.TextSecondary,
+                textAlign = TextAlign.Center,
+                lineHeight = 20.sp
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (!signedIn) {
+                    Button(
+                        onClick = { nav.open(Route.SignIn) },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(22.dp)
+                    ) {
+                        Text("Sign In", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+                Button(
+                    onClick = { filePicker.launch("*/*") },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = OriginalColors.Chip),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Icon(Icons.Rounded.FileUpload, null, modifier = Modifier.size(16.dp), tint = OriginalColors.TextPrimary)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Import CSV", color = OriginalColors.TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+                Button(
+                    onClick = nav.openSearch,
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = OriginalColors.Chip),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Icon(Icons.Rounded.Search, null, modifier = Modifier.size(16.dp), tint = OriginalColors.TextPrimary)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Search", color = OriginalColors.TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text(
+                text = "Popular creators to subscribe:",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OriginalColors.TextPrimary,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        items(featuredChannels, key = { it.first }) { channel ->
+            val isSubbed = subs.any { it.name == channel.first }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Avatar(channel.second, channel.first, 48.dp)
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = channel.first,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OriginalColors.TextPrimary
+                    )
+                    Text(
+                        text = "Official Channel",
+                        fontSize = 12.sp,
+                        color = OriginalColors.TextSecondary
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(if (isSubbed) OriginalColors.Chip else Color.White)
+                        .clickable {
+                            LibraryRepository.toggleSubscribe(channel.first, channel.second, channel.third)
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = if (isSubbed) "Subscribed" else "+ Subscribe",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSubbed) OriginalColors.TextPrimary else Color.Black
+                    )
                 }
             }
         }

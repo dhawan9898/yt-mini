@@ -257,10 +257,13 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
             // ---- Account ----
             item(key = "h_account") { SettingsHeader("Account") }
             item(key = "google") {
+                val userProfile by GoogleAccount.userProfile.collectAsState()
                 if (googleSignedIn) {
-                    ActionRow("Signed in to Google", "Tap to sign out") { GoogleAccount.signOut() }
+                    val title = userProfile?.displayName?.ifBlank { null } ?: "Signed in to Google"
+                    val sub = userProfile?.email?.ifBlank { null } ?: "Google Account"
+                    ActionRow(title, "$sub • Tap to switch or sign out") { nav.open(Route.SignIn) }
                 } else {
-                    ActionRow("Sign in with Google", "Helps with blocked / age-restricted videos") { nav.open(Route.SignIn) }
+                    ActionRow("Sign in with Google", "Choose an account from your phone") { nav.open(Route.SignIn) }
                 }
             }
 

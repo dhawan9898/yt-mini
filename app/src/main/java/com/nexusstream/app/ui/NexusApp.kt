@@ -180,7 +180,7 @@ fun NexusApp() {
 
     LaunchedEffect(Unit) {
         LibraryRepository.init(context)
-        com.nexusstream.app.data.GoogleAccount.refresh()
+        com.nexusstream.app.data.GoogleAccount.init(context)
         DownloadRepository.init(context)
         NotificationHelper.ensureChannels(context)
     }

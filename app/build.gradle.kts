@@ -118,8 +118,9 @@ dependencies {
     // Real org.json for unit tests (the Android one is a stub on the JVM).
     testImplementation("org.json:json:20240303")
 
-    // Google Cast (default media receiver). MediaRouteButton needs AppCompat resources.
+    // Google Play Services: Google Cast & Native On-Device Google Sign-In
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("androidx.mediarouter:mediarouter:1.7.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
 

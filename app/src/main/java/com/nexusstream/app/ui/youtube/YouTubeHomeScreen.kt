@@ -429,10 +429,80 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
         }
     }
 
+    val signedIn by GoogleAccount.signedIn.collectAsState()
+    val userProfile by GoogleAccount.userProfile.collectAsState()
+
     LazyColumn(
         contentPadding = PaddingValues(vertical = 8.dp),
         modifier = Modifier.fillMaxSize()
     ) {
+        item(key = "user_account_header") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { nav.open(Route.SignIn) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(OriginalColors.Chip),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val avatar = userProfile?.avatarUrl.orEmpty()
+                    if (avatar.isNotEmpty()) {
+                        AsyncImage(
+                            model = avatar,
+                            contentDescription = userProfile?.displayName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.AccountCircle,
+                            contentDescription = null,
+                            tint = OriginalColors.TextPrimary,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (signedIn) (userProfile?.displayName ?: "Google User") else "Sign in",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OriginalColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (signedIn) (userProfile?.email ?: "Connected") else "Choose an account from your phone",
+                        fontSize = 13.sp,
+                        color = OriginalColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (signedIn) OriginalColors.Chip else Color.White)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = if (signedIn) "Manage" else "Sign in",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (signedIn) OriginalColors.TextPrimary else Color.Black
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
         if (history.isNotEmpty()) {
             item(key = "history_header") {
                 Row(

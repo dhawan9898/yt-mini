@@ -1,62 +1,114 @@
 package com.nexusstream.app.ui.youtube
 
-import android.annotation.SuppressLint
-import android.graphics.Bitmap
-import android.os.Message
-import android.webkit.CookieManager
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.webkit.WebSettingsCompat
-import androidx.webkit.WebViewFeature
+import coil.compose.AsyncImage
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import com.nexusstream.app.data.GoogleAccount
+import com.nexusstream.app.data.GoogleUserProfile
 import com.nexusstream.app.ui.YouTubeNav
 import com.nexusstream.app.ui.components.OriginalColors
 
-private const val SIGN_IN_URL =
-    "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fm.youtube.com%2F"
-
-/** Signs in to Google inside a WebView; the session cookies are then used for YouTube requests. */
-@SuppressLint("SetJavaScriptEnabled")
+/**
+ * Native Google Sign-In screen leveraging the Android on-device Google Play Services
+ * account chooser dialog. Completely avoids embedded WebViews so Google cannot block sign-in.
+ */
 @Composable
 fun GoogleSignInScreen(nav: YouTubeNav) {
-    var loading by remember { mutableStateOf(true) }
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var webView by remember { mutableStateOf<WebView?>(null) }
+    val context = LocalContext.current
+    val signedIn by GoogleAccount.signedIn.collectAsState()
+    val userProfile by GoogleAccount.userProfile.collectAsState()
+    var isSigningIn by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    BackHandler {
-        val view = webView
-        if (view != null && view.canGoBack()) view.goBack() else nav.back()
+    val gso = remember {
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestProfile()
+            .build()
     }
+    val googleSignInClient = remember(context) { GoogleSignIn.getClient(context, gso) }
+
+    val signInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        isSigningIn = false
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            if (account != null) {
+                val profile = GoogleUserProfile(
+                    email = account.email.orEmpty(),
+                    displayName = account.displayName ?: account.email.orEmpty().substringBefore('@'),
+                    avatarUrl = account.photoUrl?.toString().orEmpty(),
+                    id = account.id.orEmpty()
+                )
+                GoogleAccount.signInWithGoogleAccount(profile)
+                nav.back()
+            }
+        } catch (e: Exception) {
+            val message = e.localizedMessage ?: "Could not sign in with selected account"
+            // If user simply cancelled, don't show an intrusive error
+            if (!message.contains("12501") && !message.contains("16")) {
+                errorMessage = message
+            }
+        }
+    }
+
+    BackHandler { nav.back() }
 
     Column(
         modifier = Modifier
@@ -65,118 +117,195 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
+        // Top App Bar
         Row(
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = nav.back) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = OriginalColors.TextPrimary)
             }
-            Text("Sign in to Google", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = OriginalColors.TextPrimary)
+            Text(
+                text = "Google Account",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OriginalColors.TextPrimary
+            )
         }
-        loadError?.let {
-            Text(it, fontSize = 12.sp, color = androidx.compose.ui.graphics.Color(0xFFFF6B6B), modifier = Modifier.padding(12.dp))
-        }
-        if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = OriginalColors.Red)
 
-        AndroidView(
-            factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.databaseEnabled = true
-                    settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = true
-                    settings.setSupportMultipleWindows(true)
-                    settings.javaScriptCanOpenWindowsAutomatically = true
-
-                    // Remove X-Requested-With header to prevent Google from detecting embedded WebView
-                    if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
-                        WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, setOf<String>())
-                    }
-
-                    // Present as standard Mobile Chrome browser without WebView markers (no '; wv' or 'Version/4.0')
-                    val defaultUa = settings.userAgentString
-                    val cleanUa = defaultUa.replace("; wv", "").replace("Version/4.0 ", "")
-                    settings.userAgentString = if (cleanUa.contains("Chrome/")) {
-                        cleanUa
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            if (signedIn && userProfile != null) {
+                // Logged-in State Card
+                val profile = userProfile!!
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .clip(CircleShape)
+                        .background(OriginalColors.Chip),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (profile.avatarUrl.isNotEmpty()) {
+                        AsyncImage(
+                            model = profile.avatarUrl,
+                            contentDescription = profile.displayName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     } else {
-                        "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 Mobile Safari/537.36"
+                        Icon(
+                            Icons.Rounded.AccountCircle,
+                            contentDescription = null,
+                            tint = OriginalColors.TextPrimary,
+                            modifier = Modifier.size(64.dp)
+                        )
                     }
-
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-
-                    webChromeClient = object : WebChromeClient() {
-                        override fun onCreateWindow(
-                            view: WebView?,
-                            isDialog: Boolean,
-                            isUserGesture: Boolean,
-                            resultMsg: Message?
-                        ): Boolean {
-                            val href = view?.hitTestResult?.extra
-                            if (!href.isNullOrBlank()) {
-                                view.loadUrl(href)
-                                return true
-                            }
-                            val transport = resultMsg?.obj as? WebView.WebViewTransport
-                            if (transport != null) {
-                                transport.webView = view
-                                resultMsg.sendToTarget()
-                                return true
-                            }
-                            return super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
-                        }
-                    }
-
-                    fun checkAuthSuccess(url: String) {
-                        CookieManager.getInstance().flush()
-                        if (GoogleAccount.hasAuthCookie()) {
-                            GoogleAccount.refresh()
-                            if (GoogleAccount.isSignedIn()) {
-                                nav.back()
-                            }
-                        }
-                    }
-
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                            loading = true
-                            checkAuthSuccess(url)
-                        }
-
-                        override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
-                            super.doUpdateVisitedHistory(view, url, isReload)
-                            checkAuthSuccess(url)
-                        }
-
-                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                            val targetUrl = request.url.toString()
-                            checkAuthSuccess(targetUrl)
-                            return false
-                        }
-
-                        override fun onReceivedError(
-                            view: WebView,
-                            request: WebResourceRequest,
-                            error: WebResourceError
-                        ) {
-                            if (request.isForMainFrame) {
-                                loadError = "${error.description} (${request.url.host})"
-                            }
-                        }
-
-                        override fun onPageFinished(view: WebView, url: String) {
-                            loading = false
-                            checkAuthSuccess(url)
-                        }
-                    }
-                    webView = this
-                    loadUrl(SIGN_IN_URL)
                 }
-            },
-            onRelease = { it.destroy() },
-            modifier = Modifier.weight(1f).fillMaxWidth()
-        )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = profile.displayName,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OriginalColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        Icons.Rounded.CheckCircle,
+                        contentDescription = "Signed In",
+                        tint = Color(0xFF3EA6FF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = profile.email,
+                    fontSize = 14.sp,
+                    color = OriginalColors.TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Button(
+                    onClick = {
+                        isSigningIn = true
+                        googleSignInClient.signOut().addOnCompleteListener {
+                            signInLauncher.launch(googleSignInClient.signInIntent)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = OriginalColors.Red),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Icon(Icons.Rounded.Sync, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Switch Google Account", fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        GoogleAccount.signOut(context)
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Icon(Icons.Rounded.Logout, null, modifier = Modifier.size(18.dp), tint = Color(0xFFFF6B6B))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Sign out", color = Color(0xFFFF6B6B), fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                // Signed-out State
+                Box(
+                    modifier = Modifier
+                        .size(88.dp)
+                        .clip(CircleShape)
+                        .background(OriginalColors.Chip),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.AccountCircle,
+                        contentDescription = null,
+                        tint = OriginalColors.TextPrimary,
+                        modifier = Modifier.size(56.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "Sign in with Google",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OriginalColors.TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Use any Google account already connected to this Android phone. No passwords or web browsers needed.",
+                    fontSize = 14.sp,
+                    color = OriginalColors.TextSecondary,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+
+                errorMessage?.let { err ->
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = err,
+                        fontSize = 13.sp,
+                        color = Color(0xFFFF6B6B),
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(36.dp))
+
+                Button(
+                    onClick = {
+                        isSigningIn = true
+                        errorMessage = null
+                        signInLauncher.launch(googleSignInClient.signInIntent)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(26.dp)
+                ) {
+                    if (isSigningIn) {
+                        CircularProgressIndicator(
+                            color = Color.Black,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "Choose Google Account",
+                            color = Color.Black,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
     }
 }
