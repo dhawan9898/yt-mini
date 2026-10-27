@@ -15,7 +15,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,7 +58,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.runtime.rememberUpdatedState
+import android.view.LayoutInflater
+import com.nexusstream.app.R
+import kotlin.math.abs
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import com.nexusstream.app.data.AppSettings
@@ -134,9 +141,10 @@ fun WatchPlayerViewport(
     var hud by remember { mutableStateOf<String?>(null) }
     var boosting by remember { mutableStateOf(false) }
     var speedBeforeBoost by remember { mutableFloatStateOf(1f) }
-    var zoomScale by remember { mutableFloatStateOf(1f) }
-    var panOffsetX by remember { mutableFloatStateOf(0f) }
-    var panOffsetY by remember { mutableFloatStateOf(0f) }
+    // Pinch out fills the screen (crops the edges); pinch in fits the whole picture again.
+    var fillScreen by remember { mutableStateOf(false) }
+    val currentSwipeUp by rememberUpdatedState(onSwipeUp)
+    val currentSwipeDown by rememberUpdatedState(onSwipeDown)
 
     val glowColor = remember(item.dominantColor) {
         if (item.dominantColor == Color.Unspecified || item.dominantColor == Color.Transparent || item.dominantColor == Color.Black) {
@@ -215,25 +223,15 @@ fun WatchPlayerViewport(
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                (LayoutInflater.from(ctx).inflate(R.layout.view_player_texture, null, false) as PlayerView).apply {
                     player = playbackService.getPlayer()
                 }
             },
-            update = { it.player = playbackService.getPlayer() },
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = zoomScale
-                    scaleY = zoomScale
-                    translationX = panOffsetX
-                    translationY = panOffsetY
-                }
+            update = {
+                it.player = playbackService.getPlayer()
+                it.resizeMode = if (fillScreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+            },
+            modifier = Modifier.fillMaxSize()
         )
 
         if (controlsEnabled) {
@@ -260,18 +258,11 @@ fun WatchPlayerViewport(
                                 hud = "2x speed \u25B6\u25B6"
                             },
                             onDoubleTap = { offset ->
-                                if (zoomScale > 1f) {
-                                    zoomScale = 1f
-                                    panOffsetX = 0f
-                                    panOffsetY = 0f
-                                    hud = "1x Zoom"
-                                } else {
-                                    val third = size.width / 3f
-                                    when {
-                                        offset.x < third -> seekBy(-SEEK_STEP_MS)
-                                        offset.x > 2 * third -> seekBy(SEEK_STEP_MS)
-                                        else -> playbackService.togglePlayPause()
-                                    }
+                                val third = size.width / 3f
+                                when {
+                                    offset.x < third -> seekBy(-SEEK_STEP_MS)
+                                    offset.x > 2 * third -> seekBy(SEEK_STEP_MS)
+                                    else -> playbackService.togglePlayPause()
                                 }
                                 interaction++
                             },
@@ -284,44 +275,34 @@ fun WatchPlayerViewport(
                     .pointerInput(fullscreen) {
                         var startX = 0f
                         var total = 0f
-                        val threshold = 80.dp.toPx()
-                        detectVerticalDragGestures(
+                        val threshold = 60.dp.toPx()
+                        detectVerticalSwipeAndPinch(
                             onDragStart = { offset ->
                                 startX = offset.x
                                 total = 0f
                             },
-                            onDragEnd = {
-                                if (!fullscreen) {
-                                    if (total < -threshold) onSwipeUp() else if (total > threshold) onSwipeDown()
-                                }
-                            },
-                            onVerticalDrag = { change, dy ->
-                                change.consume()
+                            onDrag = { dy ->
                                 total += dy
                                 if (fullscreen) {
                                     val fraction = -dy / size.height
                                     if (startX < size.width / 2f) adjustBrightness(fraction) else adjustVolume(fraction)
                                 }
-                            }
-                        )
-                    }
-                    .pointerInput(fullscreen, zoomScale) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            if (zoom != 1f || zoomScale > 1f) {
-                                val newScale = (zoomScale * zoom).coerceIn(1f, 3f)
-                                zoomScale = newScale
-                                if (newScale > 1f) {
-                                    val maxPanX = (size.width * (newScale - 1f)) / 2f
-                                    val maxPanY = (size.height * (newScale - 1f)) / 2f
-                                    panOffsetX = (panOffsetX + pan.x).coerceIn(-maxPanX, maxPanX)
-                                    panOffsetY = (panOffsetY + pan.y).coerceIn(-maxPanY, maxPanY)
-                                    hud = "Zoom ${(newScale * 10).toInt() / 10f}x"
-                                } else {
-                                    panOffsetX = 0f
-                                    panOffsetY = 0f
+                            },
+                            onDragEnd = {
+                                if (!fullscreen) {
+                                    if (total < -threshold) currentSwipeUp() else if (total > threshold) currentSwipeDown()
+                                }
+                            },
+                            onPinch = { zoom ->
+                                if (zoom > 1.12f && !fillScreen) {
+                                    fillScreen = true
+                                    hud = "Zoom to fill"
+                                } else if (zoom < 0.88f && fillScreen) {
+                                    fillScreen = false
+                                    hud = "Original"
                                 }
                             }
-                        }
+                        )
                     }
             )
         }
@@ -819,4 +800,51 @@ private fun ScrubPreview(visible: Boolean, fraction: Float, timeMs: Long, storyb
             }
         }
     }
+}
+
+/**
+ * One detector for both single-finger vertical swipes and two-finger pinches, so they never fight
+ * over the same touches. A swipe is claimed only once the finger has moved mostly vertically.
+ */
+private suspend fun PointerInputScope.detectVerticalSwipeAndPinch(
+    onDragStart: (Offset) -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onPinch: (Float) -> Unit
+) = awaitEachGesture {
+    val down = awaitFirstDown(requireUnconsumed = false)
+    val slop = viewConfiguration.touchSlop
+    var pinching = false
+    var dragging = false
+    var startDistance = 0f
+    var zoom = 1f
+    var totalX = 0f
+    var totalY = 0f
+    do {
+        val event = awaitPointerEvent()
+        val pressed = event.changes.filter { it.pressed }
+        if (pressed.size >= 2) {
+            val distance = (pressed[0].position - pressed[1].position).getDistance()
+            if (!pinching) {
+                pinching = true
+                startDistance = distance.coerceAtLeast(1f)
+            }
+            zoom = distance / startDistance
+            event.changes.forEach { it.consume() }
+        } else if (!pinching && pressed.size == 1) {
+            val change = pressed[0]
+            val delta = change.positionChange()
+            totalX += delta.x
+            totalY += delta.y
+            if (!dragging && abs(totalY) > slop && abs(totalY) > abs(totalX)) {
+                dragging = true
+                onDragStart(down.position)
+            }
+            if (dragging) {
+                onDrag(delta.y)
+                change.consume()
+            }
+        }
+    } while (event.changes.any { it.pressed })
+    if (pinching) onPinch(zoom) else if (dragging) onDragEnd()
 }

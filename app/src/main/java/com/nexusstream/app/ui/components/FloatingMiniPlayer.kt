@@ -1,7 +1,9 @@
 package com.nexusstream.app.ui.components
 
-import android.view.ViewGroup
-import android.widget.FrameLayout
+import android.view.LayoutInflater
+import com.nexusstream.app.R
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Brush
 import androidx.annotation.OptIn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -32,7 +34,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -69,14 +70,30 @@ fun FloatingMiniPlayer(
     val scope = rememberCoroutineScope()
     val dragX = remember { Animatable(0f) }
     val dragY = remember { Animatable(0f) }
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(12.dp)
+    val playerWidth = 168.dp
 
     Box(
         modifier = modifier
-            .width(232.dp)
-            .aspectRatio(16f / 9f)
             .offset { IntOffset(dragX.value.roundToInt(), dragY.value.roundToInt()) }
-            .shadow(14.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black)
+    ) {
+    // Soft blurred glow under the window only: the sides stay clear, and it fades out downwards.
+    Box(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .offset(y = 14.dp)
+            .width(playerWidth - 8.dp)
+            .height(28.dp)
+            .blur(14.dp)
+            .background(
+                Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent)),
+                RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp)
+            )
+    )
+    Box(
+        modifier = Modifier
+            .width(playerWidth)
+            .aspectRatio(16f / 9f)
             .clip(shape)
             .background(Color.Black)
             .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
@@ -84,8 +101,11 @@ fun FloatingMiniPlayer(
                 detectDragGestures(
                     onDragEnd = {
                         scope.launch {
-                            if (abs(dragX.value) > 140.dp.toPx()) {
+                            if (abs(dragX.value) > 120.dp.toPx()) {
                                 onClose()
+                            } else if (dragY.value < -48.dp.toPx()) {
+                                // Swipe up maximizes.
+                                onExpand()
                             }
                             // Settle back (springy) unless it was dismissed.
                             launch { dragX.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium)) }
@@ -105,12 +125,7 @@ fun FloatingMiniPlayer(
         if (state.playbackMode == PlaybackMode.VIDEO) {
             AndroidView(
                 factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        useController = false
+                    (LayoutInflater.from(ctx).inflate(R.layout.view_player_texture, null, false) as PlayerView).apply {
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         player = playbackService.getPlayer()
                     }
@@ -131,8 +146,8 @@ fun FloatingMiniPlayer(
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(6.dp)
-                .size(38.dp)
+                .padding(4.dp)
+                .size(30.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.55f))
                 .clickable { playbackService.togglePlayPause() },
@@ -142,7 +157,7 @@ fun FloatingMiniPlayer(
                 imageVector = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (state.isPlaying) "Pause" else "Play",
                 tint = Color.White,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
 
@@ -150,14 +165,14 @@ fun FloatingMiniPlayer(
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(6.dp)
-                .size(38.dp)
+                .padding(4.dp)
+                .size(30.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.55f))
                 .clickable(onClick = onClose),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.Close, "Close player", tint = Color.White, modifier = Modifier.size(22.dp))
+            Icon(Icons.Rounded.Close, "Close player", tint = Color.White, modifier = Modifier.size(18.dp))
         }
 
         // Progress line.
@@ -176,5 +191,6 @@ fun FloatingMiniPlayer(
                     .background(OriginalColors.Red)
             )
         }
+    }
     }
 }
