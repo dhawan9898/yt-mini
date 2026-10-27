@@ -328,6 +328,13 @@ object YouTubeRepository {
             lastVideoFeed = cached.items
             return@io cached
         }
+        if (category == "All" && GoogleAccount.isSignedIn()) {
+            personalHome()?.let { personal ->
+                lastVideoFeed = personal.items
+                feedCache[category] = Cached(System.currentTimeMillis(), personal)
+                return@io personal
+            }
+        }
         val query = if (category == "All") "trending videos today" else category
         val base = searchPaged(query, YoutubeSearchQueryHandlerFactory.VIDEOS) { videoOnly(it) }
         val first = if (category == "All" && personalChannels.isNotEmpty()) {
@@ -353,6 +360,21 @@ object YouTubeRepository {
     }
 
     /** Typed, paged search (videos, channels, playlists). */
+    /** The signed-in account's own Home feed; null when it is empty or the request fails. */
+    private fun personalHome(): Paged<MediaItemModel>? {
+        fun page(p: InnerTube.Page): Paged<MediaItemModel> = Paged(p.items, p.continuation?.let { token ->
+            { withContext(Dispatchers.IO) { runCatching { page(InnerTube.more(token)) } } }
+        })
+        val first = runCatching { InnerTube.home() }.getOrNull() ?: return null
+        return if (first.items.size >= 4) page(first) else null
+    }
+
+    /** Forget cached feeds, e.g. after signing in or out. */
+    fun clearFeedCaches() {
+        feedCache.clear()
+        subFeedCache = null
+    }
+
     suspend fun search(query: String, type: SearchType): Result<Paged<SearchResult>> = io {
         searchPaged(query, type.filter) { toSearchResult(it, type.isMusic) }
     }

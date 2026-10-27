@@ -19,7 +19,11 @@ object GoogleAccount {
 
     /** Re-reads the cookie jar; call on startup and after the sign-in page finishes. */
     fun refresh() {
-        _signedIn.value = hasAuthCookie()
+        val now = hasAuthCookie()
+        if (now != _signedIn.value) {
+            _signedIn.value = now
+            YouTubeRepository.clearFeedCaches()
+        }
     }
 
     /** The Cookie header for a YouTube / Google request, or null when signed out. */
@@ -35,6 +39,7 @@ object GoogleAccount {
         manager.removeAllCookies { }
         manager.flush()
         _signedIn.value = false
+        YouTubeRepository.clearFeedCaches()
     }
 
     private fun hasAuthCookie(): Boolean {

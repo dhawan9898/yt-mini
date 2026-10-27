@@ -50,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.nexusstream.app.media.MediaPlaybackService
+import com.nexusstream.app.data.GoogleAccount
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.outlined.Settings
@@ -139,7 +140,8 @@ fun YouTubeHomeScreen(
 
     // Loads page one. Cached feeds (kept until the app process ends) show instantly;
     // Retry and pull-to-refresh set forceRefresh to bypass the cache.
-    LaunchedEffect(selectedCategory, reloadKey) {
+    val signedIn by GoogleAccount.signedIn.collectAsState()
+    LaunchedEffect(selectedCategory, reloadKey, signedIn) {
         val force = forceRefresh
         forceRefresh = false
         val cached = if (force) null else YouTubeRepository.cachedVideoFeed(selectedCategory)
