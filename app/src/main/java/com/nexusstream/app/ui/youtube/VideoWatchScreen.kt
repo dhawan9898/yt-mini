@@ -282,6 +282,7 @@ fun VideoWatchScreen(
                     onSwipeUp = { isFullscreen = true },
                     onSwipeDown = onCollapse,
                     onOpenSettings = { showOptions = true },
+                    storyboard = details?.storyboard,
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f),
@@ -596,7 +597,8 @@ fun VideoWatchScreen(
                 isFullscreen = false
                 isCommentsExpanded = true
             },
-            onSave = { showSaveSheet = true }
+            onSave = { showSaveSheet = true },
+            storyboard = details?.storyboard
         )
     }
     }

@@ -121,8 +121,19 @@ data class VideoDetails(
     val subscribers: Long,
     val tags: List<String>,
     val related: List<MediaItemModel>,
-    val chapters: List<Chapter> = emptyList()
+    val chapters: List<Chapter> = emptyList(),
+    val storyboard: Storyboard? = null
 )
+
+/** Sprite-sheet thumbnails shown while scrubbing the seek bar. */
+class Storyboard(
+    val urls: List<String>,
+    private val frames: org.schabi.newpipe.extractor.stream.Frameset
+) {
+    /** (sprite page index, left, top, right, bottom) of the frame for [positionMs]. */
+    fun boundsAt(positionMs: Long): IntArray? =
+        runCatching { frames.getFrameBoundsAt(positionMs) }.getOrNull()?.takeIf { it.size >= 5 && it[0] in urls.indices }
+}
 
 /** Comments plus the video's total count (negative when unknown). [paged] loads further pages. */
 class CommentsPage(val totalCount: Int, val paged: Paged<CommentModel>) {
@@ -653,6 +664,10 @@ object YouTubeRepository {
             subscribers = info.uploaderSubscriberCount,
             tags = info.tags.orEmpty(),
             related = relatedFor(info),
+            storyboard = info.previewFrames
+                .filter { it.frameWidth >= 100 }
+                .maxByOrNull { it.frameWidth }
+                ?.let { Storyboard(it.urls, it) },
             chapters = info.streamSegments.orEmpty()
                 .filter { !it.title.isNullOrBlank() }
                 .map { Chapter(it.title, it.startTimeSeconds * 1000L) }

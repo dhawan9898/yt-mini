@@ -66,6 +66,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -82,6 +84,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.nexusstream.app.data.LibraryRepository
+import com.nexusstream.app.data.Storyboard
 import com.nexusstream.app.data.watchUrl
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.media.PlaybackState
@@ -113,6 +116,7 @@ fun WatchPlayerViewport(
     onSwipeDown: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    storyboard: Storyboard? = null,
     /** Extra buttons in the top row (cast, picture-in-picture, close...). */
     topActions: @Composable RowScope.() -> Unit = {}
 ) {
@@ -277,6 +281,7 @@ fun WatchPlayerViewport(
                     onCollapse = onCollapse,
                     onToggleFullscreen = onToggleFullscreen,
                     onOpenSettings = onOpenSettings,
+                    storyboard = storyboard,
                     topActions = topActions
                 )
             }
@@ -310,6 +315,7 @@ private fun WatchControls(
     onCollapse: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onOpenSettings: () -> Unit,
+    storyboard: Storyboard?,
     topActions: @Composable RowScope.() -> Unit
 ) {
     var dragFraction by remember { mutableStateOf<Float?>(null) }
@@ -421,6 +427,12 @@ private fun WatchControls(
                     )
                 }
             }
+            ScrubPreview(
+                visible = dragFraction != null,
+                fraction = fraction,
+                timeMs = shownMs,
+                storyboard = storyboard
+            )
             YouTubeSeekBar(
                 fraction = fraction,
                 bufferedFraction = (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f),
@@ -499,7 +511,8 @@ fun FullscreenWatchLayout(
     onOpenSettings: () -> Unit,
     onOpenComments: () -> Unit,
     onSave: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    storyboard: Storyboard? = null
 ) {
     val context = LocalContext.current
     val liked by LibraryRepository.liked.collectAsState()
@@ -524,7 +537,8 @@ fun FullscreenWatchLayout(
             onSwipeUp = {},
             onSwipeDown = {},
             onOpenSettings = onOpenSettings,
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            storyboard = storyboard
         )
         Row(
             modifier = Modifier
@@ -661,5 +675,76 @@ private fun YouTubeSeekBar(
         drawRoundRect(Color.White.copy(alpha = 0.5f), top, androidx.compose.ui.geometry.Size(size.width * bufferedFraction, trackHeight), radius)
         drawRoundRect(OriginalColors.Red, top, androidx.compose.ui.geometry.Size(size.width * fraction, trackHeight), radius)
         drawCircle(OriginalColors.Red, thumb.toPx() / 2f, androidx.compose.ui.geometry.Offset(size.width * fraction, cy))
+    }
+}
+
+/** Time bubble (with a storyboard frame when YouTube provides one) that follows the scrub thumb. */
+@Composable
+private fun ScrubPreview(visible: Boolean, fraction: Float, timeMs: Long, storyboard: Storyboard?) {
+    val context = LocalContext.current
+    val sheets = remember(storyboard) { mutableMapOf<Int, androidx.compose.ui.graphics.ImageBitmap>() }
+    var loaded by remember(storyboard) { mutableIntStateOf(0) }
+    val bounds = storyboard?.boundsAt(timeMs)
+    val page = bounds?.get(0)
+    LaunchedEffect(storyboard, page) {
+        if (storyboard != null && page != null && page !in sheets) {
+            val request = coil.request.ImageRequest.Builder(context)
+                .data(storyboard.urls[page])
+                .allowHardware(false)
+                .build()
+            val drawable = coil.Coil.imageLoader(context).execute(request).drawable
+            (drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap?.let {
+                sheets[page] = it.asImageBitmap()
+                loaded++
+            }
+        }
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
+        exit = fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.85f)
+    ) {
+        androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val previewWidth = if (bounds != null) 150.dp else 64.dp
+            val x = (maxWidth * fraction - previewWidth / 2).coerceIn(0.dp, (maxWidth - previewWidth).coerceAtLeast(0.dp))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .padding(start = x, bottom = 4.dp)
+                    .width(previewWidth)
+            ) {
+                val sheet = page?.let { sheets[it] }
+                if (bounds != null && sheet != null) {
+                    @Suppress("UNUSED_EXPRESSION") loaded
+                    val w = bounds[3] - bounds[1]
+                    val h = bounds[4] - bounds[2]
+                    androidx.compose.foundation.Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(w.toFloat() / h.coerceAtLeast(1))
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.5.dp, Color.White, RoundedCornerShape(8.dp))
+                    ) {
+                        drawImage(
+                            image = sheet,
+                            srcOffset = androidx.compose.ui.unit.IntOffset(bounds[1], bounds[2]),
+                            srcSize = androidx.compose.ui.unit.IntSize(w, h),
+                            dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())
+                        )
+                    }
+                }
+                Text(
+                    text = formatVideoDuration(timeMs),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
+        }
     }
 }
