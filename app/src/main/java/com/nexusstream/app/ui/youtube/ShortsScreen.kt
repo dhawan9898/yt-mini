@@ -64,6 +64,7 @@ import com.nexusstream.app.data.watchUrl
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.components.FeedState
+import com.nexusstream.app.ui.components.VideoSurface
 import com.nexusstream.app.ui.components.OriginalError
 import com.nexusstream.app.ui.components.OriginalLoading
 import com.nexusstream.app.ui.components.toFeedState
@@ -205,19 +206,9 @@ private fun ShortPage(
             }
     ) {
         if (isActive && playbackService != null) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        player = playbackService.getPlayer()
-                    }
-                },
-                update = { it.player = playbackService.getPlayer() },
+            VideoSurface(
+                player = playbackService.getPlayer(),
+                fill = true,
                 modifier = Modifier.fillMaxSize()
             )
         }

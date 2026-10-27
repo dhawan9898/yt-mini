@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -64,8 +65,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.runtime.rememberUpdatedState
-import android.view.LayoutInflater
-import com.nexusstream.app.R
+import com.nexusstream.app.ui.components.VideoSurface
 import kotlin.math.abs
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -131,7 +131,9 @@ fun WatchPlayerViewport(
     modifier: Modifier = Modifier,
     storyboard: Storyboard? = null,
     /** Extra buttons in the top row (cast, picture-in-picture, close...). */
-    topActions: @Composable RowScope.() -> Unit = {}
+    topActions: @Composable RowScope.() -> Unit = {},
+    /** Optional row under the seek bar (fullscreen actions). */
+    bottomBar: (@Composable () -> Unit)? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -221,20 +223,9 @@ fun WatchPlayerViewport(
                 } else Modifier
             )
     ) {
-        AndroidView(
-            factory = { ctx ->
-                (LayoutInflater.from(ctx).inflate(R.layout.view_player_texture, null, false) as PlayerView).apply {
-                    layoutParams = android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    player = playbackService.getPlayer()
-                }
-            },
-            update = {
-                it.player = playbackService.getPlayer()
-                it.resizeMode = if (fillScreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
-            },
+        VideoSurface(
+            player = playbackService.getPlayer(),
+            fill = fillScreen,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -339,8 +330,27 @@ fun WatchPlayerViewport(
                     onToggleFullscreen = onToggleFullscreen,
                     onOpenSettings = onOpenSettings,
                     storyboard = storyboard,
-                    topActions = topActions
+                    topActions = topActions,
+                    bottomBar = bottomBar
                 )
+            }
+            // Thin progress line while the controls are hidden, like YouTube.
+            if (!controlsVisible && state.durationMs > 0) {
+                val progress = (state.currentPositionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(Color.White.copy(alpha = 0.25f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .height(2.dp)
+                            .background(OriginalColors.Red)
+                    )
+                }
             }
         }
 
@@ -373,7 +383,8 @@ private fun WatchControls(
     onToggleFullscreen: () -> Unit,
     onOpenSettings: () -> Unit,
     storyboard: Storyboard?,
-    topActions: @Composable RowScope.() -> Unit
+    topActions: @Composable RowScope.() -> Unit,
+    bottomBar: (@Composable () -> Unit)?
 ) {
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
@@ -381,10 +392,13 @@ private fun WatchControls(
     val shownMs = dragFraction?.let { (it * duration).toLong() } ?: state.currentPositionMs
     val captionsOn = state.selectedSubtitleTag != null
 
+    // The dark scrim runs edge to edge; the buttons are inset so the camera cutout and the
+    // navigation bar never cover them in fullscreen.
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.38f))) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.38f))
+            .then(if (fullscreen) Modifier.displayCutoutPadding().navigationBarsPadding() else Modifier)
     ) {
         // ---- top row ----
         Row(
@@ -503,7 +517,9 @@ private fun WatchControls(
                 },
                 modifier = Modifier.fillMaxWidth().height(28.dp)
             )
+            bottomBar?.invoke()
         }
+    }
     }
 }
 
@@ -577,12 +593,9 @@ fun FullscreenWatchLayout(
     val isLiked = liked.any { it.id == item.id }
     val isDisliked = item.id in disliked
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .displayCutoutPadding()
-    ) {
+    // The picture fills the whole screen (edge to edge, under the camera cutout); everything else
+    // is a control drawn over it, so nothing takes space away from the video.
+    Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
         WatchPlayerViewport(
             playbackService = playbackService,
             state = state,
@@ -594,63 +607,64 @@ fun FullscreenWatchLayout(
             onSwipeUp = {},
             onSwipeDown = {},
             onOpenSettings = onOpenSettings,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            storyboard = storyboard
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { LibraryRepository.toggleLike(item) }) {
-                Icon(if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp, "Like", tint = Color.White)
-            }
-            IconButton(onClick = { LibraryRepository.toggleDislike(item) }) {
-                Icon(if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown, "Dislike", tint = Color.White)
-            }
-            IconButton(onClick = onOpenComments) {
-                Icon(Icons.Outlined.Comment, "Comments", tint = Color.White)
-            }
-            IconButton(onClick = onSave) {
-                Icon(Icons.Outlined.BookmarkBorder, "Save", tint = Color.White)
-            }
-            IconButton(onClick = {
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, item.watchUrl)
-                }
-                context.startActivity(Intent.createChooser(send, "Share"))
-            }) {
-                Icon(Icons.Outlined.Share, "Share", tint = Color.White)
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Outlined.MoreHoriz, "More", tint = Color.White)
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            if (nextVideo != null) {
+            modifier = Modifier.fillMaxSize(),
+            storyboard = storyboard,
+            bottomBar = {
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onExit)
-                        .padding(4.dp),
+                        .fillMaxWidth()
+                        .height(48.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("More videos", fontSize = 14.sp, color = Color.White)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    AsyncImage(
-                        model = nextVideo.artworkUrl,
-                        contentDescription = nextVideo.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(width = 64.dp, height = 40.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                    )
+                    IconButton(onClick = { LibraryRepository.toggleLike(item) }) {
+                        Icon(if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp, "Like", tint = Color.White)
+                    }
+                    IconButton(onClick = { LibraryRepository.toggleDislike(item) }) {
+                        Icon(if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown, "Dislike", tint = Color.White)
+                    }
+                    IconButton(onClick = onOpenComments) {
+                        Icon(Icons.Outlined.Comment, "Comments", tint = Color.White)
+                    }
+                    IconButton(onClick = onSave) {
+                        Icon(Icons.Outlined.BookmarkBorder, "Save", tint = Color.White)
+                    }
+                    IconButton(onClick = {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, item.watchUrl)
+                        }
+                        context.startActivity(Intent.createChooser(send, "Share"))
+                    }) {
+                        Icon(Icons.Outlined.Share, "Share", tint = Color.White)
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Outlined.MoreHoriz, "More", tint = Color.White)
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    if (nextVideo != null) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClick = onExit)
+                                .padding(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("More videos", fontSize = 14.sp, color = Color.White)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            AsyncImage(
+                                model = nextVideo.artworkUrl,
+                                contentDescription = nextVideo.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(width = 64.dp, height = 40.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                            )
+                        }
+                    }
                 }
             }
-        }
+        )
     }
 }
 
