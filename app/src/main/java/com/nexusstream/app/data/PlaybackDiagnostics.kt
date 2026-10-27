@@ -21,6 +21,14 @@ object PlaybackDiagnostics {
         lines += "Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
         lines += "Region: ${ContentRegions.nameOf(AppSettings.contentCountry.value)}, signed in: ${GoogleAccount.isSignedIn()}"
 
+        // Account: is the sign-in real, and does YouTube return a personalised feed for it?
+        if (GoogleAccount.isSignedIn()) {
+            info("Cookies held: " + InnerTube.cookieNames().joinToString())
+            InnerTube.probeHome().forEach { info(it) }
+        } else {
+            info("Not signed in (no SAPISID / LOGIN_INFO cookie found)")
+        }
+
         // 1. Can we reach YouTube at all?
         runCatching {
             val started = System.currentTimeMillis()

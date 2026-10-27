@@ -33,7 +33,36 @@ object InnerTube {
 
     fun more(continuation: String): Page = browse(JSONObject().put("continuation", continuation))
 
-    private fun browse(extra: JSONObject): Page {
+    private fun browse(extra: JSONObject): Page = parse(browseRaw(extra))
+
+    /** Names of the cookies we hold (never their values), for the self-test report. */
+    fun cookieNames(): List<String> =
+        GoogleAccount.cookieHeaderFor(ORIGIN)?.split(';')?.map { it.trim().substringBefore('=') }.orEmpty()
+
+    /** What the Home request returned, summarised for the self-test report. */
+    fun probeHome(): List<String> {
+        val raw = runCatching { browseRaw(JSONObject().put("browseId", "FEwhat_to_watch")) }
+            .getOrElse { return listOf("request failed: ${it.message}") }
+        val page = parse(raw)
+        val counts = sortedMapOf<String, Int>()
+        fun walk(node: Any?) {
+            when (node) {
+                is JSONObject -> node.keys().forEach { key ->
+                    if (key.endsWith("Renderer") || key.endsWith("ViewModel")) counts[key] = (counts[key] ?: 0) + 1
+                    walk(node.opt(key))
+                }
+                is JSONArray -> for (i in 0 until node.length()) walk(node.opt(i))
+            }
+        }
+        walk(raw)
+        return listOf(
+            "videos parsed: ${page.items.size}, next page: ${page.continuation != null}",
+            "logged in per response: ${raw.toString().contains("\"LOGGED_IN\"") || raw.toString().contains("\"loggedIn\":true")}",
+            "top renderers: " + counts.entries.sortedByDescending { it.value }.take(14).joinToString { "${it.key}x${it.value}" }
+        )
+    }
+
+    private fun browseRaw(extra: JSONObject): JSONObject {
         val body = JSONObject().apply {
             put("context", JSONObject().put("client", JSONObject()
                 .put("clientName", "WEB")
@@ -57,7 +86,7 @@ object InnerTube {
         }
         NewPipeDownloader.instance.client.newCall(builder.build()).execute().use { response ->
             check(response.isSuccessful) { "YouTube returned HTTP ${response.code}" }
-            return parse(JSONObject(response.body?.string().orEmpty()))
+            return JSONObject(response.body?.string().orEmpty())
         }
     }
 
