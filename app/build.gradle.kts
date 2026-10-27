@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.nexusstream.app"
-    compileSdk = 35
+    compileSdk = (project.findProperty("compileSdkOverride") as String?)?.toInt() ?: 35
 
     defaultConfig {
         applicationId = "com.nexusstream.app"

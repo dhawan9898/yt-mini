@@ -91,7 +91,10 @@ import com.nexusstream.app.ui.YouTubeNav
 import com.nexusstream.app.ui.components.BottomNavEntry
 import com.nexusstream.app.ui.components.FeedState
 import com.nexusstream.app.ui.components.OnReachEnd
-import com.nexusstream.app.ui.components.OriginalBottomNav
+import com.nexusstream.app.ui.components.GlassNavBar
+import com.nexusstream.app.ui.components.FloatingMiniPlayer
+import com.nexusstream.app.model.PlaybackMode
+import androidx.compose.ui.zIndex
 import com.nexusstream.app.ui.components.OriginalColors
 import com.nexusstream.app.ui.components.OriginalEmptyState
 import com.nexusstream.app.ui.components.OriginalError
@@ -209,11 +212,27 @@ fun YouTubeHomeScreen(
             )
         }
 
+        val homeState = playbackService?.playbackState?.collectAsState()?.value
+        val floatingVideo = currentPlayingItem != null && playbackService != null && homeState != null &&
+            homeState.playbackMode == PlaybackMode.VIDEO && selectedTab != 1
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
         ) {
+            if (floatingVideo && currentPlayingItem != null && playbackService != null && homeState != null) {
+                FloatingMiniPlayer(
+                    item = currentPlayingItem,
+                    state = homeState,
+                    playbackService = playbackService,
+                    onExpand = onExpandPlayer,
+                    onClose = onClosePlayer,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(12.dp)
+                        .zIndex(2f)
+                )
+            }
             when (selectedTab) {
                 1 -> ShortsScreen(
                     playbackService = playbackService,
@@ -287,7 +306,7 @@ fun YouTubeHomeScreen(
             }
         }
 
-        if (currentPlayingItem != null && selectedTab != 1) {
+        if (currentPlayingItem != null && selectedTab != 1 && !floatingVideo) {
             OriginalMiniPlayer(
                 item = currentPlayingItem,
                 isPlaying = isPlaying,
@@ -298,12 +317,13 @@ fun YouTubeHomeScreen(
             )
         }
 
-        OriginalBottomNav(
+        GlassNavBar(
             entries = navEntries,
             selectedIndex = selectedTab,
             onSelect = { selectedTab = it },
-            background = OriginalColors.YouTubeBackground,
-            modifier = Modifier.navigationBarsPadding()
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
         )
     }
 }

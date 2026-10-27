@@ -17,6 +17,7 @@ sealed interface Route {
     data object Notifications : Route
     data object NotificationSettings : Route
     data object Settings : Route
+    data object SignIn : Route
 }
 
 /** Navigation actions handed to YouTube screens. */

@@ -93,7 +93,11 @@ fun ShortsScreen(
     LaunchedEffect(reloadKey) {
         if (reloadKey == 0 && feed is FeedState.Data) return@LaunchedEffect
         feed = FeedState.Loading
-        YouTubeRepository.shortsFeed(refresh = reloadKey > 0).fold(
+        YouTubeRepository.shortsFeed(
+            seedChannels = LibraryRepository.subscriptions.value.map { it.channelUrl } +
+                LibraryRepository.history.value.map { it.channelUrl }.distinct().take(6),
+            refresh = reloadKey > 0
+        ).fold(
             onSuccess = {
                 cursor = it
                 feed = FeedState.Data(it.items)

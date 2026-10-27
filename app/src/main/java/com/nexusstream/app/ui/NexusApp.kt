@@ -75,6 +75,7 @@ import com.nexusstream.app.ui.youtube.LikedVideosScreen
 import com.nexusstream.app.ui.youtube.LocalPlaylistScreen
 import com.nexusstream.app.ui.youtube.PlaylistsScreen
 import com.nexusstream.app.ui.youtube.SettingsScreen
+import com.nexusstream.app.ui.youtube.GoogleSignInScreen
 import com.nexusstream.app.ui.youtube.WatchLaterScreen
 import com.nexusstream.app.ui.components.MiniPlayerHooks
 import androidx.compose.runtime.mutableStateListOf
@@ -179,6 +180,7 @@ fun NexusApp() {
 
     LaunchedEffect(Unit) {
         LibraryRepository.init(context)
+        com.nexusstream.app.data.GoogleAccount.refresh()
         DownloadRepository.init(context)
         NotificationHelper.ensureChannels(context)
     }
@@ -367,6 +369,7 @@ fun NexusApp() {
                                     is Route.Notifications -> NotificationsScreen(nav, playVideo, miniPlayer)
                                     is Route.NotificationSettings -> NotificationSettingsScreen(nav, miniPlayer)
                                     is Route.Settings -> SettingsScreen(nav, miniPlayer)
+                                    is Route.SignIn -> GoogleSignInScreen(nav)
                                 }
                             }
                         }

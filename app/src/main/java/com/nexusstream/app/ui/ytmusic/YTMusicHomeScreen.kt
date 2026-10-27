@@ -73,7 +73,7 @@ import com.nexusstream.app.data.MusicShelf
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.components.BottomNavEntry
-import com.nexusstream.app.ui.components.OriginalBottomNav
+import com.nexusstream.app.ui.components.GlassNavBar
 import com.nexusstream.app.ui.components.OriginalColors
 import com.nexusstream.app.ui.components.FeedState
 import com.nexusstream.app.ui.components.OriginalError
@@ -327,12 +327,13 @@ fun YTMusicHomeScreen(
             )
         }
 
-        OriginalBottomNav(
+        GlassNavBar(
             entries = navEntries,
             selectedIndex = selectedTab,
             onSelect = { selectedTab = it },
-            background = OriginalColors.Sheet,
-            modifier = Modifier.navigationBarsPadding()
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
         )
     }
 }

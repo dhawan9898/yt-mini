@@ -110,6 +110,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private var preferredSubtitleTag: String? = null
     /** Once the user picks a caption language (or Off) their choice wins over "captions by default". */
     private var subtitleChosenByUser = false
+    /** True once playback switched to the single combined stream because the merged ones failed. */
+    private var usingMuxedFallback = false
     private var sleepJob: Job? = null
     /** Related videos to continue with when the queue runs out (set by the watch page). */
     private var autoplayQueue: List<MediaItemModel> = emptyList()
@@ -209,6 +211,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
         val renderersFactory = DefaultRenderersFactory(this)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            // If a hardware decoder fails to start, try another one instead of giving up.
+            .setEnableDecoderFallback(true)
 
         exoPlayer = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(adBlockPipeline.createMediaSourceFactory())
@@ -326,7 +330,10 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
         loadJob?.cancel()
         currentResolved = null
-        if (!isRetry) retryCount = 0
+        if (!isRetry) {
+            retryCount = 0
+            usingMuxedFallback = false
+        }
         currentMode = if (startInVideoMode) PlaybackMode.VIDEO else PlaybackMode.AUDIO_ONLY
         applyPlaybackModeTracks(currentMode)
 
@@ -703,6 +710,34 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             return
         }
 
+        // The merged video + audio streams will not play: fall back to one combined file (usually 360p).
+        val item = _playbackState.value.currentItem
+        val muxed = currentResolved?.muxedUrl
+        if (retryCount >= 1 && muxed != null && item != null && !usingMuxedFallback && ::exoPlayer.isInitialized) {
+            Log.w(TAG, "Merged streams failed; switching to the combined stream.")
+            usingMuxedFallback = true
+            val metadata = MediaMetadata.Builder()
+                .setTitle(item.title)
+                .setArtist(item.artistOrChannel)
+                .setDisplayTitle(item.title)
+                .build()
+            exoPlayer.setMediaItem(
+                MediaItem.Builder().setMediaId(item.id).setUri(muxed).setMediaMetadata(metadata).build(),
+                exoPlayer.currentPosition
+            )
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+            _playbackState.value = _playbackState.value.copy(
+                availableVideoHeights = emptyList(),
+                availableAudioKbps = emptyList(),
+                availableAudioTracks = emptyList(),
+                selectedVideoHeight = null,
+                hasError = false,
+                errorMessage = null
+            )
+            return
+        }
+
         // Handle transient stream loading or network errors
         if (retryCount < MAX_RETRY_ATTEMPTS) {
             retryCount++
@@ -725,13 +760,15 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
                 }
             }
         } else {
-            // Auto-advance to next track if retry limit reached
-            Log.w(TAG, "Max retry attempts reached. Auto-skipping to next queue item.")
-            _playbackState.value = _playbackState.value.copy(
+            // Give up: say what went wrong, and only move on if there is a next item in the queue.
+            val detail = listOfNotNull(error.errorCodeName, cause?.message?.take(120)).joinToString(": ")
+            Log.w(TAG, "Max retry attempts reached: $detail")
+            val state = _playbackState.value
+            _playbackState.value = state.copy(
                 hasError = true,
-                errorMessage = "Stream playback failed. Auto-skipping..."
+                errorMessage = "Playback failed ($detail)"
             )
-            skipToNext()
+            if (state.queueIndex + 1 < state.queue.size) skipToNext()
         }
     }
 

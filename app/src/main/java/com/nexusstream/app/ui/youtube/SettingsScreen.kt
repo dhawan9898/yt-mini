@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,11 +33,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nexusstream.app.data.GoogleAccount
 import com.nexusstream.app.data.AppSettings
 import com.nexusstream.app.data.ContentRegions
 import com.nexusstream.app.data.CrashReporter
 import com.nexusstream.app.data.DownloadRepository
 import com.nexusstream.app.data.LibraryRepository
+import com.nexusstream.app.data.PlaybackDiagnostics
 import com.nexusstream.app.data.ReleaseInfo
 import com.nexusstream.app.data.ThemeMode
 import com.nexusstream.app.data.UpdateChecker
@@ -66,6 +69,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    val googleSignedIn by GoogleAccount.signedIn.collectAsState()
     val theme by AppSettings.themeMode.collectAsState()
     val defaultHeight by AppSettings.defaultVideoHeight.collectAsState()
     val dataSaver by AppSettings.dataSaver.collectAsState()
@@ -81,6 +85,8 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
 
     var confirmClearHistory by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<String?>(null) }
+    var selfTestReport by remember { mutableStateOf<List<String>?>(null) }
+    var selfTestRunning by remember { mutableStateOf(false) }
 
     // Backup: a JSON file you choose where to save / read; there is no cloud sync.
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -248,9 +254,33 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 }
             }
 
+            // ---- Account ----
+            item(key = "h_account") { SettingsHeader("Account") }
+            item(key = "google") {
+                if (googleSignedIn) {
+                    ActionRow("Signed in to Google", "Tap to sign out") { GoogleAccount.signOut() }
+                } else {
+                    ActionRow("Sign in with Google", "Helps with blocked / age-restricted videos") { nav.open(Route.SignIn) }
+                }
+            }
+
             // ---- About ----
             item(key = "h_about") { SettingsHeader("About") }
             item(key = "version") { ActionRow("Version", versionName) {} }
+            item(key = "self_test") {
+                ActionRow(
+                    title = "Playback self-test",
+                    subtitle = if (selfTestRunning) "Running..." else "Checks network, extraction, downloads and decoders; share the result if videos won't play"
+                ) {
+                    if (!selfTestRunning) {
+                        selfTestRunning = true
+                        scope.launch {
+                            selfTestReport = PlaybackDiagnostics.run()
+                            selfTestRunning = false
+                        }
+                    }
+                }
+            }
             item(key = "update") {
                 ActionRow(
                     title = "Check for updates",
@@ -318,6 +348,42 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+
+    selfTestReport?.let { report ->
+        val text = report.joinToString("\n")
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { selfTestReport = null },
+            containerColor = OriginalColors.Sheet,
+            title = { Text("Playback self-test", color = OriginalColors.TextPrimary) },
+            text = {
+                androidx.compose.foundation.lazy.LazyColumn {
+                    items(report.size) { index ->
+                        val line = report[index]
+                        Text(
+                            text = line,
+                            fontSize = 12.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = if (line.startsWith("FAIL")) Color(0xFFFF6B6B) else OriginalColors.TextPrimary
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, "NexusStream playback self-test\n$text")
+                    }
+                    context.startActivity(Intent.createChooser(send, "Share self-test"))
+                }) { Text("Share", color = LinkBlue) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { selfTestReport = null }) {
+                    Text("Close", color = OriginalColors.TextSecondary)
+                }
+            }
+        )
     }
 
     pendingRestore?.let { json ->

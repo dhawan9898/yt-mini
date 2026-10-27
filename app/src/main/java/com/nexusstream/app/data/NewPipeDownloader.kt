@@ -34,6 +34,10 @@ class NewPipeDownloader private constructor(
             values.forEach { builder.addHeader(name, it) }
         }
 
+        if (request.headers().keys.none { it.equals("Cookie", ignoreCase = true) }) {
+            GoogleAccount.cookieHeaderFor(request.url())?.let { builder.header("Cookie", it) }
+        }
+
         client.newCall(builder.build()).execute().use { response ->
             if (response.code == 429) {
                 throw ReCaptchaException("reCaptcha challenge requested", request.url())

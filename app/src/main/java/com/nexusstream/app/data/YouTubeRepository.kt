@@ -187,7 +187,9 @@ data class ResolvedStream(
     val videoOptions: List<VideoOption>,
     val subtitles: List<SubtitleOption> = emptyList(),
     /** Set for live streams: the HLS playlist to play (the option lists are then empty). */
-    val hlsUrl: String? = null
+    val hlsUrl: String? = null,
+    /** A single combined video + audio file (usually 360p): used when the merged streams will not play. */
+    val muxedUrl: String? = null
 ) {
     /** Highest rendition not above [maxHeight]; null selects the default (720p cap, saves data). */
     fun pickVideo(maxHeight: Int?): VideoOption? {
@@ -283,6 +285,8 @@ object YouTubeRepository {
 
     // Caches live in process memory: they last until the app is fully closed (process killed),
     // and are only replaced by an explicit refresh (Retry / pull-to-refresh).
+    private const val SHORTS_BATCH = 4
+    private const val SHORTS_PER_CHANNEL = 12
     private class Cached<T>(val at: Long, val value: T)
     private val feedCache = java.util.concurrent.ConcurrentHashMap<String, Cached<Paged<MediaItemModel>>>()
     private val shelfCache = java.util.concurrent.ConcurrentHashMap<String, Cached<List<MusicShelf>>>()
@@ -348,20 +352,54 @@ object YouTubeRepository {
     fun cachedShorts(): Paged<MediaItemModel>? = shortsCache.get()
 
     /**
-     * A feed of short vertical videos. Uses search results flagged as Shorts by YouTube and,
-     * when there are few of those, any very short (up to about a minute) video.
+     * A feed of short vertical videos, built from the Shorts tab of channels: [seedChannels]
+     * (subscriptions, most watched) first, then channels seen in the home feed. YouTube search
+     * does not return Shorts, so this is how real ones are found. Each page is a few channels' Shorts mixed.
      */
-    suspend fun shortsFeed(refresh: Boolean = false): Result<Paged<MediaItemModel>> = io {
+    suspend fun shortsFeed(
+        seedChannels: List<String> = emptyList(),
+        refresh: Boolean = false
+    ): Result<Paged<MediaItemModel>> = io {
         if (!refresh) shortsCache.get()?.let { return@io it }
-        val base = searchPaged("#shorts", YoutubeSearchQueryHandlerFactory.VIDEOS) { shortOnly(it) }
-        shortsCache.set(base)
-        base
+
+        var channels = (seedChannels + lastVideoFeed.map { it.channelUrl }).filter { it.isNotBlank() }.distinct()
+        if (channels.isEmpty()) {
+            // Nothing seen yet: load the home feed once to find some channels.
+            val home = videoFeedPaged("All", emptyList()).getOrNull()
+            channels = (home?.items.orEmpty()).map { it.channelUrl }.filter { it.isNotBlank() }.distinct()
+        }
+        check(channels.isNotEmpty()) { "No channels to find Shorts from yet" }
+        shortsBatch(channels, 0).getOrThrow().also { shortsCache.set(it) }
     }
 
-    private fun shortOnly(item: InfoItem): MediaItemModel? =
-        (item as? StreamInfoItem)
-            ?.takeIf { it.duration in 1..61 || (it.isShortFormContent && it.duration > 0) }
-            ?.let { toModel(it, false)?.copy(isShort = true) }
+    /** Loads the Shorts of the next few channels; keeps going until it finds some or runs out. */
+    private suspend fun shortsBatch(channels: List<String>, offset: Int): Result<Paged<MediaItemModel>> = io {
+        var start = offset
+        var found = emptyList<MediaItemModel>()
+        while (found.isEmpty() && start < channels.size) {
+            val batch = channels.subList(start, minOf(start + SHORTS_BATCH, channels.size))
+            start += batch.size
+            val lists = coroutineScope {
+                batch.map { url -> async { runCatching { channelShorts(url) }.getOrDefault(emptyList()) } }.awaitAll()
+            }
+            found = interleave(lists).distinctBy { it.id }
+        }
+        check(found.isNotEmpty() || offset > 0) { "No Shorts found" }
+        val next = start
+        Paged(found, if (next < channels.size) ({ shortsBatch(channels, next) }) else null)
+    }
+
+    /** The first page of one channel's Shorts tab. */
+    private fun channelShorts(channelUrl: String): List<MediaItemModel> {
+        val info = ChannelInfo.getInfo(youtube, channelUrl)
+        val tab = info.tabs.firstOrNull { ChannelTabs.SHORTS in it.contentFilters } ?: return emptyList()
+        val avatar = bestImage(info.avatars)
+        val canonical = "https://www.youtube.com/channel/${info.id}"
+        return ChannelTabInfo.getInfo(youtube, tab).relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .take(SHORTS_PER_CHANNEL)
+            .mapNotNull { toModel(it, false, info.name, avatar, canonical)?.copy(isShort = true) }
+    }
 
     /** "Start radio": songs related to [item], for a music queue. */
     suspend fun radio(item: MediaItemModel): Result<List<MediaItemModel>> = io {
@@ -545,7 +583,11 @@ object YouTubeRepository {
             .values
             .sortedByDescending { it.height }
             .map { VideoOption(it.height, it.content) }
-        ResolvedStream(audioOptions = audio, videoOptions = video, subtitles = subtitleOptions(info))
+        val muxed = info.videoStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+            .maxByOrNull { it.height }
+            ?.content
+        ResolvedStream(audioOptions = audio, videoOptions = video, subtitles = subtitleOptions(info), muxedUrl = muxed)
     }
 
     /** Every file that can be saved offline: muxed video renditions, then audio-only renditions. */
@@ -897,9 +939,15 @@ object YouTubeRepository {
     }
 
     private fun videoScore(s: VideoStream): Int {
-        // Prefer mp4 (avc1) containers, then the tallest resolution.
-        val mp4 = if (s.format?.suffix == "mp4") 10_000 else 0
-        return mp4 + s.height
+        // H.264 plays on every phone (hardware decoder); VP9 on most; AV1 only on recent ones.
+        val codec = s.codec.orEmpty()
+        val preference = when {
+            codec.startsWith("avc1") -> 3
+            codec.startsWith("vp9") || codec.startsWith("vp09") -> 2
+            codec.startsWith("av01") || codec.startsWith("av1") -> 1
+            else -> 0
+        }
+        return preference * 10_000 + s.height
     }
 
     fun formatCount(n: Long): String = when {
