@@ -65,6 +65,7 @@ import kotlinx.coroutines.launch
 import com.nexusstream.app.ui.components.toFeedState
 import com.nexusstream.app.ui.components.FeedState
 import com.nexusstream.app.model.LyricLine
+import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.data.LyricsRepository
 import androidx.compose.runtime.rememberCoroutineScope
