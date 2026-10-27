@@ -849,7 +849,11 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        startForeground(NOTIFICATION_ID, initialNotification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, initialNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(NOTIFICATION_ID, initialNotification)
+        }
     }
 
     private fun updateForegroundNotification() {
@@ -902,7 +906,11 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     override fun onDestroy() {

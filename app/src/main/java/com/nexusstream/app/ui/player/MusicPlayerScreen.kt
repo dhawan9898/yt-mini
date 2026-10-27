@@ -147,22 +147,24 @@ fun MusicPlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .offset { IntOffset(0, (if (isDragging) dragY else animatedDragY).roundToInt()) }
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = { isDragging = true },
-                    onDragEnd = {
-                        isDragging = false
-                        if (dragY > size.height * 0.2f) onCollapse() else dragY = 0f
-                    },
-                    onDragCancel = {
-                        isDragging = false
-                        dragY = 0f
-                    },
-                    onVerticalDrag = { change, amount ->
-                        change.consume()
-                        dragY = (dragY + amount).coerceAtLeast(0f)
-                    }
-                )
+            .pointerInput(panel) {
+                if (panel == PlayerPanel.NONE) {
+                    detectVerticalDragGestures(
+                        onDragStart = { isDragging = true },
+                        onDragEnd = {
+                            isDragging = false
+                            if (dragY > size.height * 0.2f) onCollapse() else dragY = 0f
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                            dragY = 0f
+                        },
+                        onVerticalDrag = { change, amount ->
+                            change.consume()
+                            dragY = (dragY + amount).coerceAtLeast(0f)
+                        }
+                    )
+                }
             }
             .background(
                 Brush.verticalGradient(

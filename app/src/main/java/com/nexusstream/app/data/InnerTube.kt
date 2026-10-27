@@ -327,7 +327,11 @@ object InnerTube {
     }
 
     private fun parseDuration(text: String): Long {
-        if (text.isEmpty() || !DURATION.matches(text)) return 0
-        return text.split(':').fold(0L) { acc, part -> acc * 60 + part.toLong() }
+        val clean = text.trim()
+        if (clean.isEmpty()) return 0L
+        val match = DURATION.find(clean)?.value ?: return 0L
+        return runCatching {
+            match.split(':').fold(0L) { acc, part -> acc * 60 + part.trim().toLong() }
+        }.getOrDefault(0L)
     }
 }

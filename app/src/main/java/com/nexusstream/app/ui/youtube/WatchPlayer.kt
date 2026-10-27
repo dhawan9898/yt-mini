@@ -242,22 +242,6 @@ fun WatchPlayerViewport(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(fullscreen) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val newScale = (zoomScale * zoom).coerceIn(1f, 3f)
-                            zoomScale = newScale
-                            if (newScale > 1f) {
-                                val maxPanX = (size.width * (newScale - 1f)) / 2f
-                                val maxPanY = (size.height * (newScale - 1f)) / 2f
-                                panOffsetX = (panOffsetX + pan.x).coerceIn(-maxPanX, maxPanX)
-                                panOffsetY = (panOffsetY + pan.y).coerceIn(-maxPanY, maxPanY)
-                                hud = "Zoom ${(newScale * 10).toInt() / 10f}x"
-                            } else {
-                                panOffsetX = 0f
-                                panOffsetY = 0f
-                            }
-                        }
-                    }
-                    .pointerInput(fullscreen) {
                         detectTapGestures(
                             onPress = {
                                 tryAwaitRelease()
@@ -320,6 +304,24 @@ fun WatchPlayerViewport(
                                 }
                             }
                         )
+                    }
+                    .pointerInput(fullscreen, zoomScale) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            if (zoom != 1f || zoomScale > 1f) {
+                                val newScale = (zoomScale * zoom).coerceIn(1f, 3f)
+                                zoomScale = newScale
+                                if (newScale > 1f) {
+                                    val maxPanX = (size.width * (newScale - 1f)) / 2f
+                                    val maxPanY = (size.height * (newScale - 1f)) / 2f
+                                    panOffsetX = (panOffsetX + pan.x).coerceIn(-maxPanX, maxPanX)
+                                    panOffsetY = (panOffsetY + pan.y).coerceIn(-maxPanY, maxPanY)
+                                    hud = "Zoom ${(newScale * 10).toInt() / 10f}x"
+                                } else {
+                                    panOffsetX = 0f
+                                    panOffsetY = 0f
+                                }
+                            }
+                        }
                     }
             )
         }
