@@ -373,6 +373,7 @@ object YouTubeRepository {
     fun clearFeedCaches() {
         feedCache.clear()
         subFeedCache = null
+        shortsCache.set(null)
     }
 
     suspend fun search(query: String, type: SearchType): Result<Paged<SearchResult>> = io {
@@ -385,9 +386,8 @@ object YouTubeRepository {
     fun cachedShorts(): Paged<MediaItemModel>? = shortsCache.get()
 
     /**
-     * A feed of short vertical videos, built from the Shorts tab of channels: [seedChannels]
-     * (subscriptions, most watched) first, then channels seen in the home feed. YouTube search
-     * does not return Shorts, so this is how real ones are found. Each page is a few channels' Shorts mixed.
+     * A feed of short vertical videos, built from "#shorts" search and user seed channels.
+     * Features full vertical pagination so users can continuously swipe through Shorts.
      */
     suspend fun shortsFeed(
         seedChannels: List<String> = emptyList(),
@@ -395,31 +395,48 @@ object YouTubeRepository {
     ): Result<Paged<MediaItemModel>> = io {
         if (!refresh) shortsCache.get()?.let { return@io it }
 
-        var channels = (seedChannels + lastVideoFeed.map { it.channelUrl }).filter { it.isNotBlank() }.distinct()
-        if (channels.isEmpty()) {
-            // Nothing seen yet: load the home feed once to find some channels.
-            val home = videoFeedPaged("All", emptyList()).getOrNull()
-            channels = (home?.items.orEmpty()).map { it.channelUrl }.filter { it.isNotBlank() }.distinct()
+        // 1. Fetch trending search shorts paged for "#shorts"
+        val primaryPaged = runCatching { fetchShortsSearchPaged("#shorts") }.getOrNull()
+
+        // 2. In parallel, fetch channel shorts if seed channels are available
+        val validChannels = seedChannels.filter { it.isNotBlank() }.distinct().take(4)
+        val channelShortsList = if (validChannels.isNotEmpty()) {
+            coroutineScope {
+                validChannels.map { url ->
+                    async { runCatching { channelShorts(url) }.getOrDefault(emptyList()) }
+                }.awaitAll().flatten()
+            }
+        } else emptyList()
+
+        val initialItems = (channelShortsList + (primaryPaged?.items.orEmpty())).distinctBy { it.id }
+
+        val pagedResult = if (initialItems.isNotEmpty() && primaryPaged != null) {
+            Paged(initialItems, primaryPaged.nextLoader)
+        } else {
+            fetchShortsSearchPaged("trending shorts")
         }
-        check(channels.isNotEmpty()) { "No channels to find Shorts from yet" }
-        shortsBatch(channels, 0).getOrThrow().also { shortsCache.set(it) }
+
+        check(pagedResult.items.isNotEmpty()) { "No Shorts available right now" }
+        shortsCache.set(pagedResult)
+        pagedResult
     }
 
-    /** Loads the Shorts of the next few channels; keeps going until it finds some or runs out. */
-    private suspend fun shortsBatch(channels: List<String>, offset: Int): Result<Paged<MediaItemModel>> = io {
-        var start = offset
-        var found = emptyList<MediaItemModel>()
-        while (found.isEmpty() && start < channels.size) {
-            val batch = channels.subList(start, minOf(start + SHORTS_BATCH, channels.size))
-            start += batch.size
-            val lists = coroutineScope {
-                batch.map { url -> async { runCatching { channelShorts(url) }.getOrDefault(emptyList()) } }.awaitAll()
-            }
-            found = interleave(lists).distinctBy { it.id }
+    private fun fetchShortsSearchPaged(query: String): Paged<MediaItemModel> {
+        val handler = youtube.searchQHFactory.fromQuery(query, listOf(YoutubeSearchQueryHandlerFactory.VIDEOS), "")
+        val first = SearchInfo.getInfo(youtube, handler)
+        fun mapShort(item: InfoItem): MediaItemModel? {
+            if (item !is StreamInfoItem) return null
+            val isShort = item.isShortFormContent || item.duration in 1..90 || item.name.contains("#short", ignoreCase = true)
+            if (!isShort && item.duration > 90) return null
+            return toModel(item, false)?.copy(isShort = true)
         }
-        check(found.isNotEmpty() || offset > 0) { "No Shorts found" }
-        val next = start
-        Paged(found, if (next < channels.size) ({ shortsBatch(channels, next) }) else null)
+        return pagedOf(
+            first.relatedItems.mapNotNull { mapShort(it) },
+            if (first.hasNextPage()) first.nextPage else null
+        ) { page ->
+            val more = SearchInfo.getMoreItems(youtube, handler, page)
+            more.items.mapNotNull { mapShort(it) } to (if (more.hasNextPage()) more.nextPage else null)
+        }
     }
 
     /** The first page of one channel's Shorts tab. */
@@ -524,20 +541,58 @@ object YouTubeRepository {
     }
 
     /**
-     * Newest uploads from the given subscriptions, newest first. Uses each channel's public RSS
-     * feed (real publish times); subscriptions saved without a channel URL fall back to a name search.
+     * Newest uploads from subscriptions. When signed in with Google, retrieves the authentic
+     * personalized subscriptions feed from YouTube's InnerTube API. Otherwise falls back to
+     * public RSS feeds of locally saved subscriptions.
      */
     suspend fun subscriptionFeed(
         subs: List<LibraryRepository.ChannelSub>,
         refresh: Boolean = false
     ): Result<List<MediaItemModel>> = io {
         if (!refresh) cachedSubscriptionFeed(subs)?.let { return@io it }
+
+        if (GoogleAccount.isSignedIn()) {
+            val googleFeed = runCatching { InnerTube.subscriptions().items }.getOrNull().orEmpty()
+            if (googleFeed.isNotEmpty()) {
+                // Sync subscribed channels in background
+                runCatching {
+                    val channels = InnerTube.channels()
+                    if (channels.isNotEmpty()) {
+                        LibraryRepository.syncGoogleSubscriptions(channels)
+                    } else {
+                        LibraryRepository.syncSubscriptionsFromFeed(googleFeed)
+                    }
+                }
+                val sorted = googleFeed.distinctBy { it.id }.sortedByDescending { it.publishedAtMs }
+                subFeedCache = subKey(subs) to sorted
+                return@io sorted
+            }
+        }
+
+        if (subs.isEmpty()) {
+            return@io emptyList()
+        }
+
         coroutineScope {
             subs.take(30).map { sub ->
                 async { runCatching { feedFor(sub) }.getOrDefault(emptyList()) }
             }.awaitAll().flatten()
         }.distinctBy { it.id }.sortedByDescending { it.publishedAtMs }
             .also { subFeedCache = subKey(subs) to it }
+    }
+
+    /** Forces a refresh of subscribed channels from Google Account into LibraryRepository. */
+    suspend fun refreshGoogleSubscriptions(): List<LibraryRepository.ChannelSub> = io {
+        if (!GoogleAccount.isSignedIn()) return@io emptyList()
+        val channels = runCatching { InnerTube.channels() }.getOrDefault(emptyList())
+        if (channels.isNotEmpty()) {
+            LibraryRepository.syncGoogleSubscriptions(channels)
+            channels
+        } else {
+            val feed = runCatching { InnerTube.subscriptions().items }.getOrDefault(emptyList())
+            LibraryRepository.syncSubscriptionsFromFeed(feed)
+            LibraryRepository.subscriptions.value
+        }
     }
 
     private var subFeedCache: Pair<String, List<MediaItemModel>>? = null

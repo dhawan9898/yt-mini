@@ -87,6 +87,45 @@ object LibraryRepository {
         persistSubscriptions()
     }
 
+    /** Synchronizes channel subscriptions from Google Account InnerTube data. */
+    fun syncGoogleSubscriptions(list: List<ChannelSub>) {
+        if (list.isEmpty()) return
+        val currentMap = _subscriptions.value.associateBy { it.name }.toMutableMap()
+        for (sub in list) {
+            val existing = currentMap[sub.name]
+            if (existing == null) {
+                currentMap[sub.name] = sub
+            } else if (existing.avatarUrl.isEmpty() && sub.avatarUrl.isNotEmpty()) {
+                currentMap[sub.name] = existing.copy(avatarUrl = sub.avatarUrl, channelUrl = sub.channelUrl.ifEmpty { existing.channelUrl })
+            }
+        }
+        _subscriptions.value = currentMap.values.toList()
+        persistSubscriptions()
+    }
+
+    /** Synchronizes subscriptions derived from feed items. */
+    fun syncSubscriptionsFromFeed(items: List<MediaItemModel>) {
+        if (items.isEmpty()) return
+        val currentMap = _subscriptions.value.associateBy { it.name }.toMutableMap()
+        for (item in items) {
+            val name = item.artistOrChannel
+            if (name.isBlank()) continue
+            val existing = currentMap[name]
+            if (existing == null) {
+                currentMap[name] = ChannelSub(
+                    name = name,
+                    avatarUrl = item.channelAvatarUrl,
+                    channelUrl = item.channelUrl,
+                    lastSeenMs = 0L
+                )
+            } else if (existing.avatarUrl.isEmpty() && item.channelAvatarUrl.isNotEmpty()) {
+                currentMap[name] = existing.copy(avatarUrl = item.channelAvatarUrl, channelUrl = item.channelUrl.ifEmpty { existing.channelUrl })
+            }
+        }
+        _subscriptions.value = currentMap.values.toList()
+        persistSubscriptions()
+    }
+
     private fun subscriptionsToJson(list: List<ChannelSub>): JSONArray = JSONArray(list.map {
         JSONObject()
             .put("name", it.name).put("avatar", it.avatarUrl)

@@ -30,6 +30,38 @@ object InnerTube {
 
     fun subscriptions(): Page = browse(JSONObject().put("browseId", "FEsubscriptions"))
 
+    /** Fetches the list of channels the signed-in user subscribes to on YouTube. */
+    fun channels(): List<LibraryRepository.ChannelSub> = runCatching {
+        if (!GoogleAccount.isSignedIn()) return@runCatching emptyList()
+        val raw = browseRaw(JSONObject().put("browseId", "FEchannels"))
+        val list = ArrayList<LibraryRepository.ChannelSub>()
+        fun walk(node: Any?) {
+            when (node) {
+                is JSONObject -> {
+                    val cr = node.optJSONObject("channelRenderer") ?: node.optJSONObject("gridChannelRenderer")
+                    if (cr != null) {
+                        val title = text(cr.optJSONObject("title"))
+                        val avatar = lastThumbnail(cr.optJSONObject("thumbnail"))
+                        val channelId = cr.optString("channelId")
+                        val navUrl = cr.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("canonicalBaseUrl").orEmpty()
+                        val url = if (navUrl.isNotEmpty()) {
+                            if (navUrl.startsWith("/")) "https://www.youtube.com$navUrl" else navUrl
+                        } else if (channelId.isNotEmpty()) {
+                            "https://www.youtube.com/channel/$channelId"
+                        } else ""
+                        if (title.isNotEmpty()) {
+                            list.add(LibraryRepository.ChannelSub(name = title, avatarUrl = avatar, channelUrl = url, lastSeenMs = 0L))
+                        }
+                    }
+                    node.keys().forEach { walk(node.opt(it)) }
+                }
+                is JSONArray -> for (i in 0 until node.length()) walk(node.opt(i))
+            }
+        }
+        walk(raw)
+        list.distinctBy { it.name }
+    }.getOrDefault(emptyList())
+
     fun history(): Page = browse(JSONObject().put("browseId", "FEhistory"))
 
     fun more(continuation: String): Page = browse(JSONObject().put("continuation", continuation))
@@ -107,6 +139,8 @@ object InnerTube {
             .header("Origin", ORIGIN)
             .header("X-Origin", ORIGIN)
             .header("Content-Type", "application/json")
+            builder.header("X-Youtube-Client-Name", "1")
+            builder.header("X-Youtube-Client-Version", CLIENT_VERSION)
         GoogleAccount.cookieHeaderFor(ORIGIN)?.let { cookies ->
             builder.header("Cookie", cookies)
             sapisidHash(cookies)?.let { builder.header("Authorization", it) }
@@ -135,6 +169,8 @@ object InnerTube {
             when (node) {
                 is JSONObject -> {
                     node.optJSONObject("videoRenderer")?.let { video(it)?.let(items::add) }
+                    node.optJSONObject("gridVideoRenderer")?.let { video(it)?.let(items::add) }
+                    node.optJSONObject("compactVideoRenderer")?.let { video(it)?.let(items::add) }
                     node.optJSONObject("lockupViewModel")?.let { lockup(it)?.let(items::add) }
                     node.optJSONObject("playlistPanelVideoRenderer")?.let { playlistPanelVideo(it)?.let(items::add) }
                     node.optJSONObject("continuationItemRenderer")?.let {
@@ -142,7 +178,8 @@ object InnerTube {
                             ?.optJSONObject("continuationCommand")?.optString("token")?.takeIf { t -> t.isNotEmpty() }
                     }
                     node.keys().forEach { key ->
-                        if (key != "videoRenderer" && key != "lockupViewModel" && key != "playlistPanelVideoRenderer") walk(node.opt(key))
+                        if (key != "videoRenderer" && key != "gridVideoRenderer" && key != "compactVideoRenderer" &&
+                            key != "lockupViewModel" && key != "playlistPanelVideoRenderer") walk(node.opt(key))
                     }
                 }
                 is JSONArray -> for (i in 0 until node.length()) walk(node.opt(i))
@@ -159,28 +196,56 @@ object InnerTube {
         return (0 until runs.length()).joinToString("") { runs.getJSONObject(it).optString("text") }
     }
 
+    private fun parseRelativeTime(text: String): Long {
+        if (text.isBlank()) return 0L
+        val now = System.currentTimeMillis()
+        val clean = text.lowercase().trim()
+        val num = Regex("""\d+""").find(clean)?.value?.toLongOrNull() ?: return now
+        return when {
+            clean.contains("second") -> now - num * 1000L
+            clean.contains("minute") -> now - num * 60 * 1000L
+            clean.contains("hour") -> now - num * 3600 * 1000L
+            clean.contains("day") -> now - num * 86400 * 1000L
+            clean.contains("week") -> now - num * 7 * 86400 * 1000L
+            clean.contains("month") -> now - num * 30 * 86400 * 1000L
+            clean.contains("year") -> now - num * 365 * 86400 * 1000L
+            else -> now
+        }
+    }
+
     private fun video(v: JSONObject): MediaItemModel? {
         val id = v.optString("videoId").takeIf { it.length == 11 } ?: return null
         val durationText = text(v.optJSONObject("lengthText"))
         val seconds = parseDuration(durationText)
         val live = durationText.isEmpty()
         if (!live && seconds in 1..60) return null // Shorts belong to the Shorts tab
-        val owner = v.optJSONObject("ownerText") ?: v.optJSONObject("longBylineText")
-        val channelUrl = owner?.optJSONArray("runs")?.optJSONObject(0)
-            ?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
-            ?.optString("canonicalBaseUrl").orEmpty().let { if (it.startsWith("/")) "https://www.youtube.com$it" else it }
+        val owner = v.optJSONObject("ownerText") ?: v.optJSONObject("longBylineText") ?: v.optJSONObject("shortBylineText")
+        val runs = owner?.optJSONArray("runs")?.optJSONObject(0)?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+        val canonical = runs?.optString("canonicalBaseUrl").orEmpty()
+        val browseId = runs?.optString("browseId").orEmpty()
+        val channelUrl = when {
+            canonical.startsWith("/") -> "https://www.youtube.com$canonical"
+            canonical.isNotEmpty() -> canonical
+            browseId.isNotEmpty() -> "https://www.youtube.com/channel/$browseId"
+            else -> ""
+        }
+        val avatar = lastThumbnail(v.optJSONObject("channelThumbnailSupportedRenderers")
+            ?.optJSONObject("channelThumbnailWithLinkRenderer")?.optJSONObject("thumbnail"))
+            .ifEmpty { lastThumbnail(v.optJSONObject("channelThumbnail")) }
+            .ifEmpty { lastThumbnail(v.optJSONObject("channelAvatar")) }
+        val published = text(v.optJSONObject("publishedTimeText"))
         return build(
             id = id,
             title = text(v.optJSONObject("title")),
             channel = text(owner),
             thumbnail = lastThumbnail(v.optJSONObject("thumbnail")),
-            avatar = lastThumbnail(v.optJSONObject("channelThumbnailSupportedRenderers")
-                ?.optJSONObject("channelThumbnailWithLinkRenderer")?.optJSONObject("thumbnail")),
+            avatar = avatar,
             seconds = seconds,
             views = text(v.optJSONObject("shortViewCountText") ?: v.optJSONObject("viewCountText")),
-            published = text(v.optJSONObject("publishedTimeText")),
+            published = published,
             channelUrl = channelUrl,
-            live = live
+            live = live,
+            publishedAtMs = parseRelativeTime(published)
         )
     }
 
@@ -202,11 +267,13 @@ object InnerTube {
             ?.optJSONObject("image")?.optJSONArray("sources")
         val thumbnail = thumbs?.optJSONObject(thumbs.length() - 1)?.optString("url").orEmpty()
         val durationText = l.toString().let { DURATION.find(it)?.value.orEmpty() }
+        val published = lines.getOrNull(2).orEmpty()
         return build(
             id = id, title = title, channel = lines.firstOrNull().orEmpty(), thumbnail = thumbnail,
             avatar = "", seconds = parseDuration(durationText),
-            views = lines.getOrNull(1).orEmpty(), published = lines.getOrNull(2).orEmpty(),
-            channelUrl = "", live = false
+            views = lines.getOrNull(1).orEmpty(), published = published,
+            channelUrl = "", live = false,
+            publishedAtMs = parseRelativeTime(published)
         )
     }
 
@@ -224,13 +291,15 @@ object InnerTube {
             views = "",
             published = "",
             channelUrl = "",
-            live = durationText.isEmpty()
+            live = durationText.isEmpty(),
+            publishedAtMs = 0L
         ).copy(contentType = MediaContentType.MUSIC_TRACK)
     }
 
     private fun build(
         id: String, title: String, channel: String, thumbnail: String, avatar: String,
-        seconds: Long, views: String, published: String, channelUrl: String, live: Boolean
+        seconds: Long, views: String, published: String, channelUrl: String, live: Boolean,
+        publishedAtMs: Long = 0L
     ) = MediaItemModel(
         id = id,
         title = title,
@@ -247,6 +316,7 @@ object InnerTube {
         publishDate = published,
         sourceUrl = "https://www.youtube.com/watch?v=$id",
         channelUrl = channelUrl,
+        publishedAtMs = publishedAtMs,
         isLive = live
     )
 

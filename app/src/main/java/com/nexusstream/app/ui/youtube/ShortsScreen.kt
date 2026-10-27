@@ -203,7 +203,7 @@ private fun ShortPage(
         AsyncImage(
             model = item.artworkUrl,
             contentDescription = item.title,
-            contentScale = ContentScale.Fit,
+            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
         if (isActive && playbackService != null) {
@@ -215,7 +215,7 @@ private fun ShortPage(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         player = playbackService.getPlayer()
                     }
                 },

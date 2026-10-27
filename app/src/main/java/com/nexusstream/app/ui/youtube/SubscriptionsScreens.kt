@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.nexusstream.app.data.GoogleAccount
 import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
@@ -60,14 +61,14 @@ private const val DAY_MS = 24 * 60 * 60 * 1000L
 
 /**
  * Subscriptions tab: channel avatars (blue dot = new upload since you last opened the channel),
- * filter chips, and the newest uploads from your subscriptions (public channel RSS feeds).
- * Subscriptions are stored on this device; there is no account sign-in.
+ * filter chips, and the newest uploads from your subscriptions (Google Account personalized feed or local RSS).
  */
 @Composable
 internal fun SubscriptionsTab(
     nav: YouTubeNav,
     onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit
 ) {
+    val signedIn by GoogleAccount.signedIn.collectAsState()
     val subs by LibraryRepository.subscriptions.collectAsState()
     val hidden by LibraryRepository.hidden.collectAsState()
     var reloadKey by remember { mutableStateOf(0) }
@@ -79,18 +80,18 @@ internal fun SubscriptionsTab(
         )
     }
 
-    LaunchedEffect(subs.map { it.name to it.channelUrl }, reloadKey) {
-        if (subs.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(subs.map { it.name to it.channelUrl }, signedIn, reloadKey) {
+        if (!signedIn && subs.isEmpty()) return@LaunchedEffect
         val force = forceRefresh
         forceRefresh = false
         if (force || feed !is FeedState.Data) feed = FeedState.Loading
         feed = YouTubeRepository.subscriptionFeed(subs, refresh = force).toFeedState()
     }
 
-    if (subs.isEmpty()) {
+    if (!signedIn && subs.isEmpty()) {
         OriginalEmptyState(
             title = "No subscriptions yet",
-            message = "Tap Subscribe on a video or channel and it will appear here."
+            message = "Sign in to your Google Account or tap Subscribe on a video to see new uploads here."
         )
         return
     }
@@ -104,58 +105,71 @@ internal fun SubscriptionsTab(
         else -> items
     }
 
+    val displaySubs = if (subs.isNotEmpty()) subs else {
+        items.distinctBy { it.artistOrChannel }.map {
+            LibraryRepository.ChannelSub(
+                name = it.artistOrChannel,
+                avatarUrl = it.channelAvatarUrl,
+                channelUrl = it.channelUrl,
+                lastSeenMs = 0L
+            )
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            items(subs, key = { it.name }) { sub ->
-                val hasNew = items.any {
-                    (it.channelUrl == sub.channelUrl && sub.channelUrl.isNotBlank() || it.artistOrChannel == sub.name) &&
-                        it.publishedAtMs > sub.lastSeenMs
-                }
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .width(68.dp)
-                        .clickable {
-                            LibraryRepository.markSeen(sub.name)
-                            if (sub.channelUrl.isNotBlank()) nav.openChannel(sub.channelUrl, sub.name, sub.avatarUrl)
-                        }
-                ) {
-                    Box {
-                        Avatar(sub.avatarUrl, sub.name, 56.dp)
-                        if (hasNew) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .size(16.dp)
-                                    .clip(CircleShape)
-                                    .background(NewDotBlue)
-                                    .border(2.dp, OriginalColors.YouTubeBackground, CircleShape)
-                            )
-                        }
+        if (displaySubs.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                items(displaySubs, key = { it.name }) { sub ->
+                    val hasNew = items.any {
+                        (it.channelUrl == sub.channelUrl && sub.channelUrl.isNotBlank() || it.artistOrChannel == sub.name) &&
+                            it.publishedAtMs > sub.lastSeenMs
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = sub.name,
-                        fontSize = 12.sp,
-                        color = OriginalColors.TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .width(68.dp)
+                            .clickable {
+                                LibraryRepository.markSeen(sub.name)
+                                if (sub.channelUrl.isNotBlank()) nav.openChannel(sub.channelUrl, sub.name, sub.avatarUrl)
+                            }
+                    ) {
+                        Box {
+                            Avatar(sub.avatarUrl, sub.name, 56.dp)
+                            if (hasNew) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(NewDotBlue)
+                                        .border(2.dp, OriginalColors.YouTubeBackground, CircleShape)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = sub.name,
+                            fontSize = 12.sp,
+                            color = OriginalColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
-            }
-            item(key = "all_button") {
-                Box(
-                    modifier = Modifier
-                        .height(56.dp)
-                        .clickable { nav.openAllSubscriptions() }
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("All", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = NewDotBlue)
+                item(key = "all_button") {
+                    Box(
+                        modifier = Modifier
+                            .height(56.dp)
+                            .clickable { nav.openAllSubscriptions() }
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("All", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = NewDotBlue)
+                    }
                 }
             }
         }
@@ -177,7 +191,8 @@ internal fun SubscriptionsTab(
                 }
             )
             is FeedState.Data -> if (shown.isEmpty()) {
-                OriginalEmptyState("Nothing new", "No uploads match this filter.")
+                val emptyMsg = if (filter != "All") "No uploads match this filter." else "No uploads found in your subscriptions yet."
+                OriginalEmptyState("Nothing new", emptyMsg)
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 340.dp),
@@ -206,7 +221,14 @@ fun AllSubscriptionsScreen(
     nav: YouTubeNav,
     miniPlayer: MiniPlayerHooks
 ) {
+    val signedIn by GoogleAccount.signedIn.collectAsState()
     val subs by LibraryRepository.subscriptions.collectAsState()
+
+    LaunchedEffect(signedIn) {
+        if (signedIn && subs.isEmpty()) {
+            YouTubeRepository.refreshGoogleSubscriptions()
+        }
+    }
 
     PageScaffold(title = "All subscriptions", onBack = nav.back, miniPlayer = miniPlayer) {
         if (subs.isEmpty()) {

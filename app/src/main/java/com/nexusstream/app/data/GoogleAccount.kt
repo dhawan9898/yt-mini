@@ -15,6 +15,13 @@ object GoogleAccount {
     private val _signedIn = MutableStateFlow(false)
     val signedIn: StateFlow<Boolean> = _signedIn.asStateFlow()
 
+    private val COOKIE_DOMAINS = listOf(
+        "https://www.youtube.com",
+        "https://m.youtube.com",
+        "https://youtube.com",
+        "https://accounts.google.com"
+    )
+
     fun isSignedIn(): Boolean = _signedIn.value
 
     /** Re-reads the cookie jar; call on startup and after the sign-in page finishes. */
@@ -26,12 +33,37 @@ object GoogleAccount {
         }
     }
 
+    /** Aggregates cookies across all relevant YouTube and Google account domains. */
+    fun getAllCookies(): Map<String, String> {
+        val manager = CookieManager.getInstance()
+        val map = linkedMapOf<String, String>()
+        for (domain in COOKIE_DOMAINS) {
+            val raw = runCatching { manager.getCookie(domain) }.getOrNull().orEmpty()
+            if (raw.isNotBlank()) {
+                raw.split(';').forEach { cookie ->
+                    val trimmed = cookie.trim()
+                    val idx = trimmed.indexOf('=')
+                    if (idx > 0) {
+                        val name = trimmed.substring(0, idx).trim()
+                        val value = trimmed.substring(idx + 1).trim()
+                        if (name.isNotEmpty()) {
+                            map[name] = value
+                        }
+                    }
+                }
+            }
+        }
+        return map
+    }
+
     /** The Cookie header for a YouTube / Google request, or null when signed out. */
     fun cookieHeaderFor(url: String): String? {
         if (!_signedIn.value) return null
         val host = runCatching { java.net.URI(url).host.orEmpty() }.getOrDefault("")
-        if (!(host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com"))) return null
-        return CookieManager.getInstance().getCookie("https://www.youtube.com")?.takeIf { it.isNotBlank() }
+        if (!(host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com") || host.endsWith("google.com"))) return null
+        val cookies = getAllCookies()
+        if (cookies.isEmpty()) return null
+        return cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
     }
 
     fun signOut() {
@@ -42,11 +74,10 @@ object GoogleAccount {
         YouTubeRepository.clearFeedCaches()
     }
 
-    private fun hasAuthCookie(): Boolean {
-        val cookies = CookieManager.getInstance().getCookie("https://www.youtube.com").orEmpty()
-        return cookies.split(';').any {
-            val name = it.trim().substringBefore('=')
-            name == "SAPISID" || name == "__Secure-3PAPISID" || name == "LOGIN_INFO"
+    fun hasAuthCookie(): Boolean {
+        val cookies = getAllCookies()
+        return cookies.keys.any { name ->
+            name == "SAPISID" || name == "__Secure-3PAPISID" || name == "LOGIN_INFO" || name == "SID" || name == "__Secure-1PAPISID"
         }
     }
 }

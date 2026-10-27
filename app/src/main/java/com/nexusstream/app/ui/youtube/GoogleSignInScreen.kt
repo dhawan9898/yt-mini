@@ -2,7 +2,11 @@ package com.nexusstream.app.ui.youtube
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.os.Message
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -12,8 +16,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -32,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import com.nexusstream.app.data.GoogleAccount
 import com.nexusstream.app.ui.YouTubeNav
 import com.nexusstream.app.ui.components.OriginalColors
@@ -78,23 +84,82 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
                 WebView(context).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    // Google refuses sign-in from embedded WebViews; present as plain mobile Chrome.
-                    settings.userAgentString =
-                        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) " +
-                            "Chrome/126.0.0.0 Mobile Safari/537.36"
-                    settings.setSupportMultipleWindows(false)
+                    settings.databaseEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    settings.setSupportMultipleWindows(true)
                     settings.javaScriptCanOpenWindowsAutomatically = true
+
+                    // Remove X-Requested-With header to prevent Google from detecting embedded WebView
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+                        WebSettingsCompat.setRequestedWithHeaderAllowList(settings, emptySet())
+                    }
+
+                    // Present as standard Mobile Chrome browser without WebView markers (no '; wv' or 'Version/4.0')
+                    val defaultUa = settings.userAgentString
+                    val cleanUa = defaultUa.replace("; wv", "").replace("Version/4.0 ", "")
+                    settings.userAgentString = if (cleanUa.contains("Chrome/")) {
+                        cleanUa
+                    } else {
+                        "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 Mobile Safari/537.36"
+                    }
+
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onCreateWindow(
+                            view: WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: Message?
+                        ): Boolean {
+                            val href = view?.hitTestResult?.extra
+                            if (!href.isNullOrBlank()) {
+                                view.loadUrl(href)
+                                return true
+                            }
+                            val transport = resultMsg?.obj as? WebView.WebViewTransport
+                            if (transport != null) {
+                                transport.webView = view
+                                resultMsg.sendToTarget()
+                                return true
+                            }
+                            return super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+                        }
+                    }
+
+                    fun checkAuthSuccess(url: String) {
+                        CookieManager.getInstance().flush()
+                        if (GoogleAccount.hasAuthCookie()) {
+                            GoogleAccount.refresh()
+                            if (GoogleAccount.isSignedIn()) {
+                                nav.back()
+                            }
+                        }
+                    }
+
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                             loading = true
+                            checkAuthSuccess(url)
+                        }
+
+                        override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+                            super.doUpdateVisitedHistory(view, url, isReload)
+                            checkAuthSuccess(url)
+                        }
+
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            val targetUrl = request.url.toString()
+                            checkAuthSuccess(targetUrl)
+                            return false
                         }
 
                         override fun onReceivedError(
                             view: WebView,
-                            request: android.webkit.WebResourceRequest,
-                            error: android.webkit.WebResourceError
+                            request: WebResourceRequest,
+                            error: WebResourceError
                         ) {
                             if (request.isForMainFrame) {
                                 loadError = "${error.description} (${request.url.host})"
@@ -103,9 +168,7 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
 
                         override fun onPageFinished(view: WebView, url: String) {
                             loading = false
-                            CookieManager.getInstance().flush()
-                            GoogleAccount.refresh()
-                            if (GoogleAccount.isSignedIn() && url.contains("youtube.com")) nav.back()
+                            checkAuthSuccess(url)
                         }
                     }
                     webView = this
