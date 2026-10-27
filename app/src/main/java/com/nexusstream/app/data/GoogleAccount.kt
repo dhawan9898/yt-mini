@@ -3,15 +3,11 @@ package com.nexusstream.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.webkit.CookieManager
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * User's Google Account profile data obtained from the Android on-device Google Play Services.
- */
+/** Optional display info for the signed-in account (the web session itself carries no profile). */
 data class GoogleUserProfile(
     val email: String,
     val displayName: String,
@@ -20,9 +16,9 @@ data class GoogleUserProfile(
 )
 
 /**
- * Manages Google Account sign-in. Supports:
- * 1. Direct native on-device Google Sign-in via Google Play Services (one-tap account chooser).
- * 2. Web session cookie jar (CookieManager) for authenticated YouTube requests.
+ * Google sign-in via the web session. Login state is the presence of Google auth cookies in the
+ * WebView CookieManager (persisted to disk). A copy of those cookies is also kept in
+ * SharedPreferences and restored on launch, so the login survives cookie-store resets.
  */
 object GoogleAccount {
     private val _signedIn = MutableStateFlow(false)
@@ -40,75 +36,55 @@ object GoogleAccount {
         "https://accounts.google.com"
     )
 
+    private const val KEY_COOKIES = "backup_cookies"
+    private const val COOKIE_EXPIRES = "Fri, 31 Dec 2038 23:59:59 GMT"
+
     fun isSignedIn(): Boolean = _signedIn.value
 
     fun init(context: Context) {
-        val sp = context.getSharedPreferences("nexus_google_auth", Context.MODE_PRIVATE)
-        prefs = sp
-
-        // 1. Check native Play Services signed in account on this Android device
-        val nativeAccount = GoogleSignIn.getLastSignedInAccount(context)
-        if (nativeAccount != null) {
-            val profile = GoogleUserProfile(
-                email = nativeAccount.email.orEmpty(),
-                displayName = nativeAccount.displayName ?: nativeAccount.email.orEmpty().substringBefore('@'),
-                avatarUrl = nativeAccount.photoUrl?.toString().orEmpty(),
-                id = nativeAccount.id.orEmpty()
-            )
-            _userProfile.value = profile
-            _signedIn.value = true
-            persistProfile(profile)
-            return
-        }
-
-        // 2. Check saved profile in SharedPreferences
-        val savedEmail = sp.getString("account_email", null)
-        if (!savedEmail.isNullOrBlank()) {
-            val profile = GoogleUserProfile(
-                email = savedEmail,
-                displayName = sp.getString("account_name", savedEmail.substringBefore('@')).orEmpty(),
-                avatarUrl = sp.getString("account_avatar", "").orEmpty(),
-                id = sp.getString("account_id", "").orEmpty()
-            )
-            _userProfile.value = profile
-            _signedIn.value = true
-            return
-        }
-
-        // 3. Fallback to auth cookies check
-        refresh()
+        prefs = context.getSharedPreferences("nexus_google_auth", Context.MODE_PRIVATE)
+        CookieManager.getInstance().setAcceptCookie(true)
+        if (!hasAuthCookie()) restoreCookies()
+        _signedIn.value = hasAuthCookie()
+        if (_signedIn.value) backupCookies()
     }
 
-    /** Called when the user signs in natively via the Android system account picker. */
-    fun signInWithGoogleAccount(profile: GoogleUserProfile) {
-        _userProfile.value = profile
-        _signedIn.value = true
-        persistProfile(profile)
-        YouTubeRepository.clearFeedCaches()
-    }
-
-    private fun persistProfile(profile: GoogleUserProfile?) {
-        val sp = prefs ?: return
-        if (profile != null) {
-            sp.edit()
-                .putString("account_email", profile.email)
-                .putString("account_name", profile.displayName)
-                .putString("account_avatar", profile.avatarUrl)
-                .putString("account_id", profile.id)
-                .apply()
-        } else {
-            sp.edit().clear().apply()
-        }
-    }
-
-    /** Re-reads the cookie jar and local account state. */
+    /** Re-reads the cookie jar; call after the sign-in WebView navigates. */
     fun refresh() {
-        val hasCookies = hasAuthCookie()
-        val hasProfile = _userProfile.value != null
-        val now = hasCookies || hasProfile
+        CookieManager.getInstance().flush()
+        val now = hasAuthCookie()
+        if (now) backupCookies()
         if (now != _signedIn.value) {
             _signedIn.value = now
             YouTubeRepository.clearFeedCaches()
+        }
+    }
+
+    private fun backupCookies() {
+        val sp = prefs ?: return
+        val cookies = getAllCookies()
+        if (cookies.isEmpty()) return
+        val json = org.json.JSONObject()
+        cookies.forEach { (k, v) -> json.put(k, v) }
+        sp.edit().putString(KEY_COOKIES, json.toString()).apply()
+    }
+
+    private fun restoreCookies() {
+        val raw = prefs?.getString(KEY_COOKIES, null) ?: return
+        val manager = CookieManager.getInstance()
+        runCatching {
+            val json = org.json.JSONObject(raw)
+            for (name in json.keys()) {
+                val value = json.getString(name)
+                for (url in listOf("https://www.youtube.com", "https://accounts.google.com")) {
+                    val domain = if (url.contains("youtube")) ".youtube.com" else ".google.com"
+                    manager.setCookie(
+                        url,
+                        "$name=$value; Domain=$domain; Path=/; Secure; Expires=$COOKIE_EXPIRES"
+                    )
+                }
+            }
+            manager.flush()
         }
     }
 
@@ -145,19 +121,13 @@ object GoogleAccount {
         return cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
     }
 
-    fun signOut(context: Context? = null) {
+    fun signOut(@Suppress("UNUSED_PARAMETER") context: Context? = null) {
         val manager = CookieManager.getInstance()
         manager.removeAllCookies { }
         manager.flush()
         _userProfile.value = null
         _signedIn.value = false
-        persistProfile(null)
-        if (context != null) {
-            runCatching {
-                val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
-                GoogleSignIn.getClient(context, gso).signOut()
-            }
-        }
+        prefs?.edit()?.clear()?.apply()
         YouTubeRepository.clearFeedCaches()
     }
 

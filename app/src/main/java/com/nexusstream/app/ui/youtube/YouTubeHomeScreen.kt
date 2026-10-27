@@ -481,7 +481,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = if (signedIn) (userProfile?.email ?: "Connected") else "Choose an account from your phone",
+                        text = if (signedIn) (userProfile?.email ?: "Connected") else "Sign in with Google",
                         fontSize = 13.sp,
                         color = OriginalColors.TextSecondary,
                         maxLines = 1,
