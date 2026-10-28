@@ -90,17 +90,18 @@ object GoogleAccount {
         if (now != _signedIn.value) {
             _signedIn.value = now
             YouTubeRepository.clearFeedCaches()
-            // Just signed in: load the account's library (subscriptions, likes, playlists) now.
-            if (now) LibraryRepository.syncAccount(force = true)
         }
     }
 
     private fun backupCookies() {
         val sp = prefs ?: return
-        val cookies = getAllCookies()
-        if (cookies.isEmpty()) return
+        val youtube = cookiesFor("https://www.youtube.com")
+        if (youtube.isEmpty()) return
+        // Google and YouTube set cookies with the same names (SID, SAPISID...) but different
+        // values, so each domain's set is kept apart.
         val json = org.json.JSONObject()
-        cookies.forEach { (k, v) -> json.put(k, v) }
+            .put("youtube", org.json.JSONObject(youtube as Map<*, *>))
+            .put("google", org.json.JSONObject(cookiesFor("https://accounts.google.com") as Map<*, *>))
         sp.edit().putString(KEY_COOKIES, json.toString()).apply()
     }
 
@@ -109,18 +110,33 @@ object GoogleAccount {
         val manager = CookieManager.getInstance()
         runCatching {
             val json = org.json.JSONObject(raw)
-            for (name in json.keys()) {
-                val value = json.getString(name)
-                for (url in listOf("https://www.youtube.com", "https://accounts.google.com")) {
-                    val domain = if (url.contains("youtube")) ".youtube.com" else ".google.com"
-                    manager.setCookie(
-                        url,
-                        "$name=$value; Domain=$domain; Path=/; Secure; Expires=$COOKIE_EXPIRES"
-                    )
+            fun put(url: String, domain: String, set: org.json.JSONObject) {
+                for (name in set.keys()) {
+                    manager.setCookie(url, "$name=${set.getString(name)}; Domain=$domain; Path=/; Secure; Expires=$COOKIE_EXPIRES")
                 }
+            }
+            val youtube = json.optJSONObject("youtube")
+            if (youtube != null) {
+                put("https://www.youtube.com", ".youtube.com", youtube)
+                json.optJSONObject("google")?.let { put("https://accounts.google.com", ".google.com", it) }
+            } else {
+                // Older backups kept one merged set; it is only safe to put back on YouTube.
+                put("https://www.youtube.com", ".youtube.com", json)
             }
             manager.flush()
         }
+    }
+
+    /** The cookies the browser would send to [url]. */
+    private fun cookiesFor(url: String): Map<String, String> {
+        val raw = runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull().orEmpty()
+        val map = linkedMapOf<String, String>()
+        raw.split(';').forEach { cookie ->
+            val trimmed = cookie.trim()
+            val idx = trimmed.indexOf('=')
+            if (idx > 0) map[trimmed.substring(0, idx).trim()] = trimmed.substring(idx + 1).trim()
+        }
+        return map
     }
 
     /** Aggregates cookies across all relevant YouTube and Google account domains. */
@@ -151,8 +167,10 @@ object GoogleAccount {
         if (!_signedIn.value) return null
         val host = runCatching { java.net.URI(url).host.orEmpty() }.getOrDefault("")
         if (!(host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com") || host.endsWith("google.com"))) return null
-        val cookies = getAllCookies()
-        if (cookies.isEmpty()) return null
+        // Only the cookies the target site itself would get: Google's own SID / SAPISID values
+        // differ from YouTube's, and mixing them in made YouTube answer 401.
+        val origin = "https://" + host.ifEmpty { "www.youtube.com" }
+        val cookies = cookiesFor(origin).ifEmpty { return null }
         return cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
     }
 
@@ -172,8 +190,9 @@ object GoogleAccount {
         YouTubeRepository.clearFeedCaches()
     }
 
+    /** True once YouTube itself has the session cookies (not just Google's sign-in page). */
     fun hasAuthCookie(): Boolean {
-        val cookies = getAllCookies()
+        val cookies = cookiesFor("https://www.youtube.com")
         return cookies.keys.any { name ->
             name == "SAPISID" || name == "__Secure-3PAPISID" || name == "LOGIN_INFO" || name == "SID" || name == "__Secure-1PAPISID"
         }

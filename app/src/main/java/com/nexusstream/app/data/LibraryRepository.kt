@@ -674,11 +674,18 @@ object LibraryRepository {
         _accountSyncing.value = true
         repoScope.launch {
             try {
-                runCatching { pullAccount() }.onFailure {
-                    android.util.Log.w("AccountSync", "pull failed", it)
-                    _syncErrors.tryEmit("Couldn't load your YouTube library: ${it.message}")
+                // Right after sign-in YouTube can still refuse the brand-new session for a moment:
+                // try a few times before saying anything.
+                var result = runCatching { pullAccount() }
+                for (wait in listOf(3_000L, 8_000L)) {
+                    if (result.isSuccess || !GoogleAccount.isSignedIn()) break
+                    kotlinx.coroutines.delay(wait)
+                    result = runCatching { pullAccount() }
                 }
-                lastAccountSyncMs = System.currentTimeMillis()
+                result.onSuccess { lastAccountSyncMs = System.currentTimeMillis() }.onFailure {
+                    android.util.Log.w("AccountSync", "pull failed", it)
+                    if (GoogleAccount.isSignedIn()) _syncErrors.tryEmit("Couldn't load your YouTube library: ${it.message}")
+                }
             } finally {
                 _accountSyncing.value = false
             }
