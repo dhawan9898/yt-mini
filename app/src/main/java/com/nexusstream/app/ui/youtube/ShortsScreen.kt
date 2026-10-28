@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.unit.Dp
 import android.content.Intent
@@ -280,6 +281,11 @@ private fun ShortsPager(
             // Only real playback counts (not buffering), so the thumbnail stays until the first frame.
             playing = isActive && playback?.currentItem?.id == item.id && playback.isPlaying && !playback.isBuffering,
             buffering = isActive && playback?.currentItem?.id == item.id && playback.isBuffering,
+            error = if (isActive && playback?.hasError == true) playback.errorMessage ?: "Couldn't play this short" else null,
+            onRetry = {
+                playbackService?.playQueue(listOf(item), 0, startInVideoMode = true)
+                playbackService?.setLoopOne(true)
+            },
             playbackService = playbackService,
             onOpenChannel = onOpenChannel,
             bottomInset = bottomInset
@@ -288,7 +294,7 @@ private fun ShortsPager(
 }
 
 /** How many shorts after the one on screen are loaded ahead. */
-private const val PRELOAD_AHEAD = 4
+private const val PRELOAD_AHEAD = 3
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -298,6 +304,8 @@ private fun ShortPage(
     resolving: Boolean,
     playing: Boolean,
     buffering: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
     playbackService: MediaPlaybackService?,
     onOpenChannel: (MediaItemModel) -> Unit,
     bottomInset: Dp
@@ -347,7 +355,33 @@ private fun ShortPage(
                 modifier = Modifier.fillMaxSize()
             )
         }
-        if (resolving || buffering || (isActive && !started)) {
+        if (error != null) {
+            // A short that can't play says why (YouTube blocking the network, for example)
+            // instead of spinning forever.
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 32.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(16.dp)
+            ) {
+                Text(error, color = Color.White, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    "Retry",
+                    color = Color.Black,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.White)
+                        .clickable(onClick = onRetry)
+                        .padding(horizontal = 18.dp, vertical = 8.dp)
+                )
+            }
+        } else if (resolving || buffering || (isActive && !started)) {
             CircularProgressIndicator(
                 color = Color.White,
                 strokeWidth = 2.dp,

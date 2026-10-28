@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Arrangement
@@ -239,7 +240,7 @@ fun YouTubeHomeScreen(
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= com.nexusstream.app.ui.components.RAIL_MIN_WIDTH_DP
     val navSpace = if (wide) navBarInset else NAV_BAR_SPACE + navBarInset
 
-    Row(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground)) {
+    Row(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground).statusBarsPadding()) {
     if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = { selectedTab = it })
     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
     Column(modifier = Modifier.fillMaxSize()) {

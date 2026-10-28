@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.ytmusic
 
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -173,7 +174,7 @@ fun YTMusicHomeScreen(
     }
 
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= com.nexusstream.app.ui.components.RAIL_MIN_WIDTH_DP
-    Row(modifier = modifier.fillMaxSize().background(OriginalColors.MusicBackground)) {
+    Row(modifier = modifier.fillMaxSize().background(OriginalColors.MusicBackground).statusBarsPadding()) {
     if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = { selectedTab = it })
     Column(
         modifier = Modifier

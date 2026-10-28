@@ -347,9 +347,34 @@ object YouTubeRepository {
     @Volatile
     private var cachedInfo: Pair<String, StreamInfo>? = null
 
+    private val infoInFlight = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.CompletableFuture<StreamInfo>>()
+
+    /**
+     * The extractor's full info for a video. The watch page and the player ask for the same video
+     * at the same moment; the second caller waits for the first request instead of making its own.
+     */
     private fun streamInfo(watchUrl: String): StreamInfo {
         cachedInfo?.takeIf { it.first == watchUrl }?.let { return it.second }
-        return StreamInfo.getInfo(youtube, watchUrl).also { cachedInfo = watchUrl to it }
+        val mine = java.util.concurrent.CompletableFuture<StreamInfo>()
+        val running = infoInFlight.putIfAbsent(watchUrl, mine)
+        if (running != null) {
+            return try {
+                running.get()
+            } catch (e: java.util.concurrent.ExecutionException) {
+                throw e.cause ?: e
+            }
+        }
+        try {
+            val info = StreamInfo.getInfo(youtube, watchUrl)
+            cachedInfo = watchUrl to info
+            mine.complete(info)
+            return info
+        } catch (e: Throwable) {
+            mine.completeExceptionally(e)
+            throw e
+        } finally {
+            infoInFlight.remove(watchUrl)
+        }
     }
 
     // Caches live in process memory: they last until the app is fully closed (process killed),
@@ -901,7 +926,9 @@ object YouTubeRepository {
     /** Streams resolved ahead of time (the next Shorts), each used once and only while fresh. */
     private class Prefetch(val atMs: Long, val stream: kotlinx.coroutines.Deferred<ResolvedStream>)
     private val prefetched = java.util.concurrent.ConcurrentHashMap<String, Prefetch>()
-    private val prefetchScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    // Two at a time, so preloading never crowds out the video you are about to watch.
+    @kotlin.OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val prefetchScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO.limitedParallelism(2))
     private const val PREFETCH_TTL_MS = 30 * 60_000L
 
     /**
