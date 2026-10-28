@@ -312,7 +312,7 @@ object YouTubeRepository {
 
     private val initialized: Boolean by lazy {
         val country = AppSettings.contentCountry.value
-        appliedCountry = country
+        appliedCountry = country + "|" + AppSettings.appLanguage.value
         NewPipe.init(
             NewPipeDownloader.instance,
             Localization(ContentRegions.languageFor(country), country),
@@ -329,8 +329,9 @@ object YouTubeRepository {
     /** Switches the content country / language (Settings) and drops caches filled for the old one. */
     suspend fun applyRegion(country: String): Result<Unit> = io {
         check(initialized)
-        if (country != appliedCountry) {
-            appliedCountry = country
+        val key = country + "|" + AppSettings.appLanguage.value
+        if (key != appliedCountry) {
+            appliedCountry = key
             NewPipe.setupLocalization(
                 Localization(ContentRegions.languageFor(country), country),
                 ContentCountry(country)
@@ -671,6 +672,10 @@ object YouTubeRepository {
     }
 
     /** YT Music's own (unsynced) lyrics for [videoId], or null when it has none. */
+    fun musicTimedLyrics(videoId: String): Pair<List<com.nexusstream.app.model.LyricLine>, String>? = runCatching {
+        musicWatch(videoId).lyricsBrowseId?.let { YTMusicApi.timedLyrics(it) }
+    }.getOrNull()
+
     fun musicLyrics(videoId: String): YTMusicApi.PlainLyrics? = runCatching {
         musicWatch(videoId).lyricsBrowseId?.let { YTMusicApi.lyrics(it) }
     }.getOrNull()

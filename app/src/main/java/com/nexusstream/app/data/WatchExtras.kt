@@ -106,6 +106,14 @@ object WatchExtras {
         return out.sortedBy { it.startMs }
     }
 
+    /** What the watch page (`next`) adds to the player: the heat map and where live chat starts. */
+    class Next(val heatmap: List<HeatPoint>, val chat: LiveChat.Start?)
+
+    fun watchNext(videoId: String): Next = runCatching {
+        val root = InnerTube.web("next", JSONObject().put("videoId", videoId))
+        Next(parseHeatmap(root), runCatching { LiveChat.parseStart(root) }.getOrNull())
+    }.getOrDefault(Next(emptyList(), null))
+
     /** The "Most replayed" graph from the watch page (`next`), empty when the video has none. */
     fun heatmap(videoId: String): List<HeatPoint> = runCatching {
         parseHeatmap(InnerTube.web("next", JSONObject().put("videoId", videoId)))

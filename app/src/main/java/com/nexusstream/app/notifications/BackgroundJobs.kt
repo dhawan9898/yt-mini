@@ -15,6 +15,7 @@ object BackgroundJobs {
     private const val UPLOAD_WORK = "upload_check"
     private const val UPLOAD_NOW_WORK = "upload_check_now"
     private const val BEDTIME_WORK = "bedtime_reminder"
+    private const val SMART_WORK = "smart_downloads"
 
     private val needsNetwork = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
@@ -47,5 +48,20 @@ object BackgroundJobs {
 
     fun cancelBedtime(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(BEDTIME_WORK)
+    }
+
+    /** Smart downloads run once a day on an unmetered network with enough battery. */
+    fun scheduleSmartDownloads(context: Context) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.UNMETERED)
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .build()
+        val request = PeriodicWorkRequestBuilder<SmartDownloadsWorker>(1, TimeUnit.DAYS).setConstraints(constraints).build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(SMART_WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
+    }
+
+    fun cancelSmartDownloads(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(SMART_WORK)
     }
 }

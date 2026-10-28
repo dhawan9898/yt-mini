@@ -194,6 +194,8 @@ fun VideoWatchScreen(
     }
 
     val context = LocalContext.current
+    val linkedTv by com.nexusstream.app.data.TvLink.linked.collectAsState()
+    val tvScope = rememberCoroutineScope()
     val savedItems by LibraryRepository.saved.collectAsState()
     val offlineItems by LibraryRepository.downloads.collectAsState()
     val downloadStates by DownloadRepository.states.collectAsState()
@@ -232,8 +234,12 @@ fun VideoWatchScreen(
     var showChapters by remember { mutableStateOf(false) }
     var showTranscript by remember { mutableStateOf(false) }
     var heatmap by remember(mediaItem.id) { mutableStateOf<List<WatchExtras.HeatPoint>>(emptyList()) }
+    var chatStart by remember(mediaItem.id) { mutableStateOf<com.nexusstream.app.data.LiveChat.Start?>(null) }
+    var showChat by remember { mutableStateOf(false) }
     LaunchedEffect(mediaItem.id) {
-        heatmap = withContext(Dispatchers.IO) { WatchExtras.heatmap(mediaItem.id) }
+        val next = withContext(Dispatchers.IO) { WatchExtras.watchNext(mediaItem.id) }
+        heatmap = next.heatmap
+        chatStart = next.chat
     }
     val extrasPair by playbackService.watchExtras.collectAsState()
     val playerExtras = extrasPair?.takeIf { it.first == mediaItem.id }?.second
@@ -448,6 +454,50 @@ fun VideoWatchScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                    }
+                }
+            }
+
+            // Live chat, or chat replay of a finished stream
+            chatStart?.let { start ->
+                item(key = "live_chat") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(OriginalColors.Chip)
+                            .clickable { showChat = true }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(if (start.replay) "Live chat replay" else "Live chat", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextPrimary)
+                    }
+                }
+            }
+
+            // Play on TV: hands this video (and the queue after it) to the linked YouTube TV app.
+            if (linkedTv != null) {
+                item(key = "play_on_tv") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(OriginalColors.Chip)
+                            .clickable {
+                                val ids = listOf(mediaItem.id) + playbackState.queue.drop(playbackState.queueIndex + 1).map { it.id }.filter { it != mediaItem.id }
+                                val at = playbackState.currentPositionMs / 1000
+                                if (playbackState.isPlaying) playbackService.togglePlayPause()
+                                tvScope.launch {
+                                    val result = withContext(Dispatchers.IO) { runCatching { com.nexusstream.app.data.TvLink.play(ids, 0, at) } }
+                                    Toast.makeText(context, result.fold({ "Playing on ${linkedTv?.name}" }, { it.message ?: "Couldn't reach the TV" }), Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Play on ${linkedTv?.name ?: "TV"}", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextPrimary)
                     }
                 }
             }
@@ -757,6 +807,12 @@ fun VideoWatchScreen(
                     }
                 }
             }
+        }
+    }
+
+    if (showChat) {
+        chatStart?.let { start ->
+            LiveChatSheet(start, positionMs = { playbackService.getPlayer().currentPosition }, onDismiss = { showChat = false })
         }
     }
 
@@ -1203,6 +1259,80 @@ private fun TranscriptSheet(
                                 modifier = Modifier.width(56.dp)
                             )
                             Text(text = line.text, fontSize = 14.sp, color = OriginalColors.TextPrimary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Live chat (or its replay, kept in step with the video), polled while the sheet is open. */
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LiveChatSheet(start: com.nexusstream.app.data.LiveChat.Start, positionMs: () -> Long, onDismiss: () -> Unit) {
+    var messages by remember(start) { mutableStateOf<List<com.nexusstream.app.data.LiveChat.Message>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(start) {
+        var token: String? = start.continuation
+        while (token != null) {
+            val result = withContext(Dispatchers.IO) { runCatching { com.nexusstream.app.data.LiveChat.poll(token!!, start.replay, positionMs()) } }
+            val page = result.getOrNull()
+            if (page == null) {
+                error = result.exceptionOrNull()?.message ?: "Couldn't load the chat"
+                kotlinx.coroutines.delay(5000)
+                continue
+            }
+            error = null
+            if (page.messages.isNotEmpty()) messages = (messages + page.messages).distinctBy { it.id.ifEmpty { it.author + it.text + it.offsetMs } }.takeLast(300)
+            token = page.continuation
+            kotlinx.coroutines.delay(page.pollAfterMs)
+        }
+    }
+    // Replays show only what has been said up to the current position.
+    val shown = if (start.replay) messages.filter { it.offsetMs <= positionMs() } else messages
+    LaunchedEffect(shown.size) { if (shown.isNotEmpty()) listState.animateScrollToItem(shown.size - 1) }
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = OriginalColors.Sheet, contentColor = OriginalColors.TextPrimary) {
+        Column(modifier = Modifier.fillMaxHeight(0.75f)) {
+            Text(
+                text = if (start.replay) "Live chat replay" else "Live chat",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            error?.let { Text(it, fontSize = 12.sp, color = OriginalColors.TextSecondary, modifier = Modifier.padding(horizontal = 16.dp)) }
+            if (shown.isEmpty()) {
+                Text("Waiting for messages...", fontSize = 14.sp, color = OriginalColors.TextSecondary, modifier = Modifier.padding(16.dp))
+            }
+            LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
+                items(shown) { m ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (m.amount.isNotEmpty()) Color(0x331E88E5) else Color.Transparent)
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        AsyncImage(
+                            model = m.avatarUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(24.dp).clip(CircleShape)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = m.author + if (m.amount.isNotEmpty()) "  ${m.amount}" else "",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = when {
+                                    m.isModerator -> Color(0xFF5E84F1)
+                                    m.isMember -> Color(0xFF2BA640)
+                                    else -> OriginalColors.TextSecondary
+                                }
+                            )
+                            if (m.text.isNotEmpty()) Text(m.text, fontSize = 14.sp, color = OriginalColors.TextPrimary)
                         }
                     }
                 }

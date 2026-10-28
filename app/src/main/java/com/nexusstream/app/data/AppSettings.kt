@@ -22,8 +22,15 @@ object ContentRegions {
         "JP" to "ja", "KR" to "ko", "ID" to "id", "TR" to "tr"
     )
 
-    /** Interface language YouTube should use for a country (English where unsure). */
-    fun languageFor(country: String): String = languages[country] ?: "en"
+    /** Interface language YouTube should use for a country (English where unsure); the app language wins when set. */
+    fun languageFor(country: String): String = AppSettings.appLanguage.value.ifBlank { null } ?: languages[country] ?: "en"
+
+    /** Languages offered for the app language setting. */
+    val appLanguages: List<Pair<String, String>> = listOf(
+        "" to "Device language", "en" to "English", "es" to "Español", "fr" to "Français", "de" to "Deutsch",
+        "it" to "Italiano", "pt" to "Português", "hi" to "हिन्दी", "te" to "తెలుగు", "ta" to "தமிழ்", "ja" to "日本語",
+        "ko" to "한국어", "id" to "Bahasa Indonesia", "tr" to "Türkçe", "ru" to "Русский", "ar" to "العربية"
+    )
 
     fun nameOf(country: String): String = countries.firstOrNull { it.first == country }?.second ?: country
 }
@@ -91,6 +98,29 @@ object AppSettings {
     private val _captionBackground = MutableStateFlow(1)
     val captionBackground: StateFlow<Int> = _captionBackground.asStateFlow()
 
+    /** App language ("" = the device's): the per-app locale and the language of YouTube content. */
+    private val _appLanguage = MutableStateFlow("")
+    val appLanguage: StateFlow<String> = _appLanguage.asStateFlow()
+
+    /** Smart downloads: how many recommended songs to keep offline (0 = off). */
+    private val _smartDownloads = MutableStateFlow(0)
+    val smartDownloads: StateFlow<Int> = _smartDownloads.asStateFlow()
+
+    fun setAppLanguage(tag: String) {
+        _appLanguage.value = tag
+        prefs?.edit()?.putString("app_language", tag)?.apply()
+    }
+
+    fun setSmartDownloads(count: Int) {
+        _smartDownloads.value = count
+        prefs?.edit()?.putInt("smart_downloads", count)?.apply()
+    }
+
+    /** Ids the last smart download run added, so the next run can replace them. */
+    var smartDownloadIds: Set<String>
+        get() = prefs?.getStringSet("smart_download_ids", emptySet()).orEmpty()
+        set(value) { prefs?.edit()?.putStringSet("smart_download_ids", value)?.apply() }
+
     fun setDoubleTapSeekSec(seconds: Int) {
         _doubleTapSeekSec.value = seconds
         prefs?.edit()?.putInt("double_tap_seek", seconds)?.apply()
@@ -129,6 +159,8 @@ object AppSettings {
         _stableVolume.value = p.getBoolean("stable_volume", true)
         _restrictedMode.value = p.getBoolean("restricted_mode", false)
         _doubleTapSeekSec.value = p.getInt("double_tap_seek", 10)
+        _appLanguage.value = p.getString("app_language", "") ?: ""
+        _smartDownloads.value = p.getInt("smart_downloads", 0)
         _captionScale.value = p.getFloat("caption_scale", 1f)
         _captionBackground.value = p.getInt("caption_background", 1)
     }
@@ -203,6 +235,8 @@ object AppSettings {
         .put("stableVolume", _stableVolume.value)
         .put("restrictedMode", _restrictedMode.value)
         .put("doubleTapSeek", _doubleTapSeekSec.value)
+        .put("appLanguage", _appLanguage.value)
+        .put("smartDownloads", _smartDownloads.value)
         .put("captionScale", _captionScale.value.toDouble())
         .put("captionBackground", _captionBackground.value)
 
@@ -220,6 +254,8 @@ object AppSettings {
         if (json.has("ambientMode")) setAmbientMode(json.optBoolean("ambientMode"))
         if (json.has("stableVolume")) setStableVolume(json.optBoolean("stableVolume"))
         if (json.has("restrictedMode")) setRestrictedMode(json.optBoolean("restrictedMode"))
+        if (json.has("appLanguage")) setAppLanguage(json.optString("appLanguage"))
+        if (json.has("smartDownloads")) setSmartDownloads(json.optInt("smartDownloads").coerceIn(0, 100))
         if (json.has("doubleTapSeek")) setDoubleTapSeekSec(json.optInt("doubleTapSeek").coerceIn(5, 60))
         if (json.has("captionScale")) setCaptionScale(json.optDouble("captionScale").toFloat().coerceIn(0.5f, 3f))
         if (json.has("captionBackground")) setCaptionBackground(json.optInt("captionBackground").coerceIn(0, 2))

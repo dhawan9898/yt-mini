@@ -67,6 +67,9 @@ import com.nexusstream.app.LaunchRequests
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import com.nexusstream.app.ui.youtube.SearchScreen
+import com.nexusstream.app.ui.youtube.UploadScreen
+import com.nexusstream.app.ui.youtube.TimeWatchedScreen
+import com.nexusstream.app.ui.youtube.AccountFeedScreen
 import com.nexusstream.app.ui.youtube.PlaylistScreen
 import com.nexusstream.app.ui.youtube.ChannelScreen
 import com.nexusstream.app.ui.youtube.AllSubscriptionsScreen
@@ -188,6 +191,7 @@ fun NexusApp() {
 
     LaunchedEffect(Unit) {
         LibraryRepository.init(context)
+        com.nexusstream.app.data.TvLink.restore()
         com.nexusstream.app.data.GoogleAccount.init(context)
         DownloadRepository.init(context)
         NotificationHelper.ensureChannels(context)
@@ -216,6 +220,21 @@ fun NexusApp() {
     }
     LaunchedEffect(notificationsEnabled) {
         if (notificationsEnabled) BackgroundJobs.scheduleUploadChecks(context) else BackgroundJobs.cancelUploadChecks(context)
+    }
+    val smartDownloads by AppSettings.smartDownloads.collectAsState()
+    LaunchedEffect(smartDownloads) {
+        if (smartDownloads > 0) BackgroundJobs.scheduleSmartDownloads(context) else BackgroundJobs.cancelSmartDownloads(context)
+    }
+    val appLanguage by AppSettings.appLanguage.collectAsState()
+    LaunchedEffect(appLanguage) {
+        YouTubeRepository.applyRegion(AppSettings.contentCountry.value)
+        // Android 13+: the per-app language in system settings follows this choice.
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            runCatching {
+                context.getSystemService(android.app.LocaleManager::class.java)?.applicationLocales =
+                    if (appLanguage.isBlank()) android.os.LocaleList.getEmptyLocaleList() else android.os.LocaleList.forLanguageTags(appLanguage)
+            }
+        }
     }
     LaunchedEffect(bedtimeMinute) {
         if (bedtimeMinute >= 0) BackgroundJobs.scheduleBedtime(context, bedtimeMinute) else BackgroundJobs.cancelBedtime(context)
@@ -406,6 +425,9 @@ fun NexusApp() {
                                     is Route.NotificationSettings -> NotificationSettingsScreen(nav, miniPlayer)
                                     is Route.Settings -> SettingsScreen(nav, miniPlayer)
                                     is Route.SignIn -> GoogleSignInScreen(nav)
+                                    is Route.Upload -> UploadScreen(nav, miniPlayer)
+                                    is Route.TimeWatched -> TimeWatchedScreen(nav, miniPlayer)
+                                    is Route.AccountFeed -> AccountFeedScreen(route, nav, playVideo, miniPlayer)
                                     is Route.MusicBrowse -> MusicBrowseScreen(route, nav, playTrack, miniPlayer) { fallback ->
                                         when (fallback) {
                                             is Route.Channel -> ChannelScreen(fallback, nav, playTrack, miniPlayer)

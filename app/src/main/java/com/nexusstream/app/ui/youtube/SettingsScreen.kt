@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nexusstream.app.data.GoogleAccount
 import com.nexusstream.app.data.AccountApi
+import com.nexusstream.app.data.TvLink
 import com.nexusstream.app.data.GoogleUserProfile
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.size
@@ -100,6 +101,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     val incognito by GoogleAccount.incognito.collectAsState()
     val restrictedMode by AppSettings.restrictedMode.collectAsState()
     var showAccounts by remember { mutableStateOf(false) }
+    var showTvLink by remember { mutableStateOf(false) }
     var confirmClearHistory by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<String?>(null) }
     var selfTestReport by remember { mutableStateOf<List<String>?>(null) }
@@ -213,6 +215,17 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     labels = options,
                     selected = options[bg.coerceIn(0, 2)],
                     onSelect = { label -> AppSettings.setCaptionBackground(options.indexOf(label)) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+            item(key = "smart_label") { SettingsHint("Smart downloads: keep recommended songs offline (daily, on Wi-Fi)") }
+            item(key = "smart") {
+                val smart by AppSettings.smartDownloads.collectAsState()
+                val options = listOf("Off" to 0, "10 songs" to 10, "25 songs" to 25, "50 songs" to 50)
+                OriginalFilterChips(
+                    labels = options.map { it.first },
+                    selected = options.firstOrNull { it.second == smart }?.first ?: "Off",
+                    onSelect = { label -> AppSettings.setSmartDownloads(options.first { it.first == label }.second) },
                     unselectedColor = OriginalColors.Chip
                 )
             }
@@ -348,8 +361,33 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     SwitchRow("Turn on Incognito", "Browse signed out; nothing is saved to your account or watch history", incognito) { GoogleAccount.setIncognito(it) }
                 }
             }
+            item(key = "language_label") { SettingsHint("App language (YouTube content and system text; the app's own labels stay in English)") }
+            item(key = "language") {
+                val lang by AppSettings.appLanguage.collectAsState()
+                OriginalFilterChips(
+                    labels = ContentRegions.appLanguages.map { it.second },
+                    selected = ContentRegions.appLanguages.firstOrNull { it.first == lang }?.second ?: "Device language",
+                    onSelect = { label -> AppSettings.setAppLanguage(ContentRegions.appLanguages.first { it.second == label }.first) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
             item(key = "restricted") {
                 SwitchRow("Restricted mode", "Hides videos that may be mature", restrictedMode) { AppSettings.setRestrictedMode(it) }
+            }
+
+            // ---- Watch on TV ----
+            item(key = "h_tv") { SettingsHeader("Watch on TV") }
+            item(key = "tv_link") {
+                val tv by TvLink.linked.collectAsState()
+                val linked = tv
+                if (linked == null) {
+                    ActionRow("Link with TV code", "On your TV open YouTube > Settings > Link with TV code, then enter the code here") { showTvLink = true }
+                } else {
+                    ActionRow("Linked: ${linked.name}", "Use Play on TV on a video. Tap to unlink") {
+                        TvLink.unlink()
+                        Toast.makeText(context, "TV unlinked", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
 
             // ---- About ----
@@ -489,6 +527,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     }
 
     if (showAccounts) AccountSwitcherDialog(onDismiss = { showAccounts = false })
+    if (showTvLink) TvLinkDialog(onDismiss = { showTvLink = false })
 
     if (confirmClearHistory) {
         ConfirmDialog(
@@ -556,6 +595,52 @@ private fun ActionRow(title: String, subtitle: String?, onClick: () -> Unit) {
             Text(subtitle, fontSize = 12.sp, color = OriginalColors.TextSecondary)
         }
     }
+}
+
+/** Enter the code the YouTube TV app shows to pair it as a remote-controlled screen. */
+@Composable
+private fun TvLinkDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var code by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Link with TV code") },
+        text = {
+            Column {
+                Text("On your TV, open YouTube, go to Settings > Link with TV code and enter the code shown.", fontSize = 13.sp, color = OriginalColors.TextSecondary)
+                Spacer(Modifier.height(12.dp))
+                androidx.compose.material3.OutlinedTextField(
+                    value = code,
+                    onValueChange = { v -> code = v.filter { it.isDigit() || it == ' ' }.take(16); error = null },
+                    singleLine = true,
+                    label = { Text("TV code") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                )
+                error?.let { Text(it, fontSize = 12.sp, color = Color(0xFFFF6B6B)) }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                enabled = !busy && code.count { it.isDigit() } >= 6,
+                onClick = {
+                    busy = true
+                    scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { TvLink.pair(code) } }
+                            .onSuccess {
+                                Toast.makeText(context, "Linked to ${it.name}", Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            }
+                            .onFailure { error = it.message ?: "Couldn't link the TV" }
+                        busy = false
+                    }
+                }
+            ) { Text(if (busy) "Linking..." else "Link") }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 /** YouTube's channel switcher: every channel (Brand accounts included) the signed-in Google accounts own. */

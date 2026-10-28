@@ -86,6 +86,9 @@ import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.aspectRatio
@@ -660,6 +663,20 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
         }
         item(key = "row_watch_later") { LibraryRow(Icons.Outlined.WatchLater, "Watch later", saved.size) { nav.open(Route.WatchLater) } }
         item(key = "row_liked") { LibraryRow(Icons.Outlined.ThumbUp, "Liked videos", liked.size) { nav.open(Route.Liked) } }
+        if (com.nexusstream.app.data.GoogleAccount.isSignedIn()) {
+            item(key = "row_upload") { LibraryRow(Icons.Outlined.FileUpload, "Upload a video", null) { nav.open(Route.Upload) } }
+            item(key = "row_clips") {
+                LibraryRow(Icons.Outlined.ContentCut, "Your clips", null) {
+                    nav.open(Route.AccountFeed("FEclips", "Your clips", "Clips you make on YouTube show up here."))
+                }
+            }
+            item(key = "row_movies") {
+                LibraryRow(Icons.Outlined.Movie, "Your movies", null) {
+                    nav.open(Route.AccountFeed("FEstorefront", "Your movies", "Movies and shows you buy or rent on YouTube show up here."))
+                }
+            }
+        }
+        item(key = "row_time") { LibraryRow(Icons.Outlined.Timer, "Time watched", null) { nav.open(Route.TimeWatched) } }
         item(key = "row_settings") { LibraryRow(Icons.Outlined.Settings, "Settings", null) { nav.open(Route.Settings) } }
         item(key = "row_import") {
             LibraryRow(Icons.Outlined.FileUpload, "Import from Google Takeout", null) { picker.launch("*/*") }

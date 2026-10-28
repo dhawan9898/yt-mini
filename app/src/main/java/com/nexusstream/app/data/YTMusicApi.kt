@@ -97,6 +97,31 @@ object YTMusicApi {
 
     fun lyrics(browseId: String): PlainLyrics? = parseLyrics(post(BROWSE, JSONObject().put("browseId", browseId)))
 
+    /**
+     * Time-synced lyrics from the label (LyricFind / Musixmatch), as the YT Music app shows them.
+     * Only the Android client gets the timings, like ytmusicapi's `get_lyrics(timestamps=True)`.
+     */
+    fun timedLyrics(browseId: String): Pair<List<com.nexusstream.app.model.LyricLine>, String>? =
+        parseTimedLyrics(InnerTube.post(BROWSE, JSONObject().put("browseId", browseId), ORIGIN, "ANDROID_MUSIC", "21", "7.21.50"))
+
+    internal fun parseTimedLyrics(root: JSONObject): Pair<List<com.nexusstream.app.model.LyricLine>, String>? {
+        val data = root.optJSONObject("contents")?.optJSONObject("elementRenderer")?.optJSONObject("newElement")
+            ?.optJSONObject("type")?.optJSONObject("componentType")?.optJSONObject("model")
+            ?.optJSONObject("timedLyricsModel")?.optJSONObject("lyricsData") ?: return null
+        val raw = data.optJSONArray("timedLyricsData") ?: return null
+        val lines = ArrayList<com.nexusstream.app.model.LyricLine>()
+        for (i in 0 until raw.length()) {
+            val l = raw.optJSONObject(i) ?: continue
+            val cue = l.optJSONObject("cueRange") ?: return null
+            lines += com.nexusstream.app.model.LyricLine(
+                startTimeMs = cue.optString("startTimeMilliseconds").toLongOrNull() ?: 0L,
+                endTimeMs = cue.optString("endTimeMilliseconds").toLongOrNull() ?: 0L,
+                text = l.optString("lyricLine")
+            )
+        }
+        return if (lines.isEmpty()) null else lines to data.optString("sourceMessage")
+    }
+
     fun related(browseId: String): List<Section> = parseRelated(post(BROWSE, JSONObject().put("browseId", browseId)))
 
     internal fun post(endpoint: String, extra: JSONObject): JSONObject =

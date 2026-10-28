@@ -18,6 +18,10 @@ sealed interface Route {
     data object NotificationSettings : Route
     data object Settings : Route
     data object SignIn : Route
+    data object Upload : Route
+    data object TimeWatched : Route
+    /** An account page YouTube serves by browse id (Your clips "FEclips", Your movies "FEstorefront"). */
+    data class AccountFeed(val browseId: String, val title: String, val emptyMessage: String) : Route
     /**
      * A YT Music page (artist "UC…", album "MPREb…", playlist "VL…", Explore, charts, moods...).
      * [fallback] is the YouTube-backed page shown if YT Music can't load it.

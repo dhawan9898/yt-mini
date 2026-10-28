@@ -80,8 +80,8 @@ object LyricsRepository {
     fun cleanArtist(artist: String): String = artist.removeSuffix(" - Topic").removeSuffix("VEVO").trim()
 
     /**
-     * Lyrics for a song: LRCLIB's synced lyrics for the closest-length match, else plain lyrics from
-     * LRCLIB, else YouTube Music's own lyrics tab for [videoId].
+     * Lyrics for a song: YT Music's time-synced lyrics for [videoId], else LRCLIB's synced lyrics for
+     * the closest-length match, else plain lyrics from LRCLIB, else YouTube Music's plain lyrics.
      */
     suspend fun fetch(
         title: String,
@@ -90,6 +90,10 @@ object LyricsRepository {
         videoId: String? = null
     ): Result<Lyrics> = withContext(Dispatchers.IO) {
         runCatching {
+            // YT Music's own live lyrics from the label come first, as in the app.
+            videoId?.let { YouTubeRepository.musicTimedLyrics(it) }?.let { (lines, source) ->
+                return@runCatching Lyrics(lines, source = source.ifBlank { "Source: YouTube Music" })
+            }
             val lrclib = runCatching { searchLrclib(title, artist) }
             val results = lrclib.getOrDefault(emptyList()).let { list ->
                 if (durationMs <= 0) list

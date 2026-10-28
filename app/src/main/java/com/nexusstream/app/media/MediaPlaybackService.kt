@@ -1008,6 +1008,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     fun getPlayer(): ExoPlayer = exoPlayer
 
     override fun onEvents(player: Player, events: Player.Events) {
+        com.nexusstream.app.data.WatchTime.playing(player.isPlaying)
         // Buffering while play is pressed counts as playing, so the UI shows a spinner and the
         // pause button instead of looking paused (ExoPlayer's own isPlaying is false then).
         val playing = player.playWhenReady &&
