@@ -53,7 +53,9 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val signedIn by GoogleAccount.signedIn.collectAsState()
     if (signedIn) {
-        SignedInPanel(nav, onSignOut = { GoogleAccount.signOut(context) })
+        // Sign out closes this page; signing in again starts from a fresh page later, once the
+        // old session's cookies are gone (loading it straight away showed a black screen).
+        SignedInPanel(nav, onSignOut = { GoogleAccount.signOut(context); nav.back() })
         return
     }
     var loading by remember { mutableStateOf(true) }
@@ -89,6 +91,8 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
         AndroidView(
             factory = { context ->
                 WebView(context).apply {
+                    // White until Google's page paints, instead of a black box.
+                    setBackgroundColor(android.graphics.Color.WHITE)
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.databaseEnabled = true

@@ -90,6 +90,8 @@ object GoogleAccount {
         if (now != _signedIn.value) {
             _signedIn.value = now
             YouTubeRepository.clearFeedCaches()
+            // Just signed in: load the account's library (subscriptions, likes, playlists) now.
+            if (now) LibraryRepository.syncAccount(force = true)
         }
     }
 
@@ -156,8 +158,13 @@ object GoogleAccount {
 
     fun signOut(@Suppress("UNUSED_PARAMETER") context: Context? = null) {
         val manager = CookieManager.getInstance()
-        manager.removeAllCookies { }
+        manager.removeAllCookies { manager.flush() }
+        manager.removeSessionCookies(null)
         manager.flush()
+        // Google's sign-in page also keeps state in web storage; a stale copy left the next
+        // sign-in page blank.
+        runCatching { android.webkit.WebStorage.getInstance().deleteAllData() }
+        LibraryRepository.clearAccountData()
         _userProfile.value = null
         _signedIn.value = false
         _identity.value = Identity()

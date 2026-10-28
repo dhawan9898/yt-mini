@@ -112,10 +112,10 @@ fun PlaylistScreen(
                         item(key = "header") {
                             PlaylistHeader(
                                 page = state.value,
-                                onPlayAll = { onSelectVideo(videos.first(), videos) },
+                                onPlayAll = { videos.firstOrNull()?.let { onSelectVideo(it, videos) } },
                                 onShuffle = {
                                     val shuffled = videos.shuffled()
-                                    onSelectVideo(shuffled.first(), shuffled)
+                                    shuffled.firstOrNull()?.let { onSelectVideo(it, shuffled) }
                                 }
                             )
                         }

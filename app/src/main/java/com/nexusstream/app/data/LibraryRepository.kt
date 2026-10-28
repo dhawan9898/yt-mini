@@ -689,7 +689,15 @@ object LibraryRepository {
         val localById = (_liked.value + _saved.value + _playlists.value.flatMap { it.items }).associateBy { it.id }
         fun keepLocal(items: List<AccountApi.Entry>) = items.map { localById[it.item.id] ?: it.item }
 
-        _liked.value = keepLocal(AccountApi.playlistEntries(AccountApi.LIKED))
+        // YouTube's Liked videos (LL) holds every like; the songs among them are YT Music's
+        // Liked music (LM). Tag those as music so each app shows only its own.
+        val likedMusic = runCatching { AccountApi.playlistEntries(AccountApi.LIKED_MUSIC) }.getOrDefault(emptyList())
+        val musicIds = likedMusic.map { it.item.id }.toSet()
+        val allLiked = keepLocal(AccountApi.playlistEntries(AccountApi.LIKED)) +
+            likedMusic.map { localById[it.item.id] ?: it.item }
+        _liked.value = allLiked.distinctBy { it.id }.map {
+            if (it.id in musicIds) it.copy(contentType = MediaContentType.MUSIC_TRACK) else it
+        }
         persist("liked", _liked.value)
         _disliked.value = _disliked.value - _liked.value.map { it.id }.toSet()
         _saved.value = keepLocal(AccountApi.playlistEntries(AccountApi.WATCH_LATER))
@@ -711,10 +719,58 @@ object LibraryRepository {
         persistPlaylists()
 
         InnerTube.channels().takeIf { it.isNotEmpty() }?.let(::syncGoogleSubscriptions)
+
+        // Watch history: the account's YouTube history is the truth for YouTube; YT Music plays
+        // on this device are kept alongside for Listen again.
+        if (!_historyPaused.value) {
+            val accountHistory = runCatching { InnerTube.fullHistory() }.getOrDefault(emptyList())
+            if (accountHistory.isNotEmpty()) {
+                val music = _history.value.filter { it.contentType == MediaContentType.MUSIC_TRACK }
+                val musicIds = music.map { it.id }.toSet()
+                // Videos played here since the last sync may not have reached the account yet.
+                val recent = _history.value.filter { it.id in playedSinceSync && it.contentType != MediaContentType.MUSIC_TRACK }
+                playedSinceSync.clear()
+                _history.value = (recent + accountHistory.filter { it.id !in musicIds } + music)
+                    .distinctBy { it.id }.take(MAX_HISTORY)
+                persist("history", _history.value)
+            }
+        }
     }
+
+    /**
+     * Signing out: everything that came from the Google account leaves with it (subscriptions,
+     * liked and disliked videos, Watch later, the account's playlists and its notifications).
+     * Downloads, watch history and playlists made only on this device stay.
+     */
+    fun clearAccountData() {
+        _subscriptions.value = emptyList()
+        persistSubscriptions()
+        _liked.value = emptyList()
+        persist("liked", _liked.value)
+        _disliked.value = emptySet()
+        persistStrings("disliked", emptyList())
+        _saved.value = emptyList()
+        persist("saved", _saved.value)
+        _playlists.value = _playlists.value.filter { it.remoteId.isEmpty() && !it.id.startsWith("yt:") }
+        persistPlaylists()
+        _inbox.value = emptyList()
+        persist("inbox", _inbox.value)
+        lastAccountSyncMs = 0L
+    }
+
+    private val playedSinceSync = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /** YouTube's Liked videos: likes that aren't YT Music songs. */
+    fun likedVideos(all: List<MediaItemModel> = _liked.value): List<MediaItemModel> =
+        all.filter { it.contentType != MediaContentType.MUSIC_TRACK }
+
+    /** YT Music's Liked music. */
+    fun likedSongs(all: List<MediaItemModel> = _liked.value): List<MediaItemModel> =
+        all.filter { it.contentType == MediaContentType.MUSIC_TRACK }
 
     fun recordPlayed(item: MediaItemModel) {
         if (_historyPaused.value || GoogleAccount.incognito.value) return
+        playedSinceSync += item.id
         _history.value = (listOf(item) + _history.value.filter { it.id != item.id }).take(MAX_HISTORY)
         persist("history", _history.value)
     }

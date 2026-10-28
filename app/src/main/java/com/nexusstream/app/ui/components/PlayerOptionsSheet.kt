@@ -166,7 +166,7 @@ fun PlayerOptionsSheet(
                     }
                     // Auto-translate: YouTube translates the chosen track (or the first one) on the fly.
                     item { SectionTitle("Auto-translate") }
-                    val source = state.selectedSubtitleTag ?: state.availableSubtitles.first().languageTag
+                    val source = state.selectedSubtitleTag ?: state.availableSubtitles.firstOrNull()?.languageTag.orEmpty()
                     com.nexusstream.app.data.WatchExtras.translationLanguages.forEach { (code, name) ->
                         item(key = "t_$code") {
                             OptionRow(

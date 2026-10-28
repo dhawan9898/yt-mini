@@ -282,10 +282,12 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     private fun initExoPlayer() {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 30_000,
-                /* maxBufferMs = */ 60_000,
+                // Keep more buffered ahead so short network dips don't stall the video, and after a
+                // stall gather a few seconds before resuming instead of stopping again at once.
+                /* minBufferMs = */ 50_000,
+                /* maxBufferMs = */ 120_000,
                 /* bufferForPlaybackMs = */ 1_000,
-                /* bufferForPlaybackAfterRebufferMs = */ 2_500
+                /* bufferForPlaybackAfterRebufferMs = */ 5_000
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()

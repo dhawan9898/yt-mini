@@ -81,7 +81,7 @@ object InnerTube {
     /** Fetches the list of channels the signed-in user subscribes to on YouTube. */
     fun channels(): List<LibraryRepository.ChannelSub> = runCatching {
         if (!GoogleAccount.isSignedIn()) return@runCatching emptyList()
-        val raw = browseRaw(JSONObject().put("browseId", "FEchannels"))
+        var raw = browseRaw(JSONObject().put("browseId", "FEchannels"))
         val list = ArrayList<LibraryRepository.ChannelSub>()
         fun walk(node: Any?) {
             when (node) {
@@ -106,9 +106,43 @@ object InnerTube {
                 is JSONArray -> for (i in 0 until node.length()) walk(node.opt(i))
             }
         }
-        walk(raw)
+        // The channel list comes in pages; read them all so long lists aren't cut short.
+        var pages = 0
+        while (true) {
+            walk(raw)
+            val token = continuationToken(raw) ?: break
+            if (++pages >= 30) break
+            raw = browseRaw(JSONObject().put("continuation", token))
+        }
         list.distinctBy { it.name }
     }.getOrDefault(emptyList())
+
+    /** The next-page token in a browse answer, if any. */
+    internal fun continuationToken(node: Any?): String? {
+        when (node) {
+            is JSONObject -> {
+                node.optJSONObject("continuationItemRenderer")?.optJSONObject("continuationEndpoint")
+                    ?.optJSONObject("continuationCommand")?.optString("token")?.takeIf { it.isNotEmpty() }?.let { return it }
+                for (k in node.keys()) continuationToken(node.opt(k))?.let { return it }
+            }
+            is JSONArray -> for (i in 0 until node.length()) continuationToken(node.opt(i))?.let { return it }
+        }
+        return null
+    }
+
+    /** The account's YouTube watch history, newest first, up to [maxPages] pages. */
+    fun fullHistory(maxPages: Int = 5): List<MediaItemModel> {
+        val out = ArrayList<MediaItemModel>()
+        var page = history()
+        var pages = 1
+        while (true) {
+            out += page.items
+            val next = page.continuation ?: break
+            if (pages++ >= maxPages) break
+            page = more(next)
+        }
+        return out.distinctBy { it.id }
+    }
 
     fun history(): Page = browse(JSONObject().put("browseId", "FEhistory"))
 

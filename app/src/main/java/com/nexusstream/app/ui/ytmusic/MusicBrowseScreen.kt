@@ -245,7 +245,9 @@ private fun MusicPageHeader(
             YouTubeRepository.musicPlaylistTracks(playlistId)
                 .onSuccess { tracks ->
                     val queue = if (shuffle) tracks.shuffled() else tracks
-                    onPlay(queue.first(), queue)
+                    val first = queue.firstOrNull()
+                    if (first == null) Toast.makeText(context, "Nothing to play", Toast.LENGTH_SHORT).show()
+                    else onPlay(first, queue)
                 }
                 .onFailure { Toast.makeText(context, it.message ?: "Couldn't play this", Toast.LENGTH_SHORT).show() }
         }

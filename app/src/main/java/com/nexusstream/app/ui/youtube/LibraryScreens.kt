@@ -104,7 +104,8 @@ fun LikedVideosScreen(
     onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit,
     miniPlayer: MiniPlayerHooks
 ) {
-    val liked by LibraryRepository.liked.collectAsState()
+    val allLiked by LibraryRepository.liked.collectAsState()
+    val liked = remember(allLiked) { LibraryRepository.likedVideos(allLiked) }
     LaunchedEffect(Unit) { LibraryRepository.syncAccount() }
     PageScaffold(title = "Liked videos", onBack = nav.back, miniPlayer = miniPlayer) {
         VideoListBody(
@@ -232,10 +233,10 @@ private fun VideoListBody(
     ) {
         item(key = "play_buttons") {
             PlayButtons(
-                onPlayAll = { onSelectVideo(items.first(), items) },
+                onPlayAll = { items.firstOrNull()?.let { onSelectVideo(it, items) } },
                 onShuffle = {
                     val shuffled = items.shuffled()
-                    onSelectVideo(shuffled.first(), shuffled)
+                    shuffled.firstOrNull()?.let { onSelectVideo(it, shuffled) }
                 }
             )
         }
@@ -373,10 +374,10 @@ fun LocalPlaylistScreen(
             LazyColumn(contentPadding = PaddingValues(bottom = 12.dp), modifier = Modifier.fillMaxSize()) {
                 item(key = "play_buttons") {
                     PlayButtons(
-                        onPlayAll = { onSelectVideo(playlist.items.first(), playlist.items) },
+                        onPlayAll = { playlist.items.firstOrNull()?.let { onSelectVideo(it, playlist.items) } },
                         onShuffle = {
                             val shuffled = playlist.items.shuffled()
-                            onSelectVideo(shuffled.first(), shuffled)
+                            shuffled.firstOrNull()?.let { onSelectVideo(it, shuffled) }
                         }
                     )
                 }

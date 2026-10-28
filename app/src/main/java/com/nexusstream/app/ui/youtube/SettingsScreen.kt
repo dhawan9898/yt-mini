@@ -307,7 +307,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 var cacheBytes by remember { mutableStateOf(com.nexusstream.app.media.PlaybackCache.sizeBytes()) }
                 ActionRow("Clear playback cache", "${formatBytes(cacheBytes)} of recently played video and music") {
                     scope.launch {
-                        withContext(Dispatchers.IO) { com.nexusstream.app.media.PlaybackCache.clear() }
+                        withContext(Dispatchers.IO) { runCatching { com.nexusstream.app.media.PlaybackCache.clear() } }
                         cacheBytes = com.nexusstream.app.media.PlaybackCache.sizeBytes()
                         Toast.makeText(context, "Playback cache cleared", Toast.LENGTH_SHORT).show()
                     }

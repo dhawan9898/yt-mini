@@ -203,6 +203,22 @@ fun NexusApp() {
     LaunchedEffect(signedIn) {
         if (signedIn) LibraryRepository.syncAccount(force = true)
     }
+    // Keep it current without anyone pressing refresh: again whenever the app comes back to the
+    // front, and every 10 minutes while it is open (syncAccount skips runs closer than 5 min).
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START) LibraryRepository.syncAccount()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(signedIn) {
+        while (signedIn) {
+            delay(10 * 60_000L)
+            LibraryRepository.syncAccount()
+        }
+    }
     LaunchedEffect(Unit) {
         LibraryRepository.syncErrors.collect { message ->
             android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()

@@ -260,7 +260,9 @@ fun YTMusicHomeScreen(
                     } else {
                         val library = remember(current, downloadedItems, likedItems, savedItems) {
                             if (current == "Downloads") downloadedItems.filter { it.contentType == MediaContentType.MUSIC_TRACK }
-                            else (downloadedItems + likedItems + savedItems).distinctBy { it.id }
+                            // Only YT Music's own songs: liked music and music downloads, not YouTube's videos.
+                            else (LibraryRepository.likedSongs(likedItems) + downloadedItems.filter { it.contentType == MediaContentType.MUSIC_TRACK })
+                                .distinctBy { it.id }
                         }
                         if (library.isEmpty()) {
                             OriginalEmptyState(

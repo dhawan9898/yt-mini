@@ -12,6 +12,8 @@ import org.json.JSONObject
 object AccountApi {
     const val WATCH_LATER = "WL"
     const val LIKED = "LL"
+    /** YT Music's Liked music: the songs among the account's likes. */
+    const val LIKED_MUSIC = "LM"
 
     /** One of the user's playlists, as the "Save to playlist" dialog lists them. */
     data class AccountPlaylist(

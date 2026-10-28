@@ -558,8 +558,8 @@ private fun WatchControls(
                     } else {
                         val language = Locale.getDefault().language
                         val pick = state.availableSubtitles.firstOrNull { it.languageTag.startsWith(language) }
-                            ?: state.availableSubtitles.first()
-                        playbackService.setSubtitle(pick.languageTag)
+                            ?: state.availableSubtitles.firstOrNull()
+                        pick?.let { playbackService.setSubtitle(it.languageTag) }
                     }
                 }
             }
@@ -1026,7 +1026,8 @@ private suspend fun PointerInputScope.detectVerticalSwipeAndPinch(
 @Composable
 private fun HeatmapGraph(heat: List<WatchExtras.HeatPoint>, durationMs: Long, modifier: Modifier = Modifier) {
     androidx.compose.foundation.Canvas(modifier = modifier) {
-        val total = durationMs.takeIf { it > 0 } ?: (heat.last().startMs + heat.last().durationMs)
+        val lastPoint = heat.lastOrNull() ?: return@Canvas
+        val total = durationMs.takeIf { it > 0 } ?: (lastPoint.startMs + lastPoint.durationMs)
         if (total <= 0) return@Canvas
         val path = androidx.compose.ui.graphics.Path().apply {
             moveTo(0f, size.height)

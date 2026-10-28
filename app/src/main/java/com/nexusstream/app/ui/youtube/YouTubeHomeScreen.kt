@@ -672,7 +672,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
             LibraryRow(Icons.Outlined.FileDownload, "Downloads", downloads.size + pendingDownloads.size) { nav.open(Route.Downloads) }
         }
         item(key = "row_watch_later") { LibraryRow(Icons.Outlined.WatchLater, "Watch later", saved.size) { nav.open(Route.WatchLater) } }
-        item(key = "row_liked") { LibraryRow(Icons.Outlined.ThumbUp, "Liked videos", liked.size) { nav.open(Route.Liked) } }
+        item(key = "row_liked") { LibraryRow(Icons.Outlined.ThumbUp, "Liked videos", LibraryRepository.likedVideos(liked).size) { nav.open(Route.Liked) } }
         if (com.nexusstream.app.data.GoogleAccount.isSignedIn()) {
             item(key = "row_clips") {
                 LibraryRow(Icons.Outlined.ContentCut, "Your clips", null) {
