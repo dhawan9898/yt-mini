@@ -102,7 +102,6 @@ import androidx.compose.ui.unit.sp
 import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.data.Paged
 import com.nexusstream.app.data.YouTubeRepository
-import com.nexusstream.app.model.MediaContentType
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.Route
 import com.nexusstream.app.ui.YouTubeNav
@@ -382,8 +381,7 @@ private val NAV_BAR_SPACE = 72.dp
 /** Subscriptions + the most-watched channels, used to mix personal uploads into the feed. */
 private fun personalChannels(): List<String> {
     val subs = LibraryRepository.subscriptions.value.map { it.name }
-    val watched = LibraryRepository.history.value
-        .filter { it.contentType == MediaContentType.YOUTUBE_VIDEO }
+    val watched = LibraryRepository.watchHistory()
         .groupingBy { it.artistOrChannel }.eachCount()
         .entries.sortedByDescending { it.value }.map { it.key }
     return (subs + watched).filter { it.isNotBlank() }.distinct().take(3)
@@ -464,7 +462,8 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
     val scope = rememberCoroutineScope()
     val saved by LibraryRepository.saved.collectAsState()
     val downloads by LibraryRepository.downloads.collectAsState()
-    val history by LibraryRepository.history.collectAsState()
+    val allHistory by LibraryRepository.history.collectAsState()
+    val history = remember(allHistory) { LibraryRepository.watchHistory(allHistory) }
     val liked by LibraryRepository.liked.collectAsState()
     val playlists by LibraryRepository.playlists.collectAsState()
     val pendingDownloads by DownloadRepository.pending.collectAsState()

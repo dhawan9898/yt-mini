@@ -396,6 +396,16 @@ object LibraryRepository {
         persist("history", _history.value)
     }
 
+    /** YouTube's watch history: everything played except YT Music tracks, which stay in "Listen again". */
+    fun watchHistory(all: List<MediaItemModel> = _history.value): List<MediaItemModel> =
+        all.filter { it.contentType != MediaContentType.MUSIC_TRACK }
+
+    /** Clears YouTube's watch history and leaves YT Music plays alone. */
+    fun clearWatchHistory() {
+        _history.value = _history.value.filter { it.contentType == MediaContentType.MUSIC_TRACK }
+        persist("history", _history.value)
+    }
+
     // ---- imports (Google Takeout) ----
 
     /** Adds channels that are not subscribed yet; returns how many were new. */

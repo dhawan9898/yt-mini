@@ -79,7 +79,8 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     val country by AppSettings.contentCountry.collectAsState()
     val dislikeCounts by AppSettings.showDislikeCounts.collectAsState()
     val historyPaused by LibraryRepository.historyPaused.collectAsState()
-    val history by LibraryRepository.history.collectAsState()
+    val allHistory by LibraryRepository.history.collectAsState()
+    val history = remember(allHistory) { LibraryRepository.watchHistory(allHistory) }
     val downloads by LibraryRepository.downloads.collectAsState()
     val pending by DownloadRepository.pending.collectAsState()
 
@@ -409,7 +410,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
             message = "This removes all ${history.size} videos from your history on this device.",
             confirmLabel = "Clear",
             onConfirm = {
-                LibraryRepository.clearHistory()
+                LibraryRepository.clearWatchHistory()
                 confirmClearHistory = false
             },
             onDismiss = { confirmClearHistory = false }

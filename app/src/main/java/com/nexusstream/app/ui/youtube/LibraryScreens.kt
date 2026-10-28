@@ -124,7 +124,8 @@ fun HistoryScreen(
     onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit,
     miniPlayer: MiniPlayerHooks
 ) {
-    val history by LibraryRepository.history.collectAsState()
+    val allHistory by LibraryRepository.history.collectAsState()
+    val history = remember(allHistory) { LibraryRepository.watchHistory(allHistory) }
     val paused by LibraryRepository.historyPaused.collectAsState()
     var query by remember { mutableStateOf("") }
     var confirmClear by remember { mutableStateOf(false) }
@@ -200,7 +201,7 @@ fun HistoryScreen(
             message = "This removes all ${history.size} videos from your history on this device.",
             confirmLabel = "Clear",
             onConfirm = {
-                LibraryRepository.clearHistory()
+                LibraryRepository.clearWatchHistory()
                 confirmClear = false
             },
             onDismiss = { confirmClear = false }

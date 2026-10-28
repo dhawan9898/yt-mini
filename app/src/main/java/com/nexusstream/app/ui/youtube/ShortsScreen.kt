@@ -96,7 +96,7 @@ fun ShortsScreen(
         feed = FeedState.Loading
         YouTubeRepository.shortsFeed(
             seedChannels = LibraryRepository.subscriptions.value.map { it.channelUrl } +
-                LibraryRepository.history.value.map { it.channelUrl }.distinct().take(6),
+                LibraryRepository.watchHistory().map { it.channelUrl }.distinct().take(6),
             refresh = reloadKey > 0
         ).fold(
             onSuccess = {

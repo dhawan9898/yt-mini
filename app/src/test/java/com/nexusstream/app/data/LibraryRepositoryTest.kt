@@ -1,5 +1,6 @@
 package com.nexusstream.app.data
 
+import com.nexusstream.app.model.MediaContentType
 import com.nexusstream.app.model.MediaItemModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -100,6 +101,15 @@ class LibraryRepositoryTest {
         LibraryRepository.recordPlayed(item("b"))
         LibraryRepository.recordPlayed(item("a"))
         assertEquals(listOf("a", "b"), LibraryRepository.history.value.map { it.id })
+    }
+
+    @Test
+    fun watchHistoryLeavesOutMusicAndClearKeepsIt() {
+        LibraryRepository.recordPlayed(item("v"))
+        LibraryRepository.recordPlayed(item("m").copy(contentType = MediaContentType.MUSIC_TRACK))
+        assertEquals(listOf("v"), LibraryRepository.watchHistory().map { it.id })
+        LibraryRepository.clearWatchHistory()
+        assertEquals(listOf("m"), LibraryRepository.history.value.map { it.id })
     }
 
     @Test
