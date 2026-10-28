@@ -89,6 +89,7 @@ import com.nexusstream.app.model.StreamRepeatMode
 import com.nexusstream.app.ui.theme.DarkPalette
 import com.nexusstream.app.ui.theme.SystemBarIcons
 import com.nexusstream.app.ui.components.PlayerOptionsSheet
+import com.nexusstream.app.ui.ytmusic.SongMenuSheet
 
 private enum class PlayerPanel { NONE, UP_NEXT, LYRICS, RELATED }
 
@@ -110,6 +111,7 @@ fun MusicPlayerScreen(
     val item = state.currentItem ?: return
     var panel by remember { mutableStateOf(PlayerPanel.NONE) }
     var showOptions by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
     // Lyrics and Related are looked up the first time their tab is opened for a song.
     var lyrics by remember(item.id) { mutableStateOf<FeedState<LyricsRepository.Lyrics>?>(null) }
     var related by remember(item.id) { mutableStateOf<FeedState<List<YTMusicApi.Section>>?>(null) }
@@ -188,8 +190,8 @@ fun MusicPlayerScreen(
                 )
             }
             CastButton()
-            IconButton(onClick = { showOptions = true }) {
-                Icon(Icons.Rounded.MoreVert, "Quality and download", tint = Color.White)
+            IconButton(onClick = { showMenu = true }) {
+                Icon(Icons.Rounded.MoreVert, "More options", tint = Color.White)
             }
         }
 
@@ -412,13 +414,17 @@ fun MusicPlayerScreen(
         }
     }
 
+    if (showMenu) {
+        SongMenuSheet(item = item, onDismiss = { showMenu = false }, onQuality = { showOptions = true })
+    }
     if (showOptions) {
         PlayerOptionsSheet(
             item = item,
             state = state,
             service = playbackService,
             showVideoQuality = state.playbackMode == PlaybackMode.VIDEO,
-            onDismiss = { showOptions = false }
+            onDismiss = { showOptions = false },
+            showDownload = false
         )
     }
 }

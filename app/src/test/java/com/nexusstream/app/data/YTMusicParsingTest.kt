@@ -135,4 +135,37 @@ class YTMusicParsingTest {
 
         assertEquals("Bio text", sections[3].description)
     }
+
+    @Test
+    fun panelTrackKeepsAlbumArtistAndCredits() {
+        val renderer = JSONObject("""
+            {"videoId":"ddddddddddd","title":${runs("Song D")},"lengthText":${runs("3:00")},
+             "longBylineText":{"runs":[
+               {"text":"Artist D","navigationEndpoint":{"browseEndpoint":{"browseId":"UCartistD"}}},
+               {"text":" • "},
+               {"text":"Album D","navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_albumD"}}},
+               {"text":" • "},{"text":"2021"}]},
+             "menu":{"menuRenderer":{"items":[
+               {"menuNavigationItemRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_albumD"}}}},
+               {"menuNavigationItemRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"MPTCcredits"}}}}]}}}
+        """)
+        val track = YTMusicApi.panelTrack(renderer)!!
+        assertEquals("Artist D", track.artistOrChannel)
+        assertEquals("https://www.youtube.com/channel/UCartistD", track.channelUrl)
+        assertEquals("MPREb_albumD", track.albumId)
+        assertEquals("Album D", track.albumName)
+        assertEquals("MPTCcredits", YTMusicApi.trackInfo(renderer).creditsBrowseId)
+    }
+
+    @Test
+    fun creditsSections() {
+        val credits = YTMusicApi.parseCredits(JSONObject("""
+            {"onResponseReceivedActions":[{"openPopupAction":{"popup":{"dismissableDialogRenderer":{"sections":[
+              {"dismissableDialogContentSectionRenderer":{"title":${runs("Performed by")},"subtitle":${runs("A", ", ", "B")}}},
+              {"dismissableDialogContentSectionRenderer":{"title":${runs("Written by")},"subtitle":${runs("C")}}}
+            ]}}}}]}
+        """))
+        assertEquals(listOf("Performed by", "Written by"), credits.map { it.title })
+        assertEquals(listOf("A", "B"), credits[0].names)
+    }
 }

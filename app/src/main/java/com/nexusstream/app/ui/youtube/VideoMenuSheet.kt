@@ -1,6 +1,12 @@
 package com.nexusstream.app.ui.youtube
 
 import android.content.Intent
+import android.widget.Toast
+import androidx.compose.material.icons.automirrored.outlined.PlaylistPlay
+import androidx.compose.material.icons.outlined.AddToQueue
+import com.nexusstream.app.model.MediaContentType
+import com.nexusstream.app.ui.LocalPlaybackService
+import com.nexusstream.app.ui.ytmusic.SongMenuSheet
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
@@ -45,8 +51,8 @@ import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.components.PlayerOptionsSheet
 
 /**
- * The ⋮ menu for a video: Watch later, Download, Share, Go to channel, Not interested,
- * Don't recommend channel.
+ * The ⋮ menu for a video: Play next in queue, Add to queue, Watch later, Download, Share,
+ * Go to channel, Not interested, Don't recommend channel. YT Music tracks get [SongMenuSheet].
  */
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,7 +64,13 @@ fun VideoMenuSheet(
     onRemove: (() -> Unit)? = null,
     removeLabel: String = "Remove"
 ) {
+    // YT Music tracks get the YT Music song menu.
+    if (item.contentType == MediaContentType.MUSIC_TRACK) {
+        SongMenuSheet(item = item, onDismiss = onDismiss, onRemove = onRemove, removeLabel = removeLabel)
+        return
+    }
     val context = LocalContext.current
+    val service = LocalPlaybackService.current
     val saved by LibraryRepository.saved.collectAsState()
     val isSaved = saved.any { it.id == item.id }
     var showDownload by remember { mutableStateOf(false) }
@@ -87,6 +99,16 @@ fun VideoMenuSheet(
         contentColor = OriginalColors.TextPrimary
     ) {
         Column(modifier = Modifier.navigationBarsPadding()) {
+            MenuRow(Icons.AutoMirrored.Outlined.PlaylistPlay, "Play next in queue") {
+                service?.playNext(listOf(item), asVideo = true)
+                Toast.makeText(context, "Video will play next", Toast.LENGTH_SHORT).show()
+                onDismiss()
+            }
+            MenuRow(Icons.Outlined.AddToQueue, "Add to queue") {
+                service?.addToQueue(listOf(item), asVideo = true)
+                Toast.makeText(context, "Video added to queue", Toast.LENGTH_SHORT).show()
+                onDismiss()
+            }
             MenuRow(
                 icon = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                 label = if (isSaved) "Remove from Watch later" else "Save to Watch later"

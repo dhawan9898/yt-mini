@@ -3,6 +3,8 @@ package com.nexusstream.app.ui.ytmusic
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -463,15 +465,21 @@ private fun YTMusicShelfCarousel(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun YTMusicAlbumCard(
     item: MediaItemModel,
     onClick: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    if (showMenu) SongMenuSheet(item = item, onDismiss = { showMenu = false })
     Column(
         modifier = Modifier
             .width(144.dp)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (item.isCollection) null else ({ showMenu = true })
+            )
     ) {
         Box(
             modifier = Modifier
@@ -522,6 +530,8 @@ private fun YTMusicSearchResultRow(
     item: MediaItemModel,
     onClick: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    if (showMenu) SongMenuSheet(item = item, onDismiss = { showMenu = false })
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -564,6 +574,11 @@ private fun YTMusicSearchResultRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+        if (!item.isCollection) {
+            IconButton(onClick = { showMenu = true }) {
+                Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = OriginalColors.TextPrimary)
+            }
         }
     }
 }

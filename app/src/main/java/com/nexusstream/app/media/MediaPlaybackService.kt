@@ -125,6 +125,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     /** Token for the next page of the YT Music radio feeding the queue (null: start one from the last track). */
     private var radioContinuation: String? = null
     private var radioJob: Job? = null
+    /** Ids of queue entries that came from radio / autoplay rather than from the user. */
+    private val radioIds = HashSet<String>()
 
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var mediaSession: MediaSession
@@ -339,6 +341,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         musicSession = !startInVideoMode || items[validIndex].contentType == MediaContentType.MUSIC_TRACK
         radioContinuation = null
         radioJob?.cancel()
+        radioIds.clear()
 
         _playbackState.value = _playbackState.value.copy(
             queue = items,
@@ -580,8 +583,54 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         val head = state.queue.take(state.queueIndex + 1).ifEmpty { listOf(current) }
         radioJob?.cancel()
         radioContinuation = continuation
+        radioIds.clear()
+        radioIds.addAll(items.map { it.id })
         _playbackState.value = state.copy(
             queue = head + items.filter { it.id != current.id },
+            queueIndex = head.lastIndex
+        )
+    }
+
+    /**
+     * "Play next": puts [items] right after the playing item. With nothing playing they start
+     * playing instead (as video when [asVideo]).
+     */
+    fun playNext(items: List<MediaItemModel>, asVideo: Boolean = false) {
+        val state = _playbackState.value
+        val current = state.currentItem
+        if (current == null || state.queue.isEmpty()) {
+            playQueue(items, 0, startInVideoMode = asVideo)
+            return
+        }
+        val fresh = items.filter { it.id != current.id }
+        if (fresh.isEmpty()) return
+        val ids = fresh.map { it.id }.toSet()
+        val head = state.queue.take(state.queueIndex + 1)
+        val tail = state.queue.drop(state.queueIndex + 1).filter { it.id !in ids }
+        radioIds.removeAll(ids)
+        _playbackState.value = state.copy(queue = head + fresh + tail, queueIndex = head.lastIndex)
+    }
+
+    /**
+     * "Add to queue": puts [items] after everything the user queued, ahead of radio tracks that
+     * autoplay added. With nothing playing they start playing instead.
+     */
+    fun addToQueue(items: List<MediaItemModel>, asVideo: Boolean = false) {
+        val state = _playbackState.value
+        val current = state.currentItem
+        if (current == null || state.queue.isEmpty()) {
+            playQueue(items, 0, startInVideoMode = asVideo)
+            return
+        }
+        val fresh = items.filter { it.id != current.id }
+        if (fresh.isEmpty()) return
+        val ids = fresh.map { it.id }.toSet()
+        val head = state.queue.take(state.queueIndex + 1)
+        val tail = state.queue.drop(state.queueIndex + 1).filter { it.id !in ids }
+        val firstRadio = tail.indexOfFirst { it.id in radioIds }.let { if (it < 0) tail.size else it }
+        radioIds.removeAll(ids)
+        _playbackState.value = state.copy(
+            queue = head + tail.take(firstRadio) + fresh + tail.drop(firstRadio),
             queueIndex = head.lastIndex
         )
     }
@@ -643,6 +692,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
                 if (!musicSession) return@onSuccess
                 val fresh = page.tracks.filter { t -> now.queue.none { it.id == t.id } }
                 radioContinuation = page.continuation
+                radioIds.addAll(fresh.map { it.id })
                 if (fresh.isNotEmpty()) _playbackState.value = now.copy(queue = now.queue + fresh)
             }
         }
@@ -662,6 +712,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         radioJob?.cancel()
         musicSession = false
         radioContinuation = null
+        radioIds.clear()
         if (::exoPlayer.isInitialized) {
             exoPlayer.stop()
             exoPlayer.clearMediaItems()

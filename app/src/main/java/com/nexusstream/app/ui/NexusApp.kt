@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -268,6 +269,7 @@ fun NexusApp() {
         }
     }
 
+    CompositionLocalProvider(LocalPlaybackService provides activeService, LocalNav provides nav) {
     NexusTheme(
         dominantColor = currentItem?.dominantColor ?: Color(0xFF6C5CE7),
         secondaryColor = currentItem?.secondaryColor ?: Color(0xFFFF7675)
@@ -404,6 +406,7 @@ fun NexusApp() {
                 }
             )
         }
+    }
     }
 }
 

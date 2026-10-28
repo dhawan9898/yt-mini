@@ -580,6 +580,7 @@ object LibraryRepository {
         put("source", i.sourceUrl); put("music", i.contentType == MediaContentType.MUSIC_TRACK)
         put("c1", i.dominantColor.toArgb()); put("c2", i.secondaryColor.toArgb())
         put("chUrl", i.channelUrl); put("pub", i.publishedAtMs); put("live", i.isLive)
+        if (i.albumId.isNotEmpty()) { put("album", i.albumId); put("albumName", i.albumName) }
     }
 
     private fun read(json: String?): List<MediaItemModel> {
@@ -604,7 +605,9 @@ object LibraryRepository {
                     secondaryColor = Color(o.optInt("c2")),
                     channelUrl = o.optString("chUrl"),
                     publishedAtMs = o.optLong("pub"),
-                    isLive = o.optBoolean("live")
+                    isLive = o.optBoolean("live"),
+                    albumId = o.optString("album"),
+                    albumName = o.optString("albumName")
                 )
             }
         }.getOrDefault(emptyList())

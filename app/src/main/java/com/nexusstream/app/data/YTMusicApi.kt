@@ -24,8 +24,23 @@ object YTMusicApi {
         val queue: List<MediaItemModel>,
         val continuation: String?,
         val lyricsBrowseId: String?,
-        val relatedBrowseId: String?
+        val relatedBrowseId: String?,
+        /** Album, artists and credits of the track the radio was started from, when YT Music knows them. */
+        val trackInfo: TrackInfo? = null
     )
+
+    /** What the song menu needs: album, artists and the "View song credits" page. */
+    data class TrackInfo(
+        val albumId: String,
+        val albumName: String,
+        val artists: List<Artist>,
+        val creditsBrowseId: String?
+    )
+
+    data class Artist(val name: String, val id: String)
+
+    /** One "Performed by" / "Written by" ... section of the credits dialog. */
+    data class CreditSection(val title: String, val names: List<String>)
 
     /** Plain (unsynced) lyrics as YT Music shows them, with the "Source: ..." credit line. */
     class PlainLyrics(val text: String, val source: String)
@@ -81,20 +96,111 @@ object YTMusicApi {
             ?.optJSONObject("musicQueueRenderer")
             ?.optJSONObject("content")
             ?.optJSONObject("playlistPanelRenderer")
-        val items = panel?.let { InnerTube.parse(it).items.map(::asTrack) }.orEmpty()
+        val renderers = panel?.let(::panelRenderers).orEmpty()
+        val seed = root.optJSONObject("currentVideoEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId")
+        val seedRenderer = renderers.firstOrNull { it.optString("videoId") == seed } ?: renderers.firstOrNull()
         return WatchInfo(
-            queue = items,
+            queue = renderers.mapNotNull(::panelTrack),
             continuation = panel?.optJSONArray("continuations")?.let(::continuationToken),
             lyricsBrowseId = tabBrowseId(tabs, "MPLY"),
-            relatedBrowseId = tabBrowseId(tabs, "MPTR")
+            relatedBrowseId = tabBrowseId(tabs, "MPTR"),
+            trackInfo = seedRenderer?.let(::trackInfo)
         )
     }
+
+    /** The playlistPanelVideoRenderers of a queue panel (unwrapping the song / video counterparts). */
+    private fun panelRenderers(panel: JSONObject): List<JSONObject> {
+        val contents = panel.optJSONArray("contents") ?: return emptyList()
+        return (0 until contents.length()).mapNotNull { i ->
+            val entry = contents.optJSONObject(i) ?: return@mapNotNull null
+            entry.optJSONObject("playlistPanelVideoRenderer")
+                ?: entry.optJSONObject("playlistPanelVideoWrapperRenderer")?.optJSONObject("primaryRenderer")
+                    ?.optJSONObject("playlistPanelVideoRenderer")
+        }.filter { !it.has("unplayableText") }
+    }
+
+    /** A queue entry as a track, with its album and artist when the byline links them. */
+    internal fun panelTrack(p: JSONObject): MediaItemModel? {
+        val id = p.optString("videoId").takeIf { it.length == 11 } ?: return null
+        val info = trackInfo(p)
+        val artist = info.artists.joinToString(", ") { it.name }
+            .ifEmpty { InnerTube.text(p.optJSONObject("shortBylineText")) }
+        val seconds = InnerTube.parseDuration(InnerTube.text(p.optJSONObject("lengthText")))
+        return track(id, InnerTube.text(p.optJSONObject("title")), artist,
+            InnerTube.lastThumbnail(p.optJSONObject("thumbnail")), seconds).copy(
+            channelUrl = info.artists.firstOrNull { it.id.isNotEmpty() }?.let { artistUrl(it.id) }.orEmpty(),
+            albumId = info.albumId,
+            albumName = info.albumName
+        )
+    }
+
+    /** Album / artists from a track's byline runs, credits id from its menu. */
+    internal fun trackInfo(renderer: JSONObject): TrackInfo {
+        val runs = (renderer.optJSONObject("longBylineText") ?: renderer.optJSONObject("shortBylineText"))
+            ?.optJSONArray("runs") ?: JSONArray()
+        var albumId = ""
+        var albumName = ""
+        val artists = ArrayList<Artist>()
+        for (i in 0 until runs.length()) {
+            val run = runs.optJSONObject(i) ?: continue
+            val text = run.optString("text")
+            if (text.isBlank() || text.trim() == "•" || text.trim() == "&" || text.trim() == ",") continue
+            val browseId = run.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId").orEmpty()
+            when {
+                browseId.startsWith("MPRE") -> { albumId = browseId; albumName = text }
+                browseId.startsWith("UC") -> artists += Artist(text, browseId)
+                // Unlinked runs after the first separator are views / years / durations, not artists.
+                browseId.isEmpty() && artists.isEmpty() && albumId.isEmpty() && i == 0 -> artists += Artist(text, "")
+            }
+        }
+        return TrackInfo(albumId, albumName, artists, menuBrowseId(renderer, "MPTC"))
+    }
+
+    /** The browse id behind a menu entry whose id starts with [prefix] (e.g. "MPTC" = song credits). */
+    private fun menuBrowseId(renderer: JSONObject, prefix: String): String? {
+        val items = renderer.optJSONObject("menu")?.optJSONObject("menuRenderer")?.optJSONArray("items") ?: return null
+        for (i in 0 until items.length()) {
+            val id = items.optJSONObject(i)?.optJSONObject("menuNavigationItemRenderer")
+                ?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId").orEmpty()
+            if (id.startsWith(prefix)) return id
+        }
+        return null
+    }
+
+    /** "View song credits": the sections of the credits dialog for an "MPTC..." browse id. */
+    fun credits(browseId: String): List<CreditSection> = parseCredits(post(BROWSE, JSONObject().put("browseId", browseId)))
+
+    internal fun parseCredits(root: JSONObject): List<CreditSection> {
+        val sections = root.optJSONArray("onResponseReceivedActions")?.optJSONObject(0)
+            ?.optJSONObject("openPopupAction")?.optJSONObject("popup")
+            ?.optJSONObject("dismissableDialogRenderer")?.optJSONArray("sections") ?: return emptyList()
+        return (0 until sections.length()).mapNotNull { i ->
+            val section = sections.optJSONObject(i)?.optJSONObject("dismissableDialogContentSectionRenderer")
+                ?: return@mapNotNull null
+            val title = InnerTube.text(section.optJSONObject("title"))
+            val runs = section.optJSONObject("subtitle")?.optJSONArray("runs") ?: JSONArray()
+            val names = (0 until runs.length() step 2).mapNotNull { j ->
+                runs.optJSONObject(j)?.optString("text")?.trim()?.takeIf { it.isNotEmpty() }
+            }
+            if (title.isBlank() || names.isEmpty()) null else CreditSection(title, names)
+        }
+    }
+
+    /** The playable playlist ("OLAK5uy_...") of an album browse id ("MPREb_..."). */
+    fun albumPlaylistId(albumBrowseId: String): String? {
+        val raw = post(BROWSE, JSONObject().put("browseId", albumBrowseId)).toString()
+        return ALBUM_PLAYLIST.find(raw)?.value
+    }
+
+    private val ALBUM_PLAYLIST = Regex("""OLAK5uy_[A-Za-z0-9_-]{30,40}""")
+
+    internal fun artistUrl(channelId: String) = "https://www.youtube.com/channel/$channelId"
 
     internal fun parseQueueContinuation(root: JSONObject): InnerTube.Page {
         val panel = root.optJSONObject("continuationContents")?.optJSONObject("playlistPanelContinuation")
             ?: return InnerTube.Page(emptyList(), null)
         return InnerTube.Page(
-            InnerTube.parse(panel).items.map(::asTrack),
+            panelRenderers(panel).mapNotNull(::panelTrack),
             panel.optJSONArray("continuations")?.let(::continuationToken)
         )
     }

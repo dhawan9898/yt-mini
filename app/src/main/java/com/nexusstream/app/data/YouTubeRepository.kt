@@ -515,6 +515,22 @@ object YouTubeRepository {
         }
     }
 
+    /** Album, artists and credits id of a song, as the YT Music song menu shows them. */
+    suspend fun musicTrackInfo(item: MediaItemModel): Result<YTMusicApi.TrackInfo> = io {
+        musicWatch(item.id).trackInfo ?: error("YT Music has no details for this song")
+    }
+
+    /** "View song credits". */
+    suspend fun songCredits(creditsBrowseId: String): Result<List<YTMusicApi.CreditSection>> = io {
+        YTMusicApi.credits(creditsBrowseId).also { check(it.isNotEmpty()) { "No credits for this song" } }
+    }
+
+    /** The playlist page URL of a YT Music album ("MPREb_..."). */
+    suspend fun albumPlaylistUrl(albumId: String): Result<String> = io {
+        val id = YTMusicApi.albumPlaylistId(albumId) ?: error("Album not found")
+        "https://www.youtube.com/playlist?list=$id"
+    }
+
     /** YT Music's own (unsynced) lyrics for [videoId], or null when it has none. */
     fun musicLyrics(videoId: String): YTMusicApi.PlainLyrics? = runCatching {
         musicWatch(videoId).lyricsBrowseId?.let { YTMusicApi.lyrics(it) }

@@ -71,7 +71,10 @@ data class MediaItemModel(
     /** Publish time in epoch millis when known (0 = unknown). */
     val publishedAtMs: Long = 0L,
     /** A live stream (played from the live edge; has no fixed duration). */
-    val isLive: Boolean = false
+    val isLive: Boolean = false,
+    /** YT Music album browse id ("MPREb_..."), when known. */
+    val albumId: String = "",
+    val albumName: String = ""
 )
 
 /**

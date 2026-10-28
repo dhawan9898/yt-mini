@@ -568,6 +568,18 @@ fun VideoWatchScreen(
                 }
             }
 
+            // Videos queued with "Play next" / "Add to queue"
+            if (playbackState.queue.size > 1) {
+                item(key = "queue") {
+                    WatchQueueCard(
+                        queue = playbackState.queue,
+                        currentIndex = playbackState.queueIndex,
+                        onSelect = { index -> playbackService.playQueue(playbackState.queue, index, startInVideoMode = true) },
+                        onRemove = { index -> playbackService.removeQueueItem(index) }
+                    )
+                }
+            }
+
             // Up next (on wide screens it lives in the side pane instead)
             if (!wide) {
                 relatedSection(
