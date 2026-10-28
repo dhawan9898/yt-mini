@@ -9,7 +9,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
@@ -21,8 +23,11 @@ val MediaItemModel.watchUrl: String get() = "https://www.youtube.com/watch?v=$id
 /** How a subscribed channel notifies you about new uploads (the channel "bell"). */
 enum class NotifyLevel { NONE, PERSONALIZED, ALL }
 
-/** A user-created playlist, stored on this device. Items keep the order they were added in. */
-data class Playlist(val id: String, val name: String, val items: List<MediaItemModel>)
+/**
+ * A playlist. Items keep the order they were added in. [remoteId] is the YouTube playlist id once
+ * the playlist exists on the signed-in account (edits are then mirrored there).
+ */
+data class Playlist(val id: String, val name: String, val items: List<MediaItemModel>, val remoteId: String = "")
 
 /**
  * Small on-device library: saved items, play history and finished downloads,
@@ -70,10 +75,34 @@ object LibraryRepository {
             _subscriptions.value + ChannelSub(name, avatarUrl, channelUrl, lastSeenMs = System.currentTimeMillis())
         }
         persistSubscriptions()
-        val channelId = channelUrl.substringAfterLast("/channel/").substringAfterLast("/")
-        if (channelId.startsWith("UC")) {
-            repoScope.launch {
-                InnerTube.subscribeChannel(channelId, unsubscribe = !willSub)
+        val url = channelUrl.ifEmpty { _subscriptions.value.firstOrNull { it.name == name }?.channelUrl.orEmpty() }
+        remote("Couldn't ${if (willSub) "subscribe to" else "unsubscribe from"} $name on your account", undo = {
+            _subscriptions.value = if (willSub) _subscriptions.value.filter { it.name != name }
+            else _subscriptions.value + ChannelSub(name, avatarUrl, channelUrl, lastSeenMs = System.currentTimeMillis())
+            persistSubscriptions()
+        }) {
+            val id = AccountApi.channelId(url) ?: error("unknown channel")
+            AccountApi.subscribe(id, willSub)
+        }
+    }
+
+    // ---- account write-back ----
+
+    private val _syncErrors = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    /** Messages for account changes YouTube refused; the local change has already been undone. */
+    val syncErrors: SharedFlow<String> = _syncErrors
+
+    /**
+     * Mirrors a library change to the signed-in account in the background. When the request
+     * fails, [undo] restores the local state and [failMessage] is shown.
+     */
+    private fun remote(failMessage: String, undo: () -> Unit = {}, block: () -> Unit) {
+        if (!GoogleAccount.isSignedIn()) return
+        repoScope.launch {
+            val ok = runCatching(block).onFailure { android.util.Log.w("AccountSync", failMessage, it) }.isSuccess
+            if (!ok) {
+                undo()
+                _syncErrors.tryEmit(failMessage)
             }
         }
     }
@@ -90,16 +119,16 @@ object LibraryRepository {
     /** Synchronizes channel subscriptions from Google Account InnerTube data. */
     fun syncGoogleSubscriptions(list: List<ChannelSub>) {
         if (list.isEmpty()) return
-        val currentMap = _subscriptions.value.associateBy { it.name }.toMutableMap()
-        for (sub in list) {
-            val existing = currentMap[sub.name]
-            if (existing == null) {
-                currentMap[sub.name] = sub
-            } else if (existing.avatarUrl.isEmpty() && sub.avatarUrl.isNotEmpty()) {
-                currentMap[sub.name] = existing.copy(avatarUrl = sub.avatarUrl, channelUrl = sub.channelUrl.ifEmpty { existing.channelUrl })
-            }
+        // The account's list is the truth (channels unsubscribed on the website disappear here
+        // too); per-channel settings kept on this device carry over.
+        val local = _subscriptions.value.associateBy { it.name }
+        _subscriptions.value = list.map { sub ->
+            val existing = local[sub.name] ?: return@map sub
+            existing.copy(
+                avatarUrl = sub.avatarUrl.ifEmpty { existing.avatarUrl },
+                channelUrl = sub.channelUrl.ifEmpty { existing.channelUrl }
+            )
         }
-        _subscriptions.value = currentMap.values.toList()
         persistSubscriptions()
     }
 
@@ -154,8 +183,16 @@ object LibraryRepository {
     }
 
     fun setNotifyLevel(name: String, level: NotifyLevel) {
+        val sub = _subscriptions.value.firstOrNull { it.name == name } ?: return
+        val previous = sub.notifyLevel
         _subscriptions.value = _subscriptions.value.map { if (it.name == name) it.copy(notifyLevel = level) else it }
         persistSubscriptions()
+        remote("Couldn't change notifications for $name on your account", undo = {
+            _subscriptions.value = _subscriptions.value.map { if (it.name == name) it.copy(notifyLevel = previous) else it }
+            persistSubscriptions()
+        }) {
+            AccountApi.setNotifications(AccountApi.channelId(sub.channelUrl) ?: error("unknown channel"), level)
+        }
     }
 
     /** Remembers that uploads up to [publishedAtMs] were notified, so they are not repeated. */
@@ -278,40 +315,68 @@ object LibraryRepository {
     private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
     val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
 
-    fun createPlaylist(name: String): Playlist {
-        val playlist = Playlist(java.util.UUID.randomUUID().toString(), name.trim().ifEmpty { "New playlist" }, emptyList())
+    fun createPlaylist(name: String, items: List<MediaItemModel> = emptyList()): Playlist {
+        val playlist = Playlist(java.util.UUID.randomUUID().toString(), name.trim().ifEmpty { "New playlist" }, items)
         _playlists.value = _playlists.value + playlist
         persistPlaylists()
+        remote("Couldn't create \"${playlist.name}\" on your account; it is saved on this device") {
+            val remoteId = AccountApi.createPlaylist(playlist.name, items.map { it.id })
+            updatePlaylist(playlist.id) { it.copy(remoteId = remoteId) }
+        }
         return playlist
     }
 
     fun renamePlaylist(id: String, name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
+        val old = _playlists.value.firstOrNull { it.id == id } ?: return
         updatePlaylist(id) { it.copy(name = trimmed) }
+        if (old.remoteId.isNotEmpty()) remote("Couldn't rename the playlist on your account", undo = {
+            updatePlaylist(id) { it.copy(name = old.name) }
+        }) { AccountApi.rename(old.remoteId, trimmed) }
     }
 
     fun deletePlaylist(id: String) {
+        val old = _playlists.value.firstOrNull { it.id == id } ?: return
         _playlists.value = _playlists.value.filter { it.id != id }
         persistPlaylists()
+        if (old.remoteId.isNotEmpty()) remote("Couldn't delete \"${old.name}\" from your account", undo = {
+            _playlists.value = _playlists.value + old
+            persistPlaylists()
+        }) { AccountApi.deletePlaylist(old.remoteId) }
     }
+
+    private fun remoteIdOf(playlistId: String): String =
+        _playlists.value.firstOrNull { it.id == playlistId }?.remoteId.orEmpty()
 
     fun isInPlaylist(playlistId: String, itemId: String): Boolean =
         _playlists.value.firstOrNull { it.id == playlistId }?.items?.any { it.id == itemId } == true
 
     /** Adds the item to the end of the playlist, or removes it if it is already there. */
     fun togglePlaylistItem(playlistId: String, item: MediaItemModel) {
+        val before = _playlists.value.firstOrNull { it.id == playlistId } ?: return
+        val adding = before.items.none { it.id == item.id }
         updatePlaylist(playlistId) { playlist ->
-            if (playlist.items.any { it.id == item.id }) {
+            if (!adding) {
                 playlist.copy(items = playlist.items.filter { it.id != item.id })
             } else {
                 playlist.copy(items = playlist.items + item)
             }
         }
+        val remoteId = before.remoteId
+        if (remoteId.isNotEmpty()) remote("Couldn't update \"${before.name}\" on your account", undo = {
+            updatePlaylist(playlistId) { it.copy(items = before.items) }
+        }) {
+            if (adding) AccountApi.addVideo(remoteId, item.id) else AccountApi.removeVideo(remoteId, item.id)
+        }
     }
 
     fun removeFromPlaylist(playlistId: String, itemId: String) {
+        val before = _playlists.value.firstOrNull { it.id == playlistId } ?: return
         updatePlaylist(playlistId) { it.copy(items = it.items.filter { item -> item.id != itemId }) }
+        if (before.remoteId.isNotEmpty()) remote("Couldn't update \"${before.name}\" on your account", undo = {
+            updatePlaylist(playlistId) { it.copy(items = before.items) }
+        }) { AccountApi.removeVideo(before.remoteId, itemId) }
     }
 
     /** Moves the item at [from] to position [to] (both clamped to the list). */
@@ -322,6 +387,18 @@ object LibraryRepository {
             val moved = items.removeAt(from)
             items.add(to.coerceIn(0, items.size), moved)
             playlist.copy(items = items)
+        }
+        val after = _playlists.value.firstOrNull { it.id == playlistId } ?: return
+        if (after.remoteId.isEmpty() || from !in after.items.indices) return
+        val index = to.coerceIn(0, after.items.size - 1)
+        val movedId = after.items[index].id
+        val predecessorId = after.items.getOrNull(index - 1)?.id
+        remote("Couldn't reorder \"${after.name}\" on your account") {
+            // Moves address entries by setVideoId, which only the playlist page tells us.
+            val entries = AccountApi.playlistEntries(after.remoteId)
+            val moved = entries.firstOrNull { it.item.id == movedId }?.setVideoId ?: error("entry not found")
+            val predecessor = predecessorId?.let { id -> entries.firstOrNull { it.item.id == id }?.setVideoId }
+            AccountApi.moveEntry(after.remoteId, moved, predecessor)
         }
     }
 
@@ -336,6 +413,7 @@ object LibraryRepository {
             JSONObject()
                 .put("id", playlist.id)
                 .put("name", playlist.name)
+                .put("remote", playlist.remoteId)
                 .put("items", JSONArray(playlist.items.map(::toJson)))
         })
         store.edit().putString("playlists", json.toString()).apply()
@@ -344,7 +422,7 @@ object LibraryRepository {
     private fun readPlaylists(json: String?): List<Playlist> = runCatching {
         val arr = JSONArray(json ?: "[]")
         (0 until arr.length()).map { arr.getJSONObject(it) }.map { o ->
-            Playlist(o.getString("id"), o.getString("name"), read(o.getJSONArray("items").toString()))
+            Playlist(o.getString("id"), o.getString("name"), read(o.getJSONArray("items").toString()), o.optString("remote"))
         }
     }.getOrDefault(emptyList())
 
@@ -354,16 +432,8 @@ object LibraryRepository {
 
     fun isLiked(id: String): Boolean = _liked.value.any { it.id == id }
 
-    fun toggleLike(item: MediaItemModel) {
-        val willLike = !isLiked(item.id)
-        _liked.value = if (!willLike) _liked.value.filter { it.id != item.id } else listOf(item) + _liked.value
-        persist("liked", _liked.value)
-        repoScope.launch {
-            InnerTube.likeVideo(item.id, remove = !willLike)
-        }
-        // Liking and disliking are mutually exclusive.
-        if (isLiked(item.id) && isDisliked(item.id)) toggleDislike(item)
-    }
+    fun toggleLike(item: MediaItemModel) =
+        setRating(item, if (isLiked(item.id)) AccountApi.Rating.NONE else AccountApi.Rating.LIKE)
 
     // ---- disliked videos (a personal mark; the count shown comes from a separate service) ----
     private val _disliked = MutableStateFlow<Set<String>>(emptySet())
@@ -371,10 +441,34 @@ object LibraryRepository {
 
     fun isDisliked(id: String): Boolean = id in _disliked.value
 
-    fun toggleDislike(item: MediaItemModel) {
-        _disliked.value = if (isDisliked(item.id)) _disliked.value - item.id else _disliked.value + item.id
+    fun toggleDislike(item: MediaItemModel) =
+        setRating(item, if (isDisliked(item.id)) AccountApi.Rating.NONE else AccountApi.Rating.DISLIKE)
+
+    /** Likes, dislikes or clears the rating (like and dislike are exclusive), and mirrors it to the account. */
+    fun setRating(item: MediaItemModel, rating: AccountApi.Rating) {
+        val wasLiked = _liked.value
+        val wasDisliked = _disliked.value
+        applyRating(item, rating)
+        remote(
+            when (rating) {
+                AccountApi.Rating.LIKE -> "Couldn't like this on your account"
+                AccountApi.Rating.DISLIKE -> "Couldn't dislike this on your account"
+                AccountApi.Rating.NONE -> "Couldn't remove the rating on your account"
+            },
+            undo = {
+                _liked.value = wasLiked; persist("liked", wasLiked)
+                _disliked.value = wasDisliked; persistStrings("disliked", wasDisliked.toList())
+            }
+        ) { AccountApi.rate(item.id, rating) }
+    }
+
+    private fun applyRating(item: MediaItemModel, rating: AccountApi.Rating) {
+        _liked.value = if (rating == AccountApi.Rating.LIKE) {
+            listOf(item) + _liked.value.filter { it.id != item.id }
+        } else _liked.value.filter { it.id != item.id }
+        _disliked.value = if (rating == AccountApi.Rating.DISLIKE) _disliked.value + item.id else _disliked.value - item.id
+        persist("liked", _liked.value)
         persistStrings("disliked", _disliked.value.toList())
-        if (isDisliked(item.id) && isLiked(item.id)) toggleLike(item)
     }
 
     // ---- history management ----
@@ -468,6 +562,7 @@ object LibraryRepository {
             JSONObject()
                 .put("id", playlist.id)
                 .put("name", playlist.name)
+                .put("remote", playlist.remoteId)
                 .put("items", JSONArray(encodeItems(playlist.items)))
         }))
         .put("subscriptions", subscriptionsToJson(_subscriptions.value))
@@ -543,8 +638,71 @@ object LibraryRepository {
     fun isSaved(id: String): Boolean = _saved.value.any { it.id == id }
 
     fun toggleSave(item: MediaItemModel) {
-        _saved.value = if (isSaved(item.id)) _saved.value.filter { it.id != item.id } else listOf(item) + _saved.value
+        val before = _saved.value
+        val adding = !isSaved(item.id)
+        _saved.value = if (!adding) _saved.value.filter { it.id != item.id } else listOf(item) + _saved.value
         persist("saved", _saved.value)
+        remote("Couldn't update Watch later on your account", undo = {
+            _saved.value = before; persist("saved", before)
+        }) {
+            if (adding) AccountApi.addVideo(AccountApi.WATCH_LATER, item.id)
+            else AccountApi.removeVideo(AccountApi.WATCH_LATER, item.id)
+        }
+    }
+
+    // ---- pulling the account's library ----
+
+    private val _accountSyncing = MutableStateFlow(false)
+    val accountSyncing: StateFlow<Boolean> = _accountSyncing.asStateFlow()
+    @Volatile private var lastAccountSyncMs = 0L
+
+    /**
+     * Replaces Liked videos, Watch later, playlists and subscriptions with the signed-in account's
+     * (playlists made on this device before signing in are uploaded). Throttled unless [force].
+     */
+    fun syncAccount(force: Boolean = false) {
+        if (!GoogleAccount.isSignedIn() || _accountSyncing.value) return
+        if (!force && System.currentTimeMillis() - lastAccountSyncMs < 5 * 60_000L) return
+        _accountSyncing.value = true
+        repoScope.launch {
+            try {
+                runCatching { pullAccount() }.onFailure {
+                    android.util.Log.w("AccountSync", "pull failed", it)
+                    _syncErrors.tryEmit("Couldn't load your YouTube library: ${it.message}")
+                }
+                lastAccountSyncMs = System.currentTimeMillis()
+            } finally {
+                _accountSyncing.value = false
+            }
+        }
+    }
+
+    private fun pullAccount() {
+        val localById = (_liked.value + _saved.value + _playlists.value.flatMap { it.items }).associateBy { it.id }
+        fun keepLocal(items: List<AccountApi.Entry>) = items.map { localById[it.item.id] ?: it.item }
+
+        _liked.value = keepLocal(AccountApi.playlistEntries(AccountApi.LIKED))
+        persist("liked", _liked.value)
+        _disliked.value = _disliked.value - _liked.value.map { it.id }.toSet()
+        _saved.value = keepLocal(AccountApi.playlistEntries(AccountApi.WATCH_LATER))
+        persist("saved", _saved.value)
+
+        val remote = AccountApi.playlistsFor("dQw4w9WgXcQ")
+            .filter { it.id != AccountApi.WATCH_LATER && it.id != AccountApi.LIKED }
+        val byRemote = _playlists.value.filter { it.remoteId.isNotEmpty() }.associateBy { it.remoteId }
+        val pulled = remote.map { r ->
+            val items = keepLocal(AccountApi.playlistEntries(r.id))
+            byRemote[r.id]?.copy(name = r.title, items = items) ?: Playlist("yt:${r.id}", r.title, items, r.id)
+        }
+        // Playlists that only live on this device go up to the account.
+        val pushed = _playlists.value.filter { it.remoteId.isEmpty() }.map { local ->
+            runCatching { local.copy(remoteId = AccountApi.createPlaylist(local.name, local.items.map { it.id })) }
+                .getOrDefault(local)
+        }
+        _playlists.value = pulled + pushed
+        persistPlaylists()
+
+        InnerTube.channels().takeIf { it.isNotEmpty() }?.let(::syncGoogleSubscriptions)
     }
 
     fun recordPlayed(item: MediaItemModel) {

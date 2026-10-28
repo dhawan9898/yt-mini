@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,7 @@ fun AddToPlaylistSheet(item: MediaItemModel, onDismiss: () -> Unit) {
     val saved by LibraryRepository.saved.collectAsState()
     val playlists by LibraryRepository.playlists.collectAsState()
     var showNewDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { LibraryRepository.syncAccount() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -96,8 +98,7 @@ fun AddToPlaylistSheet(item: MediaItemModel, onDismiss: () -> Unit) {
             initial = "",
             confirmLabel = "Create",
             onConfirm = { name ->
-                val playlist = LibraryRepository.createPlaylist(name)
-                LibraryRepository.togglePlaylistItem(playlist.id, item)
+                LibraryRepository.createPlaylist(name, listOf(item))
                 showNewDialog = false
             },
             onDismiss = { showNewDialog = false }

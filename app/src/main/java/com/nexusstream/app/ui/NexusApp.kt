@@ -186,6 +186,18 @@ fun NexusApp() {
         NotificationHelper.ensureChannels(context)
     }
 
+    // The signed-in account's library (likes, Watch later, playlists, subscriptions) replaces the
+    // on-device copy; changes YouTube refuses are rolled back and reported here.
+    val signedIn by com.nexusstream.app.data.GoogleAccount.signedIn.collectAsState()
+    LaunchedEffect(signedIn) {
+        if (signedIn) LibraryRepository.syncAccount(force = true)
+    }
+    LaunchedEffect(Unit) {
+        LibraryRepository.syncErrors.collect { message ->
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // Background work follows the notification settings.
     val notificationsEnabled by LibraryRepository.notificationsEnabled.collectAsState()
     val bedtimeMinute by LibraryRepository.bedtimeMinute.collectAsState()

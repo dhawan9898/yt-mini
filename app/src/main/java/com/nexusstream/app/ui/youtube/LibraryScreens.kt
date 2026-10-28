@@ -84,6 +84,7 @@ fun WatchLaterScreen(
     miniPlayer: MiniPlayerHooks
 ) {
     val saved by LibraryRepository.saved.collectAsState()
+    LaunchedEffect(Unit) { LibraryRepository.syncAccount() }
     PageScaffold(title = "Watch later", onBack = nav.back, miniPlayer = miniPlayer) {
         VideoListBody(
             items = saved,
@@ -104,6 +105,7 @@ fun LikedVideosScreen(
     miniPlayer: MiniPlayerHooks
 ) {
     val liked by LibraryRepository.liked.collectAsState()
+    LaunchedEffect(Unit) { LibraryRepository.syncAccount() }
     PageScaffold(title = "Liked videos", onBack = nav.back, miniPlayer = miniPlayer) {
         VideoListBody(
             items = liked,
@@ -269,6 +271,7 @@ private fun PlayButtons(onPlayAll: () -> Unit, onShuffle: () -> Unit) {
 @Composable
 fun PlaylistsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     val playlists by LibraryRepository.playlists.collectAsState()
+    LaunchedEffect(Unit) { LibraryRepository.syncAccount() }
     var showNew by remember { mutableStateOf(false) }
 
     PageScaffold(

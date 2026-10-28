@@ -454,7 +454,7 @@ private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearc
 
 /**
  * You tab: recent history, then your library (history, playlists, downloads, Watch later, liked)
- * and an import from a Google Takeout export. Everything is stored on this device.
+ * and an import from a Google Takeout export. Signed in, these mirror the YouTube account.
  */
 @Composable
 private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit) {
@@ -467,6 +467,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
     val liked by LibraryRepository.liked.collectAsState()
     val playlists by LibraryRepository.playlists.collectAsState()
     val pendingDownloads by DownloadRepository.pending.collectAsState()
+    LaunchedEffect(Unit) { LibraryRepository.syncAccount() }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {

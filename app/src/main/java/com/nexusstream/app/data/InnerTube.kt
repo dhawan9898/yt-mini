@@ -72,26 +72,6 @@ object InnerTube {
         return parse(postEndpoint(NEXT_ENDPOINT, extra))
     }
 
-    /** Submits a like or removes a like on YouTube servers if the account is signed in. */
-    fun likeVideo(videoId: String, remove: Boolean = false): Boolean = runCatching {
-        if (!GoogleAccount.isSignedIn()) return false
-        val action = if (remove) "removelike" else "like"
-        val endpoint = "https://www.youtube.com/youtubei/v1/like/$action?prettyPrint=false"
-        val body = JSONObject().put("target", JSONObject().put("videoId", videoId))
-        postEndpoint(endpoint, body)
-        true
-    }.getOrDefault(false)
-
-    /** Subscribes or unsubscribes from a channel on YouTube servers if the account is signed in. */
-    fun subscribeChannel(channelId: String, unsubscribe: Boolean = false): Boolean = runCatching {
-        if (!GoogleAccount.isSignedIn() || channelId.isBlank()) return false
-        val action = if (unsubscribe) "unsubscribe" else "subscribe"
-        val endpoint = "https://www.youtube.com/youtubei/v1/subscription/$action?prettyPrint=false"
-        val body = JSONObject().put("channelIds", JSONArray().put(channelId))
-        postEndpoint(endpoint, body)
-        true
-    }.getOrDefault(false)
-
     private fun browse(extra: JSONObject): Page = parse(browseRaw(extra))
 
     /** Names of the cookies we hold (never their values), for the self-test report. */
@@ -125,6 +105,10 @@ object InnerTube {
 
     private fun postEndpoint(endpoint: String, extra: JSONObject): JSONObject =
         post(endpoint, extra, ORIGIN, "WEB", "1", CLIENT_VERSION)
+
+    /** POSTs to `youtubei/v1/<path>` as the WEB client (account actions use this). */
+    internal fun web(path: String, body: JSONObject): JSONObject =
+        postEndpoint("https://www.youtube.com/youtubei/v1/$path?prettyPrint=false", body)
 
     /**
      * POSTs an InnerTube request as the given web client. Shared with [YTMusicApi], which talks to
@@ -214,7 +198,7 @@ object InnerTube {
         return (0 until runs.length()).joinToString("") { runs.getJSONObject(it).optString("text") }
     }
 
-    private fun parseRelativeTime(text: String): Long {
+    internal fun parseRelativeTime(text: String): Long {
         if (text.isBlank()) return 0L
         val now = System.currentTimeMillis()
         val clean = text.lowercase().trim()
@@ -314,7 +298,7 @@ object InnerTube {
         ).copy(contentType = MediaContentType.MUSIC_TRACK)
     }
 
-    private fun build(
+    internal fun build(
         id: String, title: String, channel: String, thumbnail: String, avatar: String,
         seconds: Long, views: String, published: String, channelUrl: String, live: Boolean,
         publishedAtMs: Long = 0L
