@@ -278,6 +278,19 @@ fun NexusApp() {
         playVideo(item, listOf(item))
     }
 
+    // App shortcuts and widgets.
+    val destination by LaunchRequests.destination.collectAsState()
+    LaunchedEffect(destination) {
+        val target = destination ?: return@LaunchedEffect
+        LaunchRequests.consumeDestination()
+        when (target) {
+            "search" -> { currentMode = AppMode.YOUTUBE_VIDEO; nav.openSearch() }
+            "shorts" -> { currentMode = AppMode.YOUTUBE_VIDEO; backStack.clear(); currentScreen = AppScreen.HOME; LaunchRequests.homeTab.value = 1 }
+            "subscriptions" -> { currentMode = AppMode.YOUTUBE_VIDEO; backStack.clear(); currentScreen = AppScreen.HOME; LaunchRequests.homeTab.value = 2 }
+            "music" -> { backStack.clear(); currentScreen = AppScreen.HOME; currentMode = AppMode.YT_MUSIC }
+        }
+    }
+
     // "Take a break": after N minutes of continuous playback.
     var showBreakDialog by remember { mutableStateOf(false) }
     val isPlayingNow = playbackState?.isPlaying == true

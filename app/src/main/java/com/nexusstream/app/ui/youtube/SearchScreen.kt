@@ -67,6 +67,7 @@ import com.nexusstream.app.data.SearchResult
 import com.nexusstream.app.data.SearchType
 import com.nexusstream.app.data.YouTubeWeb
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Mic
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.YouTubeNav
@@ -121,6 +122,15 @@ fun SearchScreen(
         submitted = trimmed
         LibraryRepository.addSearch(trimmed)
         keyboard?.hide()
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val voiceLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { spoken ->
+            query = spoken
+            submit(spoken)
+        }
     }
 
     // Suggestions while typing (debounced); cleared once a search is submitted.
@@ -177,6 +187,17 @@ fun SearchScreen(
                 }) {
                     Icon(Icons.Rounded.Close, "Clear", tint = OriginalColors.TextPrimary)
                 }
+            }
+            // Voice search: the system speech recognizer fills in and submits the query.
+            IconButton(onClick = {
+                val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Search YouTube")
+                runCatching { voiceLauncher.launch(intent) }.onFailure {
+                    android.widget.Toast.makeText(context, "No voice recognition on this device", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }) {
+                Icon(Icons.Outlined.Mic, "Search with your voice", tint = OriginalColors.TextPrimary)
             }
         }
     ) {

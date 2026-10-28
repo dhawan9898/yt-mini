@@ -22,6 +22,11 @@ import com.nexusstream.app.ui.theme.ThemeState
 import com.nexusstream.app.ui.theme.paletteFor
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        /** App shortcuts and widgets: open a page ("search", "subscriptions", "shorts", "music"). */
+        const val ACTION_SHORTCUT = "com.nexusstream.app.SHORTCUT"
+        const val EXTRA_DESTINATION = "destination"
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -63,6 +68,10 @@ class MainActivity : ComponentActivity() {
     /** Opens a video from a notification tap, an opened YouTube link, or shared text. */
     private fun handleLaunchIntent(intent: Intent?) {
         intent ?: return
+        intent.getStringExtra(EXTRA_DESTINATION)?.let {
+            LaunchRequests.requestDestination(it)
+            return
+        }
         val notifiedId = intent.getStringExtra(NotificationHelper.EXTRA_VIDEO_ID)
         if (notifiedId != null) {
             LaunchRequests.requestVideo(

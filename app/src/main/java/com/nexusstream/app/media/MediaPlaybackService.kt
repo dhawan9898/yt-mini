@@ -34,7 +34,7 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.SingleSampleMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaLibraryService
 import com.nexusstream.app.data.AppSettings
 import com.nexusstream.app.data.AudioTrack
 import com.nexusstream.app.data.InnerTube
@@ -109,7 +109,7 @@ data class PlaybackState(
  * ad-blocked media pipelines, queue navigation, and error-recovering playback.
  */
 @OptIn(UnstableApi::class)
-class MediaPlaybackService : MediaSessionService(), Player.Listener {
+class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -149,7 +149,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private val radioIds = HashSet<String>()
 
     private lateinit var exoPlayer: ExoPlayer
-    private lateinit var mediaSession: MediaSession
+    private lateinit var mediaSession: MediaLibraryService.MediaLibrarySession
+    private lateinit var autoLibrary: AutoLibrary
     private lateinit var adBlockPipeline: AdBlockMediaPipeline
     private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
 
@@ -196,6 +197,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     override fun onCreate() {
         super.onCreate()
         AppSettings.init(this)
+        com.nexusstream.app.data.LibraryRepository.init(this)
         // Settings -> defaults for playback (changes apply to the next video, not the current one).
         serviceScope.launch {
             AppSettings.autoplay.collect { enabled ->
@@ -312,12 +314,14 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     private fun initMediaSession() {
-        mediaSession = MediaSession.Builder(this, exoPlayer)
+        // A library session, so Android Auto and other media browsers can browse and search.
+        autoLibrary = AutoLibrary(this, serviceScope)
+        mediaSession = MediaLibraryService.MediaLibrarySession.Builder(this, autoLibrary.wrap(exoPlayer), autoLibrary)
             .setId("NexusStreamMediaSession")
             .build()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibraryService.MediaLibrarySession? {
         return if (::mediaSession.isInitialized) mediaSession else null
     }
 
@@ -1246,11 +1250,31 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             )
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+        updateWidget(item, isPlaying)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
             startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private var widgetArtKey: String? = null
+    private var widgetArt: android.graphics.Bitmap? = null
+
+    /** Keeps the home-screen widget in step with the notification; loads a small artwork once per item. */
+    private fun updateWidget(item: MediaItemModel, isPlaying: Boolean) {
+        com.nexusstream.app.widget.NowPlayingWidget.update(this, item.title, item.artistOrChannel, isPlaying, widgetArt.takeIf { widgetArtKey == item.id })
+        if (widgetArtKey == item.id || item.artworkUrl.isBlank()) return
+        widgetArtKey = item.id
+        widgetArt = null
+        serviceScope.launch {
+            val request = coil.request.ImageRequest.Builder(this@MediaPlaybackService)
+                .data(item.artworkUrl).size(192).allowHardware(false).build()
+            val bitmap = (coil.Coil.imageLoader(this@MediaPlaybackService).execute(request).drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+            if (widgetArtKey != item.id || bitmap == null) return@launch
+            widgetArt = bitmap
+            com.nexusstream.app.widget.NowPlayingWidget.update(this@MediaPlaybackService, item.title, item.artistOrChannel, _playbackState.value.isPlaying, bitmap)
         }
     }
 

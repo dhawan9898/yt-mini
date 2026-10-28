@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">yt-mini</string>
+    <string name="widget_nothing_playing">Nothing playing</string>
+    <string name="widget_previous">Previous</string>
+    <string name="widget_play_pause">Play or pause</string>
+    <string name="widget_next">Next</string>
+    <string name="widget_search_hint">Search YouTube</string>
+    <string name="widget_now_playing_description">What\'s playing, with play, pause and skip</string>
+    <string name="widget_search_description">Search YouTube from the home screen</string>
+    <string name="shortcut_search">Search</string>
+    <string name="shortcut_subscriptions">Subscriptions</string>
+    <string name="shortcut_shorts">Shorts</string>
+    <string name="shortcut_music">YT Music</string>
 </resources>

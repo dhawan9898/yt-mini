@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -169,10 +170,13 @@ fun YTMusicHomeScreen(
         )
     }
 
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= com.nexusstream.app.ui.components.RAIL_MIN_WIDTH_DP
+    Row(modifier = modifier.fillMaxSize().background(OriginalColors.MusicBackground)) {
+    if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = { selectedTab = it })
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(OriginalColors.MusicBackground)
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
     ) {
         YTMusicHeader(
             isSearchActive = isSearchActive,
@@ -307,7 +311,7 @@ fun YTMusicHomeScreen(
             )
         }
 
-        GlassNavBar(
+        if (!wide) GlassNavBar(
             entries = navEntries,
             selectedIndex = selectedTab,
             onSelect = { selectedTab = it },
@@ -315,6 +319,7 @@ fun YTMusicHomeScreen(
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         )
+    }
     }
 }
 

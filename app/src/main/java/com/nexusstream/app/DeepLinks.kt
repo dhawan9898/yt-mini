@@ -35,6 +35,21 @@ object LaunchRequests {
         _video.value = null
     }
 
+    /** A page to open from an app shortcut or widget ("search", "subscriptions", "shorts", "music"). */
+    private val _destination = MutableStateFlow<String?>(null)
+    val destination: StateFlow<String?> = _destination.asStateFlow()
+
+    fun requestDestination(destination: String) {
+        _destination.value = destination
+    }
+
+    fun consumeDestination() {
+        _destination.value = null
+    }
+
+    /** The YouTube home tab to show next (0 Home, 1 Shorts, 2 Subscriptions, 3 You). */
+    val homeTab = MutableStateFlow<Int?>(null)
+
     /** A bare-bones item for a video we only know the id (and maybe title) of. */
     fun minimalItem(launch: VideoLaunch): MediaItemModel = MediaItemModel(
         id = launch.videoId,

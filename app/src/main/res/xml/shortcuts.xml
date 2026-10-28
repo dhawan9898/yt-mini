@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon: Search, Subscriptions, Shorts, YT Music, Downloads. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="search"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_monochrome"
+        android:shortcutShortLabel="@string/shortcut_search">
+        <intent
+            android:action="com.nexusstream.app.SHORTCUT"
+            android:targetPackage="com.nexusstream.app"
+            android:targetClass="com.nexusstream.app.MainActivity">
+            <extra android:name="destination" android:value="search" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="subscriptions"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_monochrome"
+        android:shortcutShortLabel="@string/shortcut_subscriptions">
+        <intent
+            android:action="com.nexusstream.app.SHORTCUT"
+            android:targetPackage="com.nexusstream.app"
+            android:targetClass="com.nexusstream.app.MainActivity">
+            <extra android:name="destination" android:value="subscriptions" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="shorts"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_monochrome"
+        android:shortcutShortLabel="@string/shortcut_shorts">
+        <intent
+            android:action="com.nexusstream.app.SHORTCUT"
+            android:targetPackage="com.nexusstream.app"
+            android:targetClass="com.nexusstream.app.MainActivity">
+            <extra android:name="destination" android:value="shorts" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="music"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_monochrome"
+        android:shortcutShortLabel="@string/shortcut_music">
+        <intent
+            android:action="com.nexusstream.app.SHORTCUT"
+            android:targetPackage="com.nexusstream.app"
+            android:targetClass="com.nexusstream.app.MainActivity">
+            <extra android:name="destination" android:value="music" />
+        </intent>
+    </shortcut>
+</shortcuts>

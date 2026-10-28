@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -192,3 +193,31 @@ fun GlassNavBar(
         }
     }
 }
+
+/** Tablets and unfolded foldables: the same tabs as a side rail, like the official apps. */
+@Composable
+fun SideNavRail(
+    entries: List<BottomNavEntry>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.material3.NavigationRail(
+        modifier = modifier.fillMaxHeight().statusBarsPadding(),
+        containerColor = Color.Transparent
+    ) {
+        androidx.compose.foundation.layout.Spacer(Modifier.height(56.dp))
+        entries.forEachIndexed { index, entry ->
+            val selected = index == selectedIndex
+            androidx.compose.material3.NavigationRailItem(
+                selected = selected,
+                onClick = { onSelect(index) },
+                icon = { androidx.compose.material3.Icon(if (selected) entry.selectedIcon else entry.icon, contentDescription = entry.label) },
+                label = { androidx.compose.material3.Text(entry.label, fontSize = 11.sp) }
+            )
+        }
+    }
+}
+
+/** Width at which the bottom bar becomes a side rail. */
+const val RAIL_MIN_WIDTH_DP = 600

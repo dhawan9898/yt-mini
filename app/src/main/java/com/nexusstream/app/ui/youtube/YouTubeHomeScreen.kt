@@ -1,6 +1,7 @@
 package com.nexusstream.app.ui.youtube
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -140,6 +141,10 @@ fun YouTubeHomeScreen(
 ) {
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedTab by remember { mutableStateOf(0) }
+    val requestedTab by com.nexusstream.app.LaunchRequests.homeTab.collectAsState()
+    LaunchedEffect(requestedTab) {
+        requestedTab?.let { selectedTab = it; com.nexusstream.app.LaunchRequests.homeTab.value = null }
+    }
     var reloadKey by remember { mutableStateOf(0) }
     var forceRefresh by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
@@ -225,9 +230,13 @@ fun YouTubeHomeScreen(
         }
     }
     val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val navSpace = NAV_BAR_SPACE + navBarInset
+    // Wide screens get a side rail instead of the floating bottom bar.
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= com.nexusstream.app.ui.components.RAIL_MIN_WIDTH_DP
+    val navSpace = if (wide) navBarInset else NAV_BAR_SPACE + navBarInset
 
-    Box(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground)) {
+    Row(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground)) {
+    if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = { selectedTab = it })
+    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
     Column(modifier = Modifier.fillMaxSize()) {
         val inbox by LibraryRepository.inbox.collectAsState()
         val inboxSeenAt by LibraryRepository.inboxSeenAtMs.collectAsState()
@@ -373,7 +382,7 @@ fun YouTubeHomeScreen(
             )
         }
         AnimatedVisibility(
-            visible = navVisible || selectedTab == 1,
+            visible = !wide && (navVisible || selectedTab == 1),
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
         ) {
@@ -386,6 +395,7 @@ fun YouTubeHomeScreen(
                     .padding(horizontal = 36.dp, vertical = 8.dp)
             )
         }
+    }
     }
     }
 }
