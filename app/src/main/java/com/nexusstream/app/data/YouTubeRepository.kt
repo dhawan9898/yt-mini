@@ -185,8 +185,19 @@ data class SubtitleOption(
 /** A video chapter. */
 data class Chapter(val title: String, val startMs: Long)
 
-/** A downloadable file with a human label such as "720p video" or "128 kbps audio". */
-data class DownloadOption(val label: String, val url: String, val extension: String, val isVideo: Boolean)
+/**
+ * A downloadable file with a human label such as "720p video" or "128 kbps audio".
+ * When [audioUrl] is set, [url] is a video-only stream and the two are merged after downloading.
+ */
+data class DownloadOption(
+    val label: String,
+    val url: String,
+    val extension: String,
+    val isVideo: Boolean,
+    val audioUrl: String? = null
+) {
+    val height: Int get() = label.substringBefore('p').toIntOrNull() ?: 0
+}
 
 /**
  * Direct, short-lived stream URLs for one video, with every quality that is available.
@@ -738,22 +749,29 @@ object YouTubeRepository {
         ResolvedStream(audioOptions = audio, videoOptions = video, subtitles = subtitleOptions(info), muxedUrl = muxed)
     }
 
-    /** Every file that can be saved offline: muxed video renditions, then audio-only renditions. */
+    /**
+     * Every file that can be saved offline, best video first, then audio-only renditions.
+     *
+     * YouTube only serves a single-file (video + audio) stream up to 360p. Higher qualities come
+     * as separate video-only and audio-only streams; those options carry [DownloadOption.audioUrl]
+     * and are merged into one file after downloading (see [StreamMuxer]).
+     */
     suspend fun downloadOptions(watchUrl: String): Result<List<DownloadOption>> = io {
         val info = streamInfo(watchUrl)
-        val videos = info.videoStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height > 0 }
-            .groupBy { it.height }
-            .mapValues { (_, streams) -> streams.maxByOrNull(::videoScore)!! }
-            .values
-            .sortedByDescending { it.height }
-            .map { DownloadOption("${it.height}p video", it.content, it.format?.suffix ?: "mp4", true) }
         val playableAudio = info.audioStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
         // Save the original-language audio, not an auto-dub.
         val originalTrackId = (playableAudio.firstOrNull { isOriginalTrack(it) } ?: playableAudio.firstOrNull())?.audioTrackId
-        val audios = playableAudio
-            .filter { it.audioTrackId == originalTrackId }
+        val originalAudio = playableAudio.filter { it.audioTrackId == originalTrackId }
+        val progressive = info.videoStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height > 0 }
+            .groupBy { it.height }
+            .mapValues { (_, streams) -> streams.maxByOrNull(::videoScore)!! }
+            .mapValues { (_, it) -> DownloadOption(videoLabel(it), it.content, it.format?.suffix ?: "mp4", true) }
+        val merged = mergedDownloadOptions(info.videoOnlyStreams, originalAudio)
+        // A ready-made single file beats merging at the same height.
+        val videos = (merged + progressive).values.sortedByDescending { it.height }
+        val audios = originalAudio
             .groupBy { it.averageBitrate }
             .mapValues { (_, streams) -> streams.maxByOrNull(::audioScore)!! }
             .values
@@ -761,6 +779,36 @@ object YouTubeRepository {
             .map { DownloadOption("${it.averageBitrate} kbps audio", it.content, it.format?.suffix ?: "m4a", false) }
         (videos + audios).also { check(it.isNotEmpty()) { "No downloadable streams" } }
     }
+
+    /**
+     * Pairs each video-only height with an audio stream the phone's muxer can put in the same
+     * container: H.264 MP4 + AAC (m4a) into MP4, or VP9 WebM + Opus WebM into WebM. AV1-only
+     * heights are skipped because MediaMuxer can't write AV1 into MP4 on older Android versions.
+     */
+    internal fun mergedDownloadOptions(videoOnly: List<VideoStream>, audio: List<AudioStream>): Map<Int, DownloadOption> {
+        val m4a = audio.filter { it.format?.suffix == "m4a" }.maxByOrNull { it.averageBitrate }
+        val webmAudio = audio.filter { it.format?.suffix == "webm" }.maxByOrNull { it.averageBitrate }
+        return videoOnly
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height > 0 }
+            .mapNotNull { video ->
+                val codec = video.codec.orEmpty()
+                val suffix = video.format?.suffix
+                when {
+                    suffix == "mp4" && codec.startsWith("avc1") && m4a != null -> Triple(video, m4a, "mp4")
+                    suffix == "webm" && (codec.startsWith("vp9") || codec.startsWith("vp09")) && webmAudio != null ->
+                        Triple(video, webmAudio, "webm")
+                    else -> null
+                }
+            }
+            .groupBy { it.first.height }
+            .mapValues { (_, pairs) ->
+                // Prefer the higher frame rate, then H.264 (plays everywhere).
+                val (video, audioStream, ext) = pairs.maxByOrNull { (v, _, e) -> v.fps * 10 + (if (e == "mp4") 1 else 0) }!!
+                DownloadOption(videoLabel(video), video.content, ext, true, audioUrl = audioStream.content)
+            }
+    }
+
+    private fun videoLabel(s: VideoStream): String = if (s.fps > 30) "${s.height}p${s.fps} video" else "${s.height}p video"
 
     /** A full video item for a watch URL (used when a link or notification only gives the id). */
     suspend fun videoFromUrl(watchUrl: String): Result<MediaItemModel> = io {

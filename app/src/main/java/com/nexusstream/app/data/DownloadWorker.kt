@@ -24,8 +24,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val pending = DownloadRepository.pendingFor(id) ?: return Result.success()
         showProgress(pending, 0f)
 
-        val url = DownloadRepository.freshUrl(pending)
-        if (url == null) {
+        val option = DownloadRepository.freshOption(pending)
+        if (option == null) {
             DownloadRepository.fail(id, "Couldn't refresh the download link. Check your connection.")
             return Result.failure()
         }
@@ -33,7 +33,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val finished = DownloadRepository.runDownload(
             dir = DownloadRepository.downloadsDir(context),
             start = pending,
-            url = url,
+            option = option,
             onProgress = { progress -> showProgress(pending, progress) }
         )
         return if (finished) Result.success() else Result.failure()
