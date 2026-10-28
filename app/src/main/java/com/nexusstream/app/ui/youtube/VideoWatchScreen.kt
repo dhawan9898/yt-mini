@@ -217,7 +217,7 @@ fun VideoWatchScreen(
         comments = FeedState.Loading
         comments = YouTubeRepository.comments(mediaItem.watchUrl, commentSort).toFeedState()
     }
-    var showComments by remember { mutableStateOf(false) }
+    var showComments by remember(mediaItem.id) { mutableStateOf(false) }
 
     val subscriptions by LibraryRepository.subscriptions.collectAsState()
     val isSubscribed = subscriptions.any { it.name == mediaItem.artistOrChannel }
@@ -232,8 +232,8 @@ fun VideoWatchScreen(
     val likedItems by LibraryRepository.liked.collectAsState()
     val isLiked = likedItems.any { it.id == mediaItem.id }
     var showSaveSheet by remember { mutableStateOf(false) }
-    var isDescriptionExpanded by remember { mutableStateOf(false) }
-    var isCommentsExpanded by remember { mutableStateOf(false) }
+    // A new video (autoplay, Up next) starts with its description folded, like YouTube.
+    var isDescriptionExpanded by remember(mediaItem.id) { mutableStateOf(false) }
 
     var isFullscreen by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
@@ -796,7 +796,7 @@ fun VideoWatchScreen(
             onOpenSettings = { showOptions = true },
             onOpenComments = {
                 isFullscreen = false
-                isCommentsExpanded = true
+                showComments = true
             },
             onSave = { showSaveSheet = true },
             storyboard = details?.storyboard,
@@ -1197,7 +1197,12 @@ private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
                         modifier = Modifier.clickable(enabled = !loadingReplies) {
                             loadingReplies = true
                             scope.launch {
-                                replies = loader().getOrDefault(emptyList())
+                                loader()
+                                    .onSuccess { replies = it }
+                                    .onFailure {
+                                        // Keep the link so the replies can be tried again.
+                                        Toast.makeText(context, "Couldn't load replies", Toast.LENGTH_SHORT).show()
+                                    }
                                 loadingReplies = false
                             }
                         }

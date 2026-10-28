@@ -139,7 +139,11 @@ class MainActivity : ComponentActivity() {
 
     private fun enterPictureInPictureIfSupported() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val aspectRatio = Rational(16, 9)
+            // The window takes the video's shape (Shorts and vertical videos stand upright), within
+            // the limits Android allows for picture-in-picture.
+            val aspect = PipController.videoAspect.takeIf { it.isFinite() && it > 0f } ?: (16f / 9f)
+            val clamped = aspect.coerceIn(1f / 2.39f + 0.01f, 2.39f - 0.01f)
+            val aspectRatio = Rational((clamped * 1000).toInt(), 1000)
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(aspectRatio)
                 .build()

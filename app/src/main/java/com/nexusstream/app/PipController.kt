@@ -13,6 +13,10 @@ object PipController {
     @Volatile
     var canAutoEnter: Boolean = false
 
+    /** Width / height of the playing video, so the picture-in-picture window matches it. */
+    @Volatile
+    var videoAspect: Float = 16f / 9f
+
     /** Set by the activity; starts picture-in-picture immediately. */
     @Volatile
     var enter: (() -> Unit)? = null

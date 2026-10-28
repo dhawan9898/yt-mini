@@ -405,7 +405,8 @@ fun NexusApp() {
                                     nav = nav,
                                     playbackService = activeService,
                                     onSwitchApp = { currentMode = AppMode.YT_MUSIC },
-                                    playerOpen = playerOpen
+                                    playerOpen = playerOpen,
+                                    pagesOpen = backStack.isNotEmpty()
                                 )
                             }
                             AppMode.YT_MUSIC -> {
@@ -422,7 +423,8 @@ fun NexusApp() {
                                     onClosePlayer = closePlayer,
                                     nav = nav,
                                     onSwitchApp = { currentMode = AppMode.YOUTUBE_VIDEO },
-                                    playerOpen = playerOpen
+                                    playerOpen = playerOpen,
+                                    pagesOpen = backStack.isNotEmpty()
                                 )
                             }
                         }

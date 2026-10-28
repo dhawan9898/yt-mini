@@ -109,6 +109,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.clickable
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import android.widget.Toast
 import android.net.Uri
 import android.content.Context
@@ -158,7 +159,9 @@ fun YouTubeHomeScreen(
     /** The Premium logo at the top switches to YT Music, as in the YouTube app. */
     onSwitchApp: () -> Unit = {},
     /** The player sheet covers this screen: no mini player of its own until it is minimised. */
-    playerOpen: Boolean = false
+    playerOpen: Boolean = false,
+    /** Pages (search, channel...) cover this screen; Back belongs to them then. */
+    pagesOpen: Boolean = false
 ) {
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedTab by remember { mutableStateOf(0) }
@@ -211,6 +214,8 @@ fun YouTubeHomeScreen(
         loadingMore = true
         scope.launch {
             current.next().onSuccess { next ->
+                // A topic chip tapped (or a refresh) while this page loaded: it belongs to the old list.
+                if (cursor !== current) return@onSuccess
                 val existing = (feed as? FeedState.Data)?.value.orEmpty()
                 feed = FeedState.Data((existing + next.items).distinctBy { it.id })
                 cursor = next
@@ -250,6 +255,13 @@ fun YouTubeHomeScreen(
             }
         }
     }
+    // Like YouTube: Back on another tab returns to Home before it leaves the app, and tapping
+    // Home again while on it scrolls the feed back to the top.
+    BackHandler(enabled = selectedTab != 0 && !playerOpen && !pagesOpen) { selectedTab = 0 }
+    val selectTab: (Int) -> Unit = { index ->
+        if (index == 0 && selectedTab == 0) scope.launch { listState.animateScrollToItem(0) }
+        selectedTab = index
+    }
     val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     // Wide screens get a side rail instead of the floating bottom bar.
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= com.nexusstream.app.ui.components.RAIL_MIN_WIDTH_DP
@@ -263,7 +275,7 @@ fun YouTubeHomeScreen(
     val pullState = rememberPullToRefreshState()
 
     Row(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground)) {
-    if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = { selectedTab = it })
+    if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = selectTab)
     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
         val inbox by LibraryRepository.inbox.collectAsState()
         val inboxSeenAt by LibraryRepository.inboxSeenAtMs.collectAsState()
@@ -458,7 +470,7 @@ fun YouTubeHomeScreen(
             GlassNavBar(
                 entries = navEntries,
                 selectedIndex = selectedTab,
-                onSelect = { selectedTab = it },
+                onSelect = selectTab,
                 backdrop = backdrop,
                 modifier = Modifier
                     .navigationBarsPadding()

@@ -16,8 +16,6 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import com.nexusstream.app.model.MediaItemModel
-import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -94,9 +92,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.media.MediaPlaybackService
@@ -145,6 +141,8 @@ fun MusicPlayerScreen(
     val isLiked = savedItems.any { it.id == item.id }
 
     BackHandler(onBack = onCollapse)
+    // An open Up next / Lyrics / Related panel closes first, like YT Music.
+    BackHandler(enabled = panel != PlayerPanel.NONE) { panel = PlayerPanel.NONE }
     CastEffect(item = item, playbackService = playbackService, audioOnly = true)
     // The now-playing screen is always dark: keep light status / navigation icons.
     SystemBarIcons(lightIcons = true)
@@ -314,18 +312,11 @@ fun MusicPlayerScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         if (state.playbackMode == PlaybackMode.VIDEO) {
-                            AndroidView(
-                                factory = { ctx ->
-                                    PlayerView(ctx).apply {
-                                        layoutParams = FrameLayout.LayoutParams(
-                                            ViewGroup.LayoutParams.MATCH_PARENT,
-                                            ViewGroup.LayoutParams.MATCH_PARENT
-                                        )
-                                        useController = false
-                                        player = playbackService.getPlayer()
-                                    }
-                                },
-                                update = { it.player = playbackService.getPlayer() },
+                            // The shared surface, so the picture hands over cleanly to the floating
+                            // window and the watch page instead of staying stuck in this view.
+                            com.nexusstream.app.ui.components.VideoSurface(
+                                player = playbackService.getPlayer(),
+                                fill = false,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(16f / 9f)

@@ -163,6 +163,8 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     private var currentMode: PlaybackMode = PlaybackMode.AUDIO_ONLY
     private var isReceiverRegistered = false
     private var retryCount = 0
+    /** When the last playback error happened; a long stretch without one starts the retries over. */
+    private var lastErrorAtMs = 0L
 
     private val becomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -603,7 +605,16 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         }
 
         val (heightCap, audioCap) = qualityCaps()
-        val audio = resolved.pickAudio(audioCap, preferredAudioTrackId) ?: return
+        val audio = resolved.pickAudio(audioCap, preferredAudioTrackId)
+        if (audio == null) {
+            // Nothing playable came back: say so instead of leaving an endless spinner.
+            _playbackState.value = _playbackState.value.copy(
+                isResolving = false,
+                hasError = true,
+                errorMessage = "No playable stream was found for this video"
+            )
+            return
+        }
         val video = resolved.pickVideo(heightCap)
 
         val subtitleTag = if (subtitleChosenByUser) preferredSubtitleTag else defaultSubtitleTag(resolved)
@@ -742,6 +753,10 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     }
 
     override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+        if (videoSize.width > 0 && videoSize.height > 0) {
+            com.nexusstream.app.PipController.videoAspect =
+                videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+        }
         if (!dashActive || preferredVideoHeight != null || videoSize.height <= 0) return
         val h = if (videoSize.width > 0) minOf(videoSize.width, videoSize.height) else videoSize.height
         _playbackState.value = _playbackState.value.copy(selectedVideoHeight = h)
@@ -1083,6 +1098,22 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         }
     }
 
+    /**
+     * Any seek (double tap, chapters, the notification, headphones, Android Auto) moves the
+     * position at once, also while paused, when the position loop does not run.
+     */
+    override fun onPositionDiscontinuity(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int
+    ) {
+        if (!::exoPlayer.isInitialized) return
+        _playbackState.value = _playbackState.value.copy(
+            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L),
+            bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
+        )
+    }
+
     override fun onPlaybackStateChanged(playbackState: Int) {
         if (!::exoPlayer.isInitialized) return
 
@@ -1117,6 +1148,11 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
     override fun onPlayerError(error: PlaybackException) {
         Log.e(TAG, "ExoPlayer error occurred: ${error.message}", error)
+        // Errors far apart (a link that expired during a long pause, a network drop an hour in)
+        // each get the full set of retries, instead of sharing three for the whole video.
+        val now = System.currentTimeMillis()
+        if (now - lastErrorAtMs > 2 * 60_000L) retryCount = 0
+        lastErrorAtMs = now
         
         val cause = error.cause
         if (cause is AdBlockedException) {

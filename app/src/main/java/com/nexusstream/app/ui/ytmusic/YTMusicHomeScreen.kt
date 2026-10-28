@@ -135,7 +135,9 @@ fun YTMusicHomeScreen(
     /** The Music logo at the top switches back to YouTube. */
     onSwitchApp: () -> Unit = {},
     /** The player sheet covers this screen: no mini player of its own until it is minimised. */
-    playerOpen: Boolean = false
+    playerOpen: Boolean = false,
+    /** Pages (album, artist...) cover this screen; Back belongs to them then. */
+    pagesOpen: Boolean = false
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -148,6 +150,15 @@ fun YTMusicHomeScreen(
     var musicSearch by remember { mutableStateOf<FeedState<YTMusicPages.Page>>(FeedState.Loading) }
     var searchType by remember { mutableStateOf(SearchType.SONGS) }
     var searchState by remember { mutableStateOf<FeedState<List<SearchResult>>>(FeedState.Loading) }
+    // Back closes the search first, then returns to Home, before it leaves the app.
+    androidx.activity.compose.BackHandler(enabled = (isSearchActive || selectedTab != 0) && !playerOpen && !pagesOpen) {
+        if (isSearchActive) {
+            isSearchActive = false
+            searchQuery = ""
+        } else {
+            selectedTab = 0
+        }
+    }
 
     // YT Music's own search; the YouTube-backed search stands in if it fails.
     LaunchedEffect(searchQuery, searchFilter, reloadKey) {

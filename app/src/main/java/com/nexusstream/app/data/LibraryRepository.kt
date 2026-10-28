@@ -101,7 +101,9 @@ object LibraryRepository {
         repoScope.launch {
             val ok = runCatching(block).onFailure { android.util.Log.w("AccountSync", failMessage, it) }.isSuccess
             if (!ok) {
-                undo()
+                // On the main thread, where every other library change happens, so the rollback
+                // can't race a tap and drop it.
+                kotlinx.coroutines.withContext(Dispatchers.Main) { undo() }
                 _syncErrors.tryEmit(failMessage)
             }
         }
