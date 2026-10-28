@@ -931,6 +931,8 @@ object YouTubeRepository {
             streamInfo(watchUrl)
         } catch (e: org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) {
             throw IllegalStateException("Age-restricted video: YouTube only serves it to signed-in adult accounts, which this app cannot do yet")
+        } catch (e: org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException) {
+            throw IllegalStateException("YouTube is blocking video playback from this network right now. Try again later or on another network (for example mobile data instead of Wi-Fi).")
         }
         // YouTube serves several language tracks (original, auto-dubbed, audio description).
         // Keep the best stream per (track, bitrate) and list the original track first.
