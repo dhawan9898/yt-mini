@@ -79,6 +79,33 @@ object AppSettings {
     private val _restrictedMode = MutableStateFlow(false)
     val restrictedMode: StateFlow<Boolean> = _restrictedMode.asStateFlow()
 
+    /** How far a double tap on the left / right of the video seeks, in seconds. */
+    private val _doubleTapSeekSec = MutableStateFlow(10)
+    val doubleTapSeekSec: StateFlow<Int> = _doubleTapSeekSec.asStateFlow()
+
+    /** Caption text size relative to the default (0.75 small ... 2 huge). */
+    private val _captionScale = MutableStateFlow(1f)
+    val captionScale: StateFlow<Float> = _captionScale.asStateFlow()
+
+    /** Caption background: 0 none (outlined text), 1 translucent, 2 opaque. */
+    private val _captionBackground = MutableStateFlow(1)
+    val captionBackground: StateFlow<Int> = _captionBackground.asStateFlow()
+
+    fun setDoubleTapSeekSec(seconds: Int) {
+        _doubleTapSeekSec.value = seconds
+        prefs?.edit()?.putInt("double_tap_seek", seconds)?.apply()
+    }
+
+    fun setCaptionScale(scale: Float) {
+        _captionScale.value = scale
+        prefs?.edit()?.putFloat("caption_scale", scale)?.apply()
+    }
+
+    fun setCaptionBackground(style: Int) {
+        _captionBackground.value = style
+        prefs?.edit()?.putInt("caption_background", style)?.apply()
+    }
+
     fun setRestrictedMode(enabled: Boolean) {
         _restrictedMode.value = enabled
         prefs?.edit()?.putBoolean("restricted_mode", enabled)?.apply()
@@ -101,6 +128,9 @@ object AppSettings {
         _ambientMode.value = p.getBoolean("ambient_mode", true)
         _stableVolume.value = p.getBoolean("stable_volume", true)
         _restrictedMode.value = p.getBoolean("restricted_mode", false)
+        _doubleTapSeekSec.value = p.getInt("double_tap_seek", 10)
+        _captionScale.value = p.getFloat("caption_scale", 1f)
+        _captionBackground.value = p.getInt("caption_background", 1)
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -172,6 +202,9 @@ object AppSettings {
         .put("ambientMode", _ambientMode.value)
         .put("stableVolume", _stableVolume.value)
         .put("restrictedMode", _restrictedMode.value)
+        .put("doubleTapSeek", _doubleTapSeekSec.value)
+        .put("captionScale", _captionScale.value.toDouble())
+        .put("captionBackground", _captionBackground.value)
 
     /** Applies settings from a backup; missing or unknown values are left as they are. */
     fun importJson(json: org.json.JSONObject) {
@@ -187,5 +220,8 @@ object AppSettings {
         if (json.has("ambientMode")) setAmbientMode(json.optBoolean("ambientMode"))
         if (json.has("stableVolume")) setStableVolume(json.optBoolean("stableVolume"))
         if (json.has("restrictedMode")) setRestrictedMode(json.optBoolean("restrictedMode"))
+        if (json.has("doubleTapSeek")) setDoubleTapSeekSec(json.optInt("doubleTapSeek").coerceIn(5, 60))
+        if (json.has("captionScale")) setCaptionScale(json.optDouble("captionScale").toFloat().coerceIn(0.5f, 3f))
+        if (json.has("captionBackground")) setCaptionBackground(json.optInt("captionBackground").coerceIn(0, 2))
     }
 }

@@ -1,5 +1,11 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.data.WatchExtras
+import com.nexusstream.app.data.SubtitleOption
+import com.nexusstream.app.LaunchRequests
+import com.nexusstream.app.VideoLaunch
+import com.nexusstream.app.ui.components.FrameGrabber
+import androidx.compose.foundation.lazy.itemsIndexed
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -224,6 +230,22 @@ fun VideoWatchScreen(
     var showOptions by remember { mutableStateOf(false) }
     var showDownloadSheet by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+    var showTranscript by remember { mutableStateOf(false) }
+    var heatmap by remember(mediaItem.id) { mutableStateOf<List<WatchExtras.HeatPoint>>(emptyList()) }
+    LaunchedEffect(mediaItem.id) {
+        heatmap = withContext(Dispatchers.IO) { WatchExtras.heatmap(mediaItem.id) }
+    }
+    val extrasPair by playbackService.watchExtras.collectAsState()
+    val playerExtras = extrasPair?.takeIf { it.first == mediaItem.id }?.second
+    fun openExtraTarget(videoId: String?, browseId: String?, url: String?, title: String) {
+        when {
+            videoId != null -> onSelectVideo(LaunchRequests.minimalItem(VideoLaunch(videoId, title)))
+            browseId != null && browseId.startsWith("UC") -> onOpenChannel(
+                mediaItem.copy(artistOrChannel = title, channelUrl = "https://www.youtube.com/channel/$browseId", channelAvatarUrl = "")
+            )
+            url != null -> runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+        }
+    }
     val inPip by PipController.isInPip.collectAsState()
 
     // Leaving the app while a video plays on this page starts picture-in-picture.
@@ -295,6 +317,10 @@ fun VideoWatchScreen(
                     onSwipeDown = onCollapse,
                     onOpenSettings = { showOptions = true },
                     storyboard = details?.storyboard,
+                    heatmap = heatmap,
+                    extras = playerExtras,
+                    onOpenEndScreen = { e -> openExtraTarget(e.videoId, e.browseId, e.url, e.title) },
+                    onOpenCard = { c -> openExtraTarget(c.videoId, null, c.url, c.title) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f),
@@ -313,8 +339,9 @@ fun VideoWatchScreen(
         }
 
         val ambientMode by AppSettings.ambientMode.collectAsState()
-        val ambientGlowColor = remember(mediaItem.dominantColor) {
-            if (mediaItem.dominantColor == Color.Unspecified || mediaItem.dominantColor == Color.Transparent || mediaItem.dominantColor == Color.Black) {
+        val sampledAmbient by FrameGrabber.ambient.collectAsState()
+        val ambientGlowColor = remember(mediaItem.dominantColor, sampledAmbient) {
+            if (sampledAmbient != null) Color(sampledAmbient!!) else if (mediaItem.dominantColor == Color.Unspecified || mediaItem.dominantColor == Color.Transparent || mediaItem.dominantColor == Color.Black) {
                 Color(0xFF282828)
             } else {
                 mediaItem.dominantColor
@@ -421,6 +448,24 @@ fun VideoWatchScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                    }
+                }
+            }
+
+            // Transcript: the captions as text, tap a line to jump there
+            if (playbackState.availableSubtitles.isNotEmpty()) {
+                item(key = "transcript") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(OriginalColors.Chip)
+                            .clickable { showTranscript = true }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Show transcript", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextPrimary)
                     }
                 }
             }
@@ -639,7 +684,11 @@ fun VideoWatchScreen(
                 isCommentsExpanded = true
             },
             onSave = { showSaveSheet = true },
-            storyboard = details?.storyboard
+            storyboard = details?.storyboard,
+            heatmap = heatmap,
+            extras = playerExtras,
+            onOpenEndScreen = { e -> isFullscreen = false; openExtraTarget(e.videoId, e.browseId, e.url, e.title) },
+            onOpenCard = { c -> isFullscreen = false; openExtraTarget(c.videoId, null, c.url, c.title) }
         )
     }
     }
@@ -709,6 +758,16 @@ fun VideoWatchScreen(
                 }
             }
         }
+    }
+
+    if (showTranscript) {
+        TranscriptSheet(
+            tracks = playbackState.availableSubtitles,
+            preferredTag = playbackState.selectedSubtitleTag,
+            positionMs = playbackState.currentPositionMs,
+            onSeek = { playbackService.seekTo(it) },
+            onDismiss = { showTranscript = false }
+        )
     }
 
     if (showComments) {
@@ -1080,4 +1139,74 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
+}
+
+/** The video's captions as a scrolling transcript; the current line is highlighted and tapping a line seeks. */
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TranscriptSheet(
+    tracks: List<SubtitleOption>,
+    preferredTag: String?,
+    positionMs: Long,
+    onSeek: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val defaultTrack = remember(tracks, preferredTag) {
+        tracks.firstOrNull { it.languageTag == preferredTag }
+            ?: tracks.firstOrNull { !it.autoGenerated && it.languageTag.startsWith(java.util.Locale.getDefault().language) }
+            ?: tracks.firstOrNull { !it.autoGenerated } ?: tracks.first()
+    }
+    var track by remember { mutableStateOf(defaultTrack) }
+    var lines by remember(track) { mutableStateOf<FeedState<List<WatchExtras.TranscriptLine>>>(FeedState.Loading) }
+    LaunchedEffect(track) {
+        lines = withContext(Dispatchers.IO) { runCatching { WatchExtras.transcript(track) } }.toFeedState()
+    }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val data = (lines as? FeedState.Data)?.value.orEmpty()
+    val current = data.indexOfLast { it.startMs <= positionMs }
+    LaunchedEffect(current) {
+        if (current > 2 && !listState.isScrollInProgress) listState.animateScrollToItem(current - 2)
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = OriginalColors.Sheet, contentColor = OriginalColors.TextPrimary) {
+        Column(modifier = Modifier.fillMaxHeight(0.75f)) {
+            Text(
+                text = "Transcript",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = OriginalColors.TextPrimary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            if (tracks.size > 1) {
+                OriginalFilterChips(
+                    labels = tracks.map { it.label },
+                    selected = track.label,
+                    onSelect = { label -> tracks.firstOrNull { it.label == label }?.let { track = it } },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+            when (val state = lines) {
+                is FeedState.Loading -> OriginalLoading()
+                is FeedState.Error -> OriginalError(message = state.message, onRetry = { lines = FeedState.Loading; track = track.copy() })
+                is FeedState.Data -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
+                    itemsIndexed(state.value) { index, line ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(if (index == current) OriginalColors.Chip else Color.Transparent)
+                                .clickable { onSeek(line.startMs) }
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = formatVideoDuration(line.startMs),
+                                fontSize = 13.sp,
+                                color = Color(0xFF3EA6FF),
+                                modifier = Modifier.width(56.dp)
+                            )
+                            Text(text = line.text, fontSize = 14.sp, color = OriginalColors.TextPrimary)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.getValue
@@ -96,6 +97,8 @@ fun VideoSurface(
         onDispose { SurfaceOwners.stack.remove(token) }
     }
     val owner by remember { derivedStateOf { SurfaceOwners.stack.lastOrNull() === token } }
+    val captionScale by com.nexusstream.app.data.AppSettings.captionScale.collectAsState()
+    val captionBackground by com.nexusstream.app.data.AppSettings.captionBackground.collectAsState()
 
     BoxWithConstraints(modifier = modifier.clipToBounds().background(Color.Black)) {
         val density = LocalDensity.current
@@ -124,6 +127,12 @@ fun VideoSurface(
                     }
                 },
                 update = { view ->
+                    view.subtitleView?.let { subs ->
+                        subs.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * captionScale)
+                        subs.setApplyEmbeddedStyles(false)
+                        subs.setStyle(captionStyle(captionBackground))
+                    }
+                    if (owner) FrameGrabber.view = view.videoSurfaceView as? android.view.TextureView
                     // Re-attaching forces the player to render into this view's texture again.
                     if (owner) {
                         if (view.player !== player) view.player = player
@@ -134,5 +143,52 @@ fun VideoSurface(
                 modifier = Modifier.fillMaxSize()
             )
         }
+    }
+}
+
+/** Caption look from the settings: white text on nothing (outlined), a translucent or an opaque box. */
+@OptIn(UnstableApi::class)
+private fun captionStyle(background: Int): androidx.media3.ui.CaptionStyleCompat {
+    val box = when (background) {
+        0 -> android.graphics.Color.TRANSPARENT
+        2 -> android.graphics.Color.BLACK
+        else -> android.graphics.Color.argb(0xBF, 0, 0, 0)
+    }
+    return androidx.media3.ui.CaptionStyleCompat(
+        android.graphics.Color.WHITE,
+        box,
+        android.graphics.Color.TRANSPARENT,
+        if (background == 0) androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE else androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE,
+        android.graphics.Color.BLACK,
+        null
+    )
+}
+
+/**
+ * The picture currently on screen, for ambient mode: it samples a tiny copy of the frame
+ * (TextureView keeps the last frame, so this is cheap) to tint the glow around the player.
+ */
+object FrameGrabber {
+    @Volatile
+    var view: android.view.TextureView? = null
+
+    /** The last sampled colour (ARGB), shared by the glow and the watch page background. */
+    val ambient = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+
+    /** The average colour of the current frame, or null when nothing is showing. */
+    fun averageColor(): Int? {
+        val v = view ?: return null
+        if (!v.isAvailable) return null
+        val bmp = runCatching { v.getBitmap(16, 9) }.getOrNull() ?: return null
+        var r = 0L; var g = 0L; var b = 0L
+        var n = 0
+        for (y in 0 until bmp.height) for (x in 0 until bmp.width) {
+            val c = bmp.getPixel(x, y)
+            r += android.graphics.Color.red(c); g += android.graphics.Color.green(c); b += android.graphics.Color.blue(c)
+            n++
+        }
+        bmp.recycle()
+        if (n == 0) return null
+        return android.graphics.Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
     }
 }

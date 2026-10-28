@@ -159,8 +159,20 @@ fun PlayerOptionsSheet(
                         item(key = "s_$index") {
                             OptionRow(
                                 label = sub.label,
-                                selected = state.selectedSubtitleTag == sub.languageTag,
+                                selected = state.selectedSubtitleTag == sub.languageTag && state.subtitleTranslation == null,
                                 onClick = { service.setSubtitle(sub.languageTag) }
+                            )
+                        }
+                    }
+                    // Auto-translate: YouTube translates the chosen track (or the first one) on the fly.
+                    item { SectionTitle("Auto-translate") }
+                    val source = state.selectedSubtitleTag ?: state.availableSubtitles.first().languageTag
+                    com.nexusstream.app.data.WatchExtras.translationLanguages.forEach { (code, name) ->
+                        item(key = "t_$code") {
+                            OptionRow(
+                                label = name,
+                                selected = state.subtitleTranslation == code,
+                                onClick = { service.setSubtitle(source, translateTo = code) }
                             )
                         }
                     }

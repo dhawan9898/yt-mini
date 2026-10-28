@@ -12,7 +12,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.LockOpen
+import com.nexusstream.app.data.InnerTube
+import com.nexusstream.app.data.WatchExtras
+import com.nexusstream.app.ui.components.FrameGrabber
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -110,7 +117,6 @@ import com.nexusstream.app.ui.components.OriginalColors
 import kotlinx.coroutines.delay
 import java.util.Locale
 
-private const val SEEK_STEP_MS = 10_000L
 
 /**
  * The video with YouTube-style controls drawn on top: title and channel (fullscreen), autoplay
@@ -137,10 +143,22 @@ fun WatchPlayerViewport(
     /** Extra buttons in the top row (cast, picture-in-picture, close...). */
     topActions: @Composable RowScope.() -> Unit = {},
     /** Optional row under the seek bar (fullscreen actions). */
-    bottomBar: (@Composable () -> Unit)? = null
+    bottomBar: (@Composable () -> Unit)? = null,
+    /** "Most replayed" graph: drawn over the seek bar while scrubbing, and where Jump ahead skips to. */
+    heatmap: List<WatchExtras.HeatPoint> = emptyList(),
+    /** End screen tiles and info cards of this video. */
+    extras: InnerTube.PlayerExtras? = null,
+    onOpenEndScreen: (WatchExtras.EndScreenElement) -> Unit = {},
+    onOpenCard: (WatchExtras.InfoCard) -> Unit = {}
 ) {
     val haptic = LocalHapticFeedback.current
     val ambientMode by AppSettings.ambientMode.collectAsState()
+    val seekSeconds by AppSettings.doubleTapSeekSec.collectAsState()
+    // Lock: the screen ignores touches (pocket, kids) until the unlock button is pressed.
+    var locked by remember { mutableStateOf(false) }
+    var showUnlock by remember { mutableStateOf(false) }
+    var jumpAhead by remember { mutableStateOf<Long?>(null) }
+    var cardsOpen by remember(item.id) { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
     var hud by remember { mutableStateOf<String?>(null) }
@@ -151,11 +169,32 @@ fun WatchPlayerViewport(
     val currentSwipeUp by rememberUpdatedState(onSwipeUp)
     val currentSwipeDown by rememberUpdatedState(onSwipeDown)
 
-    val glowColor = remember(item.dominantColor) {
-        if (item.dominantColor == Color.Unspecified || item.dominantColor == Color.Transparent || item.dominantColor == Color.Black) {
+    // Ambient mode samples the picture itself every couple of seconds, like YouTube's glow.
+    val sampled by FrameGrabber.ambient.collectAsState()
+    LaunchedEffect(ambientMode, item.id, state.isPlaying, fullscreen) {
+        FrameGrabber.ambient.value = null
+        while (ambientMode && !fullscreen) {
+            FrameGrabber.averageColor()?.let { FrameGrabber.ambient.value = it }
+            delay(if (state.isPlaying) 2000 else 5000)
+        }
+    }
+    val glowColor = remember(item.dominantColor, sampled) {
+        sampled?.let { Color(it) } ?: if (item.dominantColor == Color.Unspecified || item.dominantColor == Color.Transparent || item.dominantColor == Color.Black) {
             Color(0xFF383838)
         } else {
             item.dominantColor
+        }
+    }
+    LaunchedEffect(showUnlock) {
+        if (showUnlock) {
+            delay(3000)
+            showUnlock = false
+        }
+    }
+    LaunchedEffect(jumpAhead) {
+        if (jumpAhead != null) {
+            delay(4000)
+            jumpAhead = null
         }
     }
 
@@ -178,7 +217,9 @@ fun WatchPlayerViewport(
         val duration = player.duration
         val target = player.currentPosition + deltaMs
         player.seekTo(if (duration > 0) target.coerceIn(0L, duration) else target.coerceAtLeast(0L))
-        hud = if (deltaMs > 0) "+10 seconds" else "-10 seconds"
+        hud = if (deltaMs > 0) "+${deltaMs / 1000} seconds" else "${deltaMs / 1000} seconds"
+        // After skipping forward, offer to jump to the next part most people rewatch.
+        jumpAhead = if (deltaMs > 0) WatchExtras.jumpAheadTarget(heatmap, player.currentPosition) else null
     }
 
     Box(
@@ -208,7 +249,31 @@ fun WatchPlayerViewport(
             modifier = Modifier.fillMaxSize()
         )
 
-        if (controlsEnabled) {
+        // End screen tiles over the last seconds of the video, placed where the creator put them.
+        val endScreen = extras?.endScreen.orEmpty().filter { state.currentPositionMs in it.startMs..it.endMs }
+        if (endScreen.isNotEmpty() && controlsEnabled && !locked) {
+            EndScreenOverlay(endScreen, onOpenEndScreen)
+        }
+
+        if (controlsEnabled && locked) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures(onTap = { showUnlock = true }) }
+            ) {
+                if (showUnlock) {
+                    Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                        PlayerCircleButton(size = 56.dp, onClick = { locked = false; showUnlock = false; controlsVisible = true }) {
+                            Icon(Icons.Outlined.LockOpen, "Unlock", tint = Color.White, modifier = Modifier.size(28.dp))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text("Tap to unlock", color = Color.White, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        if (controlsEnabled && !locked) {
             // Gesture layer: sits above the video, below the visible controls.
             Box(
                 modifier = Modifier
@@ -234,8 +299,8 @@ fun WatchPlayerViewport(
                             onDoubleTap = { offset ->
                                 val third = size.width / 3f
                                 when {
-                                    offset.x < third -> seekBy(-SEEK_STEP_MS)
-                                    offset.x > 2 * third -> seekBy(SEEK_STEP_MS)
+                                    offset.x < third -> seekBy(-seekSeconds * 1000L)
+                                    offset.x > 2 * third -> seekBy(seekSeconds * 1000L)
                                     else -> playbackService.togglePlayPause()
                                 }
                                 interaction++
@@ -280,7 +345,7 @@ fun WatchPlayerViewport(
             )
         }
 
-        if (controlsEnabled) {
+        if (controlsEnabled && !locked) {
             AnimatedVisibility(
                 visible = controlsVisible,
                 enter = fadeIn(),
@@ -298,9 +363,87 @@ fun WatchPlayerViewport(
                     onToggleFullscreen = onToggleFullscreen,
                     onOpenSettings = onOpenSettings,
                     storyboard = storyboard,
+                    heatmap = heatmap,
+                    onLock = { locked = true; controlsVisible = false; showUnlock = true },
+                    onHud = { hud = it },
                     topActions = topActions,
                     bottomBar = bottomBar
                 )
+            }
+            jumpAhead?.let { target ->
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = if (fullscreen) 96.dp else 40.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .clickable {
+                            playbackService.seekTo(target)
+                            hud = "Jumped ahead to ${formatVideoDuration(target)}"
+                            jumpAhead = null
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.SkipNext, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Jump ahead", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+            // Info cards: the creator's teaser shows for a few seconds, then stays as an "i" button.
+            val cards = extras?.cards.orEmpty()
+            if (cards.isNotEmpty()) {
+                val active = cards.lastOrNull { it.startMs <= state.currentPositionMs }
+                val teasing = active != null && state.currentPositionMs - active.startMs < 6000
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = if (fullscreen) 56.dp else 40.dp, end = 8.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    if (teasing || controlsVisible || cardsOpen) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.Black.copy(alpha = 0.6f))
+                                .clickable { cardsOpen = !cardsOpen; interaction++ }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (teasing && !cardsOpen) {
+                                Text(active!!.teaser.ifBlank { active.title }, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 6.dp).widthIn(max = 200.dp))
+                            }
+                            Icon(Icons.Outlined.Info, "Cards", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    if (cardsOpen) {
+                        Column(
+                            modifier = Modifier
+                                .padding(top = 6.dp)
+                                .widthIn(max = 260.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Black.copy(alpha = 0.8f))
+                        ) {
+                            cards.filter { it.startMs <= state.currentPositionMs }.ifEmpty { cards }.forEach { card ->
+                                Row(
+                                    modifier = Modifier
+                                        .clickable { cardsOpen = false; onOpenCard(card) }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AsyncImage(
+                                        model = card.imageUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.size(width = 64.dp, height = 36.dp).clip(RoundedCornerShape(4.dp))
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(card.title, color = Color.White, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
             }
             // Thin progress line while the controls are hidden, like YouTube.
             if (!controlsVisible && state.durationMs > 0) {
@@ -351,6 +494,9 @@ private fun WatchControls(
     onToggleFullscreen: () -> Unit,
     onOpenSettings: () -> Unit,
     storyboard: Storyboard?,
+    heatmap: List<WatchExtras.HeatPoint>,
+    onLock: () -> Unit,
+    onHud: (String?) -> Unit,
     topActions: @Composable RowScope.() -> Unit,
     bottomBar: (@Composable () -> Unit)?
 ) {
@@ -399,6 +545,11 @@ private fun WatchControls(
                 playbackService.setAutoplayNext(!state.autoplayNext)
             }
             topActions()
+            if (fullscreen) {
+                IconButton(onClick = { onTouched(); onLock() }) {
+                    Icon(Icons.Outlined.Lock, "Lock screen", tint = Color.White, modifier = Modifier.size(24.dp))
+                }
+            }
             if (state.availableSubtitles.isNotEmpty()) {
                 CaptionsButton(on = captionsOn) {
                     onTouched()
@@ -489,8 +640,12 @@ private fun WatchControls(
                 timeMs = shownMs,
                 storyboard = storyboard
             )
+            if (dragFraction != null && heatmap.isNotEmpty()) {
+                HeatmapGraph(heatmap, state.durationMs, Modifier.fillMaxWidth().height(28.dp))
+            }
             YouTubeSeekBar(
                 fraction = fraction,
+                onPrecise = { precise -> onHud(if (precise) "Precise seeking" else null) },
                 bufferedFraction = (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f),
                 onScrub = {
                     onTouched()
@@ -570,7 +725,11 @@ fun FullscreenWatchLayout(
     onOpenComments: () -> Unit,
     onSave: () -> Unit,
     modifier: Modifier = Modifier,
-    storyboard: Storyboard? = null
+    storyboard: Storyboard? = null,
+    heatmap: List<WatchExtras.HeatPoint> = emptyList(),
+    extras: InnerTube.PlayerExtras? = null,
+    onOpenEndScreen: (WatchExtras.EndScreenElement) -> Unit = {},
+    onOpenCard: (WatchExtras.InfoCard) -> Unit = {}
 ) {
     val context = LocalContext.current
     val liked by LibraryRepository.liked.collectAsState()
@@ -594,6 +753,10 @@ fun FullscreenWatchLayout(
             onOpenSettings = onOpenSettings,
             modifier = Modifier.fillMaxSize(),
             storyboard = storyboard,
+            heatmap = heatmap,
+            extras = extras,
+            onOpenEndScreen = onOpenEndScreen,
+            onOpenCard = onOpenCard,
             bottomBar = {
                 Row(
                     modifier = Modifier
@@ -687,9 +850,13 @@ private fun YouTubeSeekBar(
     bufferedFraction: Float,
     onScrub: (Float) -> Unit,
     onScrubEnd: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Precise seeking: sliding the finger up off the bar makes it move ten times finer. */
+    onPrecise: (Boolean) -> Unit = {}
 ) {
     var scrubbing by remember { mutableStateOf(false) }
+    var precise by remember { mutableStateOf(false) }
+    var current by remember { mutableFloatStateOf(0f) }
     val thumb by androidx.compose.animation.core.animateDpAsState(
         targetValue = if (scrubbing) 16.dp else 12.dp,
         animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
@@ -701,13 +868,27 @@ private fun YouTubeSeekBar(
                 detectTapGestures { offset -> onScrub((offset.x / size.width).coerceIn(0f, 1f)); onScrubEnd() }
             }
             .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { offset -> scrubbing = true; onScrub((offset.x / size.width).coerceIn(0f, 1f)) },
-                    onDragEnd = { scrubbing = false; onScrubEnd() },
-                    onDragCancel = { scrubbing = false; onScrubEnd() },
-                    onHorizontalDrag = { change, _ ->
+                val preciseLift = 48.dp.toPx()
+                fun end() {
+                    scrubbing = false
+                    if (precise) { precise = false; onPrecise(false) }
+                    onScrubEnd()
+                }
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        scrubbing = true
+                        current = (offset.x / size.width).coerceIn(0f, 1f)
+                        onScrub(current)
+                    },
+                    onDragEnd = { end() },
+                    onDragCancel = { end() },
+                    onDrag = { change, drag ->
                         change.consume()
-                        onScrub((change.position.x / size.width).coerceIn(0f, 1f))
+                        val nowPrecise = change.position.y < -preciseLift
+                        if (nowPrecise != precise) { precise = nowPrecise; onPrecise(nowPrecise) }
+                        current = if (precise) (current + drag.x / size.width / 10f).coerceIn(0f, 1f)
+                        else (change.position.x / size.width).coerceIn(0f, 1f)
+                        onScrub(current)
                     }
                 )
             }
@@ -839,4 +1020,65 @@ private suspend fun PointerInputScope.detectVerticalSwipeAndPinch(
         }
     } while (event.changes.any { it.pressed })
     if (pinching) onPinch(zoom) else if (dragging) onDragEnd()
+}
+
+/** YouTube's "Most replayed" curve: taller where more people watch again. */
+@Composable
+private fun HeatmapGraph(heat: List<WatchExtras.HeatPoint>, durationMs: Long, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val total = durationMs.takeIf { it > 0 } ?: (heat.last().startMs + heat.last().durationMs)
+        if (total <= 0) return@Canvas
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(0f, size.height)
+            heat.forEach { p ->
+                val x = (p.startMs + p.durationMs / 2f) / total * size.width
+                lineTo(x, size.height * (1f - p.intensity))
+            }
+            lineTo(size.width, size.height)
+            close()
+        }
+        drawPath(path, Color.White.copy(alpha = 0.35f))
+    }
+}
+
+/** End screen: video / playlist / channel / link tiles laid over the frame at the creator's positions. */
+@Composable
+private fun EndScreenOverlay(elements: List<WatchExtras.EndScreenElement>, onOpen: (WatchExtras.EndScreenElement) -> Unit) {
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // The tiles are placed in the 16:9 picture, centred in this box.
+        val frameW = minOf(maxWidth, maxHeight * 16f / 9f)
+        val frameH = frameW * 9f / 16f
+        val offsetX = (maxWidth - frameW) / 2
+        val offsetY = (maxHeight - frameH) / 2
+        elements.forEach { e ->
+            val w = frameW * e.width
+            val h = if (e.aspectRatio > 0f) w / e.aspectRatio else w
+            val round = e.style == "CHANNEL"
+            Box(
+                modifier = Modifier
+                    .padding(start = offsetX + frameW * e.left, top = offsetY + frameH * e.top)
+                    .size(w, h)
+                    .clip(if (round) CircleShape else RoundedCornerShape(4.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.7f), if (round) CircleShape else RoundedCornerShape(4.dp))
+                    .background(Color.Black)
+                    .clickable { onOpen(e) }
+            ) {
+                AsyncImage(model = e.imageUrl, contentDescription = e.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                if (!round && e.title.isNotBlank()) {
+                    Text(
+                        e.title,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        }
+    }
 }

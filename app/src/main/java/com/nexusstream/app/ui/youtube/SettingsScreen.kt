@@ -183,6 +183,39 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     AppSettings.setCaptionsByDefault(it)
                 }
             }
+            item(key = "seek_label") { SettingsHint("Double-tap to seek") }
+            item(key = "seek") {
+                val seek by AppSettings.doubleTapSeekSec.collectAsState()
+                val options = listOf(5, 10, 15, 20, 30, 60)
+                OriginalFilterChips(
+                    labels = options.map { "$it seconds" },
+                    selected = "$seek seconds",
+                    onSelect = { label -> AppSettings.setDoubleTapSeekSec(label.substringBefore(' ').toInt()) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+            item(key = "caption_size_label") { SettingsHint("Caption size") }
+            item(key = "caption_size") {
+                val scale by AppSettings.captionScale.collectAsState()
+                val options = listOf("Small" to 0.75f, "Normal" to 1f, "Large" to 1.5f, "Huge" to 2f)
+                OriginalFilterChips(
+                    labels = options.map { it.first },
+                    selected = options.minByOrNull { kotlin.math.abs(it.second - scale) }?.first ?: "Normal",
+                    onSelect = { label -> AppSettings.setCaptionScale(options.first { it.first == label }.second) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+            item(key = "caption_bg_label") { SettingsHint("Caption background") }
+            item(key = "caption_bg") {
+                val bg by AppSettings.captionBackground.collectAsState()
+                val options = listOf("None", "Translucent", "Opaque")
+                OriginalFilterChips(
+                    labels = options,
+                    selected = options[bg.coerceIn(0, 2)],
+                    onSelect = { label -> AppSettings.setCaptionBackground(options.indexOf(label)) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
             item(key = "stable_volume") {
                 SwitchRow("Stable volume", "Evens out loudness between videos and songs", stableVolume) { AppSettings.setStableVolume(it) }
             }

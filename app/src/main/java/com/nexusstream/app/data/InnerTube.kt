@@ -121,7 +121,13 @@ object InnerTube {
     }
 
     /** Extras from the web player response: loudness (Stable volume) and the watch-history pings. */
-    class PlayerExtras(val loudnessDb: Double?, val playbackUrl: String?, val watchtimeUrl: String?)
+    class PlayerExtras(
+        val loudnessDb: Double?,
+        val playbackUrl: String?,
+        val watchtimeUrl: String?,
+        val endScreen: List<WatchExtras.EndScreenElement> = emptyList(),
+        val cards: List<WatchExtras.InfoCard> = emptyList()
+    )
 
     fun playerExtras(videoId: String): PlayerExtras? = runCatching {
         val res = web("player", JSONObject().put("videoId", videoId))
@@ -136,7 +142,9 @@ object InnerTube {
         PlayerExtras(
             loudnessDb = loudness,
             playbackUrl = tracking?.optJSONObject("videostatsPlaybackUrl")?.optString("baseUrl")?.takeIf { it.isNotEmpty() },
-            watchtimeUrl = tracking?.optJSONObject("videostatsWatchtimeUrl")?.optString("baseUrl")?.takeIf { it.isNotEmpty() }
+            watchtimeUrl = tracking?.optJSONObject("videostatsWatchtimeUrl")?.optString("baseUrl")?.takeIf { it.isNotEmpty() },
+            endScreen = runCatching { WatchExtras.parseEndScreen(res) }.getOrDefault(emptyList()),
+            cards = runCatching { WatchExtras.parseCards(res) }.getOrDefault(emptyList())
         )
     }.getOrNull()
 

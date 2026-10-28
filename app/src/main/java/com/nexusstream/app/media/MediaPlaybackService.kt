@@ -86,6 +86,8 @@ data class PlaybackState(
     val availableSubtitles: List<SubtitleOption> = emptyList(),
     /** Language tag of the shown captions; null = captions off. */
     val selectedSubtitleTag: String? = null,
+    /** Language the captions are auto-translated into (null = as published). */
+    val subtitleTranslation: String? = null,
     val playbackSpeed: Float = 1f,
     /** Epoch millis when the sleep timer pauses playback; 0 = no timer. */
     val sleepTimerEndsAtMs: Long = 0L,
@@ -119,6 +121,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private var preferredSubtitleTag: String? = null
     /** Once the user picks a caption language (or Off) their choice wins over "captions by default". */
     private var subtitleChosenByUser = false
+    private var preferredTranslation: String? = null
     /** True once playback switched to the single combined stream because the merged ones failed. */
     private var usingMuxedFallback = false
     /** The current item plays from a generated DASH manifest (quality adapts to the network). */
@@ -130,6 +133,9 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private var loudnessJob: Job? = null
     /** Watch-history pings for the current video (signed in), and its playback nonce. */
     private var currentExtras: InnerTube.PlayerExtras? = null
+    /** End screen and info cards of the current video, for the watch page (item id to extras). */
+    private val _watchExtras = MutableStateFlow<Pair<String, InnerTube.PlayerExtras>?>(null)
+    val watchExtras: StateFlow<Pair<String, InnerTube.PlayerExtras>?> = _watchExtras.asStateFlow()
     private var currentCpn = ""
     private var sleepJob: Job? = null
     /** Related videos to continue with when the queue runs out (set by the watch page). */
@@ -423,6 +429,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
                 loudnessJob = serviceScope.launch {
                     val extras = kotlinx.coroutines.withContext(Dispatchers.IO) { InnerTube.playerExtras(item.id) }
                     if (_playbackState.value.currentItem?.id != item.id) return@launch
+                    _watchExtras.value = extras?.let { item.id to it }
                     currentLoudnessDb = extras?.loudnessDb
                     updateStableVolume(AppSettings.stableVolume.value)
                     if (extras != null && recordHistory && com.nexusstream.app.data.GoogleAccount.isSignedIn()) {
@@ -537,7 +544,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         val subtitleTag = if (subtitleChosenByUser) preferredSubtitleTag else defaultSubtitleTag(resolved)
         val subtitle = subtitleTag?.let { tag -> resolved.subtitles.firstOrNull { it.languageTag == tag } }
         val subtitleSource = subtitle?.let { sub ->
-            val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
+            val url = preferredTranslation?.let { com.nexusstream.app.data.WatchExtras.translatedUrl(sub.url, it) } ?: sub.url
+            val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(url))
                 .setMimeType(sub.mimeType)
                 .setLanguage(sub.languageTag)
                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
@@ -571,6 +579,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
                 selectedAudioTrackId = audio.trackId,
                 availableSubtitles = resolved.subtitles,
                 selectedSubtitleTag = subtitle?.languageTag,
+                subtitleTranslation = preferredTranslation.takeIf { subtitle != null },
                 selectedVideoHeight = preferredVideoHeight,
                 selectedAudioKbps = preferredAudioKbps ?: audio.kbps,
                 videoQualityAuto = preferredVideoHeight == null,
@@ -609,6 +618,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             selectedAudioTrackId = audio.trackId,
             availableSubtitles = resolved.subtitles,
             selectedSubtitleTag = subtitle?.languageTag,
+            subtitleTranslation = preferredTranslation.takeIf { subtitle != null },
             selectedVideoHeight = video?.height,
             selectedAudioKbps = audio.kbps,
             videoQualityAuto = preferredVideoHeight == null,
@@ -704,9 +714,10 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     /** Shows captions in the given language, or turns them off (null). */
-    fun setSubtitle(languageTag: String?) {
+    fun setSubtitle(languageTag: String?, translateTo: String? = null) {
         subtitleChosenByUser = true
         preferredSubtitleTag = languageTag
+        preferredTranslation = translateTo.takeIf { languageTag != null }
         reapplyQuality()
     }
 
