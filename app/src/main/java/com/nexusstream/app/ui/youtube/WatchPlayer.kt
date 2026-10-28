@@ -3,7 +3,6 @@ package com.nexusstream.app.ui.youtube
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
-import android.media.AudioManager
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -33,6 +32,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.BookmarkBorder
@@ -48,8 +54,6 @@ import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -112,8 +116,8 @@ private const val SEEK_STEP_MS = 10_000L
  * The video with YouTube-style controls drawn on top: title and channel (fullscreen), autoplay
  * switch, cast / captions / settings (top), previous - play - next (centre), time, seek bar and a
  * fullscreen button (bottom). Gestures: tap shows / hides the controls, double-tap the left or
- * right third seeks 10 s, hold plays at 2x, swipe up / down enters / leaves fullscreen or minimizes
- * (and in fullscreen, the left half of the screen is brightness and the right half is volume).
+ * right third seeks 10 s, hold plays at 2x, pinch zooms to fill. Swipe up enters fullscreen and
+ * swipe down minimizes; in fullscreen, swipe down goes back to the normal view.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -135,7 +139,6 @@ fun WatchPlayerViewport(
     /** Optional row under the seek bar (fullscreen actions). */
     bottomBar: (@Composable () -> Unit)? = null
 ) {
-    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val ambientMode by AppSettings.ambientMode.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
@@ -176,30 +179,6 @@ fun WatchPlayerViewport(
         val target = player.currentPosition + deltaMs
         player.seekTo(if (duration > 0) target.coerceIn(0L, duration) else target.coerceAtLeast(0L))
         hud = if (deltaMs > 0) "+10 seconds" else "-10 seconds"
-    }
-
-    fun adjustBrightness(fraction: Float) {
-        val window = context.hostActivity()?.window ?: return
-        val attributes = window.attributes
-        val current = if (attributes.screenBrightness < 0f) 0.5f else attributes.screenBrightness
-        val next = (current + fraction * 1.2f).coerceIn(0.02f, 1f)
-        attributes.screenBrightness = next
-        window.attributes = attributes
-        hud = "Brightness ${(next * 100).toInt()}%"
-    }
-
-    var volumeRemainder by remember { mutableFloatStateOf(0f) }
-    fun adjustVolume(fraction: Float) {
-        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        volumeRemainder += fraction * max * 1.5f
-        val steps = volumeRemainder.toInt()
-        if (steps != 0) {
-            volumeRemainder -= steps
-            val level = (audio.getStreamVolume(AudioManager.STREAM_MUSIC) + steps).coerceIn(0, max)
-            audio.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0)
-        }
-        hud = "Volume ${audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / max}%"
     }
 
     Box(
@@ -268,25 +247,13 @@ fun WatchPlayerViewport(
                         )
                     }
                     .pointerInput(fullscreen) {
-                        var startX = 0f
                         var total = 0f
                         val threshold = 60.dp.toPx()
                         detectVerticalSwipeAndPinch(
-                            onDragStart = { offset ->
-                                startX = offset.x
-                                total = 0f
-                            },
-                            onDrag = { dy ->
-                                total += dy
-                                if (fullscreen) {
-                                    val fraction = -dy / size.height
-                                    if (startX < size.width / 2f) adjustBrightness(fraction) else adjustVolume(fraction)
-                                }
-                            },
+                            onDragStart = { total = 0f },
+                            onDrag = { dy -> total += dy },
                             onDragEnd = {
-                                if (!fullscreen) {
-                                    if (total < -threshold) currentSwipeUp() else if (total > threshold) currentSwipeDown()
-                                }
+                                if (total < -threshold) currentSwipeUp() else if (total > threshold) currentSwipeDown()
                             },
                             onPinch = { zoom ->
                                 if (zoom > 1.12f && !fillScreen) {
@@ -394,7 +361,7 @@ private fun WatchControls(
 
     // The dark scrim runs edge to edge; the buttons are inset so the camera cutout and the
     // navigation bar never cover them in fullscreen.
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.38f))) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -452,41 +419,47 @@ private fun WatchControls(
         // ---- centre: previous, play / pause, next ----
         Row(
             modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(if (fullscreen) 64.dp else 36.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (fullscreen) 72.dp else 40.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            GlassCircle(size = 48.dp, onClick = { onTouched(); playbackService.skipToPrevious() }) {
-                Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Color.White, modifier = Modifier.size(28.dp))
+            PlayerCircleButton(size = 48.dp, onClick = { onTouched(); playbackService.skipToPrevious() }) {
+                Icon(Icons.Filled.SkipPrevious, "Previous", tint = Color.White, modifier = Modifier.size(32.dp))
             }
-            GlassCircle(size = 68.dp, onClick = { onTouched(); playbackService.togglePlayPause() }) {
+            PlayerCircleButton(size = 64.dp, onClick = { onTouched(); playbackService.togglePlayPause() }) {
                 Icon(
-                    imageVector = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (state.isPlaying) "Pause" else "Play",
                     tint = Color.White,
                     modifier = Modifier.size(44.dp)
                 )
             }
-            GlassCircle(size = 48.dp, onClick = { onTouched(); playbackService.skipToNext() }) {
-                Icon(Icons.Rounded.SkipNext, "Next", tint = Color.White, modifier = Modifier.size(28.dp))
+            PlayerCircleButton(size = 48.dp, onClick = { onTouched(); playbackService.skipToNext() }) {
+                Icon(Icons.Filled.SkipNext, "Next", tint = Color.White, modifier = Modifier.size(32.dp))
             }
         }
 
         // ---- bottom: time, fullscreen, seek bar ----
+        // In the normal view the seek bar runs edge to edge along the bottom of the video, like YouTube.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp)
+                .padding(horizontal = if (fullscreen) 16.dp else 0.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.padding(start = if (fullscreen) 0.dp else 12.dp, end = if (fullscreen) 0.dp else 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "${formatVideoDuration(shownMs)} / ${formatVideoDuration(state.durationMs)}",
+                    text = buildAnnotatedString {
+                        append(formatVideoDuration(shownMs))
+                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.7f))) {
+                            append(" / ${formatVideoDuration(state.durationMs)}")
+                        }
+                    },
                     fontSize = 12.sp,
-                    color = Color.White,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = { onTouched(); onToggleFullscreen() }, modifier = Modifier.size(40.dp)) {
@@ -515,7 +488,7 @@ private fun WatchControls(
                     dragFraction?.let { playbackService.seekTo((it * duration).toLong()) }
                     dragFraction = null
                 },
-                modifier = Modifier.fillMaxWidth().height(28.dp)
+                modifier = Modifier.fillMaxWidth().height(if (fullscreen) 28.dp else 18.dp)
             )
             bottomBar?.invoke()
         }
@@ -605,7 +578,7 @@ fun FullscreenWatchLayout(
             onCollapse = onExit,
             onToggleFullscreen = onExit,
             onSwipeUp = {},
-            onSwipeDown = {},
+            onSwipeDown = onExit,
             onOpenSettings = onOpenSettings,
             modifier = Modifier.fillMaxSize(),
             storyboard = storyboard,
@@ -674,33 +647,22 @@ internal tailrec fun Context.hostActivity(): android.app.Activity? = when (this)
     else -> null
 }
 
-/** Frosted-glass round button: translucent fill, bright rim, and a springy squash while pressed. */
+/** YouTube's round player button: a dim translucent disc behind a white icon, slightly shrinking while pressed. */
 @Composable
-private fun GlassCircle(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun PlayerCircleButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit, content: @Composable () -> Unit) {
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (pressed) 0.86f else 1f,
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 380f),
-        label = "glassPress"
+        targetValue = if (pressed) 0.9f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 500f),
+        label = "playerButtonPress"
     )
     Box(
         modifier = Modifier
             .size(size)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
-            .background(
-                androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.08f))
-                )
-            )
-            .border(
-                1.dp,
-                androidx.compose.ui.graphics.Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = 0.6f), Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.3f))
-                ),
-                CircleShape
-            )
+            .background(Color.Black.copy(alpha = if (pressed) 0.45f else 0.3f))
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) { content() }

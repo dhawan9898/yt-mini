@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +56,15 @@ fun videoAspect(size: VideoSize): Float {
 }
 
 /**
+ * One player can draw into only one surface. Several [VideoSurface]s can be on screen at once (the
+ * watch page fading in while the home screen's floating player fades out, the fullscreen layout
+ * over the page), so the most recently shown one owns the picture and hands it back when it leaves.
+ */
+private object SurfaceOwners {
+    val stack = mutableStateListOf<Any>()
+}
+
+/**
  * The picture of [player], laid out by this composable and not by the platform: it is sized from the
  * video's real aspect ratio, centered in its box and clipped to it. [fill] crops to cover the box;
  * otherwise the whole picture is shown. Until the first frame's size is known it assumes 16:9.
@@ -77,6 +88,12 @@ fun VideoSurface(
         size = player.videoSize
         onDispose { player.removeListener(listener) }
     }
+    val token = remember { Any() }
+    DisposableEffect(token) {
+        SurfaceOwners.stack.add(token)
+        onDispose { SurfaceOwners.stack.remove(token) }
+    }
+    val owner by remember { derivedStateOf { SurfaceOwners.stack.lastOrNull() === token } }
 
     BoxWithConstraints(modifier = modifier.clipToBounds().background(Color.Black)) {
         val density = LocalDensity.current
@@ -104,7 +121,14 @@ fun VideoSurface(
                         setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                     }
                 },
-                update = { it.player = player },
+                update = { view ->
+                    // Re-attaching forces the player to render into this view's texture again.
+                    if (owner) {
+                        if (view.player !== player) view.player = player
+                    } else if (view.player != null) {
+                        view.player = null
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }

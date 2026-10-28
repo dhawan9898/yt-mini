@@ -73,7 +73,6 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.nexusstream.app.data.VideoDetails
@@ -286,12 +285,7 @@ fun VideoWatchScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f),
-                    topActions = {
-                        CastButton()
-                        IconButton(onClick = onClose) {
-                            Icon(Icons.Rounded.Close, "Close video", tint = Color.White, modifier = Modifier.size(22.dp))
-                        }
-                    }
+                    topActions = { CastButton() }
                 )
             }
         }
