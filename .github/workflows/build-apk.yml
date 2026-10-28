@@ -36,11 +36,24 @@ jobs:
       - name: Determine New Semantic Version
         id: versioning
         run: |
+          # The version comes from versionName in app/build.gradle.kts. The first build of a new
+          # version is its stable release (vX.Y.Z); later pushes on the same version are
+          # prereleases (vX.Y.Z-build.N) until versionName is bumped again.
           BUILD_NUMBER=$(git rev-list --count HEAD)
-          VERSION_NAME="1.0.${BUILD_NUMBER}"
+          BASE_VERSION=$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -n 1)
+          if [ -z "$BASE_VERSION" ]; then BASE_VERSION="1.0.0"; fi
+          git fetch --tags --force --quiet
+          if git rev-parse -q --verify "refs/tags/v${BASE_VERSION}" >/dev/null; then
+            VERSION_NAME="${BASE_VERSION}-build.${BUILD_NUMBER}"
+            PRERELEASE=true
+          else
+            VERSION_NAME="${BASE_VERSION}"
+            PRERELEASE=false
+          fi
           echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
           echo "VERSION_CODE=${BUILD_NUMBER}" >> $GITHUB_ENV
-          echo "Computed Version Name: ${VERSION_NAME}"
+          echo "PRERELEASE=${PRERELEASE}" >> $GITHUB_ENV
+          echo "Computed Version Name: ${VERSION_NAME} (prerelease: ${PRERELEASE})"
           echo "Computed Version Code: ${BUILD_NUMBER}"
 
       - name: Run unit tests
@@ -69,8 +82,17 @@ jobs:
           tag_name: "v${{ env.VERSION_NAME }}"
           name: "yt-mini v${{ env.VERSION_NAME }}"
           body: |
-            ## yt-mini Production Release v${{ env.VERSION_NAME }}
-            
+            ## yt-mini v${{ env.VERSION_NAME }}
+
+            ### New in 2.0
+            - Account sync both ways: likes, Watch later, playlists and subscriptions follow your Google account, with a channel / Brand account switcher.
+            - Faster playback with adaptive streaming, a play next queue, sleep timer, captions styling and auto-translate.
+            - Watch page extras: end screens, info cards, Most replayed and Jump ahead, transcript, live chat and chat replay, precise seeking and screen lock.
+            - Search filters, channel tabs (Videos, Shorts, Live, Releases, Playlists, Posts), Home topic chips and Explore.
+            - YT Music artists, albums, library, timed lyrics and smart downloads.
+            - Android Auto, home screen widgets, app shortcuts, voice search and tablet side navigation.
+            - Link with TV code, video uploads, Your clips, Your movies and Time watched.
+
             ### What's inside
             - **YouTube and YouTube Music in one app**, with a pill to switch between them.
             - Home, search, channels, playlists, Shorts, subscriptions, live streams and comments.
@@ -83,6 +105,7 @@ jobs:
           files: |
             yt-mini-v${{ env.VERSION_NAME }}.apk
           draft: false
-          prerelease: false
+          prerelease: ${{ env.PRERELEASE }}
+          make_latest: ${{ env.PRERELEASE == 'true' && 'false' || 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
