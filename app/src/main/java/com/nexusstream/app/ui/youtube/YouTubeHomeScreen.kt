@@ -282,12 +282,7 @@ fun YouTubeHomeScreen(
                 .nestedScroll(scrollConnection)
         ) {
             CompositionLocalProvider(LocalChromePadding provides chrome) {
-            AnimatedVisibility(
-                visible = floatingVideo,
-                enter = fadeIn(GlassMotion.smooth()) + androidx.compose.animation.scaleIn(spring(dampingRatio = 0.7f, stiffness = 380f), initialScale = 0.6f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)),
-                exit = fadeOut(GlassMotion.smooth()) + androidx.compose.animation.scaleOut(GlassMotion.smooth(), targetScale = 0.7f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)),
-                modifier = Modifier.zIndex(2f)
-            ) {
+            PopInFromCorner(visible = floatingVideo, modifier = Modifier.zIndex(2f)) {
             if (currentPlayingItem != null && playbackService != null && homeState != null) {
                 FloatingMiniPlayer(
                     item = currentPlayingItem,
@@ -806,4 +801,15 @@ private fun importTakeoutFile(context: Context, uri: Uri): String {
             "Imported ${LibraryRepository.importSubscriptions(subs)} new subscriptions."
         }
     }
+}
+
+/** Pops the floating video window in from (and back into) the bottom-end corner with a spring. */
+@Composable
+private fun PopInFromCorner(visible: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(GlassMotion.smooth()) + androidx.compose.animation.scaleIn(spring(dampingRatio = 0.7f, stiffness = 380f), initialScale = 0.6f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)),
+        exit = fadeOut(GlassMotion.smooth()) + androidx.compose.animation.scaleOut(GlassMotion.smooth(), targetScale = 0.7f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)),
+        modifier = modifier
+    ) { content() }
 }

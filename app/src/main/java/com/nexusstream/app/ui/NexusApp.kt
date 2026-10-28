@@ -477,14 +477,7 @@ fun NexusApp() {
                     // spring and sinks back into it, following the finger when dragged down.
                     var lastPlayerScreen by remember { mutableStateOf(AppScreen.WATCH) }
                     if (currentScreen != AppScreen.HOME) lastPlayerScreen = currentScreen
-                    AnimatedVisibility(
-                        visible = currentScreen != AppScreen.HOME && activeService != null,
-                        enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 360f)) { it } +
-                            fadeIn(tween(160)),
-                        exit = slideOutVertically(spring(dampingRatio = 1f, stiffness = 420f)) { it } +
-                            fadeOut(tween(240, delayMillis = 120)),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
+                    PlayerSheet(visible = currentScreen != AppScreen.HOME && activeService != null) {
                         if (activeService != null) {
                             when (lastPlayerScreen) {
                                 AppScreen.PLAYER -> {
@@ -590,4 +583,17 @@ private fun PageTransition(
                 }
         ) { content() }
     }
+}
+
+/** The player sheet's entrance and exit: up from the bottom with a slight spring, down and out. */
+@Composable
+private fun PlayerSheet(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 360f)) { it } +
+            fadeIn(tween(160)),
+        exit = slideOutVertically(spring(dampingRatio = 1f, stiffness = 420f)) { it } +
+            fadeOut(tween(240, delayMillis = 120)),
+        modifier = Modifier.fillMaxSize()
+    ) { content() }
 }
