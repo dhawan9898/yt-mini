@@ -43,7 +43,11 @@ jobs:
           BASE_VERSION=$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -n 1)
           if [ -z "$BASE_VERSION" ]; then BASE_VERSION="1.0.0"; fi
           git fetch --tags --force --quiet
-          if git rev-parse -q --verify "refs/tags/v${BASE_VERSION}" >/dev/null; then
+          if [ "$BASE_VERSION" = "1.0.0" ]; then
+            # 1.x test builds keep the old numbering: 1.0.<commit count>, each its own release.
+            VERSION_NAME="1.0.${BUILD_NUMBER}"
+            PRERELEASE=false
+          elif git rev-parse -q --verify "refs/tags/v${BASE_VERSION}" >/dev/null; then
             VERSION_NAME="${BASE_VERSION}-build.${BUILD_NUMBER}"
             PRERELEASE=true
           else
@@ -84,7 +88,7 @@ jobs:
           body: |
             ## yt-mini v${{ env.VERSION_NAME }}
 
-            ### New in 2.0
+            ### New since 1.0
             - Account sync both ways: likes, Watch later, playlists and subscriptions follow your Google account, with a channel / Brand account switcher.
             - Faster playback with adaptive streaming, a play next queue, sleep timer, captions styling and auto-translate.
             - Watch page extras: end screens, info cards, Most replayed and Jump ahead, transcript, live chat and chat replay, precise seeking and screen lock.
