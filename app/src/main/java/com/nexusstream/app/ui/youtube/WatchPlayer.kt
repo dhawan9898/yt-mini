@@ -269,7 +269,8 @@ fun WatchPlayerViewport(
             )
         }
 
-        if (state.isResolving || (state.isBuffering && !controlsVisible)) {
+        // While the controls show, the spinner takes the play / pause button's place instead.
+        if ((state.isResolving || state.isBuffering) && !(controlsEnabled && controlsVisible)) {
             CircularProgressIndicator(
                 color = Color.White,
                 strokeWidth = 2.dp,
@@ -425,13 +426,24 @@ private fun WatchControls(
             PlayerCircleButton(size = 48.dp, onClick = { onTouched(); playbackService.skipToPrevious() }) {
                 Icon(Icons.Filled.SkipPrevious, "Previous", tint = Color.White, modifier = Modifier.size(32.dp))
             }
-            PlayerCircleButton(size = 64.dp, onClick = { onTouched(); playbackService.togglePlayPause() }) {
-                Icon(
-                    imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (state.isPlaying) "Pause" else "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(44.dp)
-                )
+            if (state.isResolving || state.isBuffering) {
+                // Loading: YouTube swaps the play / pause button for a spinner.
+                Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+            } else {
+                PlayerCircleButton(size = 64.dp, onClick = { onTouched(); playbackService.togglePlayPause() }) {
+                    Icon(
+                        imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (state.isPlaying) "Pause" else "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(44.dp)
+                    )
+                }
             }
             PlayerCircleButton(size = 48.dp, onClick = { onTouched(); playbackService.skipToNext() }) {
                 Icon(Icons.Filled.SkipNext, "Next", tint = Color.White, modifier = Modifier.size(32.dp))

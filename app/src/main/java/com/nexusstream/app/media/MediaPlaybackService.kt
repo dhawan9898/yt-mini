@@ -58,6 +58,10 @@ import kotlinx.coroutines.launch
  */
 data class PlaybackState(
     val currentItem: MediaItemModel? = null,
+    /**
+     * True while the player is playing or trying to play (buffering with play pressed), like the
+     * play / pause button on YouTube. Use [isBuffering] to tell the two apart.
+     */
     val isPlaying: Boolean = false,
     val currentPositionMs: Long = 0L,
     val bufferedPositionMs: Long = 0L,
@@ -210,8 +214,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PLAY -> if (::exoPlayer.isInitialized && !exoPlayer.isPlaying) exoPlayer.play()
-            ACTION_PAUSE -> if (::exoPlayer.isInitialized && exoPlayer.isPlaying) exoPlayer.pause()
+            ACTION_PLAY -> if (::exoPlayer.isInitialized && !exoPlayer.playWhenReady) exoPlayer.play()
+            ACTION_PAUSE -> if (::exoPlayer.isInitialized && exoPlayer.playWhenReady) exoPlayer.pause()
             ACTION_NEXT -> skipToNext()
             ACTION_PREV -> skipToPrevious()
             ACTION_STOP -> {
@@ -230,8 +234,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private fun initExoPlayer() {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 15_000,
-                /* maxBufferMs = */ 50_000,
+                /* minBufferMs = */ 30_000,
+                /* maxBufferMs = */ 60_000,
                 /* bufferForPlaybackMs = */ 1_000,
                 /* bufferForPlaybackAfterRebufferMs = */ 2_500
             )
@@ -753,7 +757,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     fun togglePlayPause() {
         if (!::exoPlayer.isInitialized) return
-        if (exoPlayer.isPlaying) {
+        // playWhenReady, not isPlaying: while buffering isPlaying is false but a tap must still pause.
+        if (exoPlayer.playWhenReady) {
             exoPlayer.pause()
         } else {
             exoPlayer.play()
@@ -768,9 +773,16 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     fun getPlayer(): ExoPlayer = exoPlayer
 
-    override fun onIsPlayingChanged(isPlaying: Boolean) {
-        _playbackState.value = _playbackState.value.copy(isPlaying = isPlaying)
-        updateForegroundNotification()
+    override fun onEvents(player: Player, events: Player.Events) {
+        // Buffering while play is pressed counts as playing, so the UI shows a spinner and the
+        // pause button instead of looking paused (ExoPlayer's own isPlaying is false then).
+        val playing = player.playWhenReady &&
+            player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
+            (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING)
+        if (playing != _playbackState.value.isPlaying) {
+            _playbackState.value = _playbackState.value.copy(isPlaying = playing)
+            updateForegroundNotification()
+        }
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
@@ -944,7 +956,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         val item = _playbackState.value.currentItem ?: return
         if (!::exoPlayer.isInitialized || !::mediaSession.isInitialized) return
 
-        val isPlaying = exoPlayer.isPlaying
+        val isPlaying = _playbackState.value.isPlaying
 
         val prevIntent = PendingIntent.getService(
             this,

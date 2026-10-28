@@ -373,7 +373,7 @@ fun MusicPlayerScreen(
                     glowColor = Color.Transparent,
                     flatBackground = Color.White
                 )
-                if (state.isResolving || (state.isBuffering && !state.isPlaying)) {
+                if (state.isResolving || state.isBuffering) {
                     CircularProgressIndicator(
                         color = Color.Black,
                         strokeWidth = 3.dp,

@@ -217,7 +217,9 @@ private fun ShortsPager(
             item = item,
             isActive = isActive,
             resolving = isActive && playback?.isResolving == true,
-            playing = isActive && playback?.currentItem?.id == item.id && playback.isPlaying,
+            // Only real playback counts (not buffering), so the thumbnail stays until the first frame.
+            playing = isActive && playback?.currentItem?.id == item.id && playback.isPlaying && !playback.isBuffering,
+            buffering = isActive && playback?.currentItem?.id == item.id && playback.isBuffering,
             playbackService = playbackService,
             onOpenChannel = onOpenChannel
         )
@@ -231,6 +233,7 @@ private fun ShortPage(
     isActive: Boolean,
     resolving: Boolean,
     playing: Boolean,
+    buffering: Boolean,
     playbackService: MediaPlaybackService?,
     onOpenChannel: (MediaItemModel) -> Unit
 ) {
@@ -270,7 +273,7 @@ private fun ShortPage(
                 modifier = Modifier.fillMaxSize()
             )
         }
-        if (resolving || (isActive && !started)) {
+        if (resolving || buffering || (isActive && !started)) {
             CircularProgressIndicator(
                 color = Color.White,
                 strokeWidth = 2.dp,

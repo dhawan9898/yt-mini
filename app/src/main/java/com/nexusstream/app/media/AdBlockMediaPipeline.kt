@@ -155,7 +155,7 @@ class AdBlockMediaPipeline(
         // (needed for offline downloads).
         val routed = DefaultDataSource.Factory(context, baseHttpFactory)
         return DataSource.Factory {
-            AdFilteringHttpDataSource(routed.createDataSource())
+            AdFilteringHttpDataSource(ChunkedStreamDataSource(routed.createDataSource()))
         }
     }
 
