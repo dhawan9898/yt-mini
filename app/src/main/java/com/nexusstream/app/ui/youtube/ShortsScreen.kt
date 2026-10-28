@@ -262,16 +262,20 @@ private fun ShortsPager(
     val context = LocalContext.current
     LaunchedEffect(pagerState.settledPage, items.size) {
         val ahead = items.drop(pagerState.settledPage + 1).take(PRELOAD_AHEAD)
-        ahead.forEach { next ->
-            YouTubeRepository.prefetchStream(next.sourceUrl.ifBlank { next.watchUrl })
+        ahead.forEachIndexed { index, next ->
+            val url = next.sourceUrl.ifBlank { next.watchUrl }
+            YouTubeRepository.prefetchStream(url)
             coil.Coil.imageLoader(context).enqueue(coil.request.ImageRequest.Builder(context).data(next.artworkUrl).build())
+            // The very next ones also get their first seconds of video downloaded.
+            if (index < PRECACHE_AHEAD) playbackService?.precacheShort(url)
         }
     }
     LaunchedEffect(pagerState.currentPage) {
         if (pagerState.currentPage >= items.size - 3) onNearEnd()
     }
 
-    VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+    // The next page is composed ahead, so its cover is already on screen while swiping.
+    VerticalPager(state = pagerState, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
         val item = items[page]
         val isActive = page == pagerState.settledPage
         ShortPage(
@@ -294,7 +298,9 @@ private fun ShortsPager(
 }
 
 /** How many shorts after the one on screen are loaded ahead. */
-private const val PRELOAD_AHEAD = 3
+private const val PRELOAD_AHEAD = 4
+/** How many of those also get their first seconds of video downloaded. */
+private const val PRECACHE_AHEAD = 2
 
 @OptIn(UnstableApi::class)
 @Composable

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -231,6 +232,19 @@ private fun Thumbnail(item: MediaItemModel, inset: Boolean, rounded: Boolean = f
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
+            }
+        }
+        // Red bar along the bottom for a video left part way, like YouTube.
+        val watched = remember(item.id) { com.nexusstream.app.data.WatchPositions.fraction(item.id) }
+        if (watched > 0f) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(Color.White.copy(alpha = 0.4f))
+            ) {
+                Box(modifier = Modifier.fillMaxWidth(watched).fillMaxHeight().background(OriginalColors.Red))
             }
         }
     }

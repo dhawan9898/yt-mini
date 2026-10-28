@@ -496,6 +496,7 @@ object LibraryRepository {
     fun clearHistory() {
         _history.value = emptyList()
         persist("history", _history.value)
+        WatchPositions.clear()
     }
 
     /** YouTube's watch history: everything played except YT Music tracks, which stay in "Listen again". */

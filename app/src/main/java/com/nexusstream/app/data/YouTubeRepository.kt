@@ -227,6 +227,29 @@ data class SubtitleOption(
 /** A video chapter. */
 data class Chapter(val title: String, val startMs: Long)
 
+private val CHAPTER_LINE = Regex("""^\s*[\[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})[\])]?\s*[-–—:|.]*\s*(.+?)\s*$""")
+
+/**
+ * Chapters written as timestamps in the description, YouTube's own rule: the first one is at
+ * 0:00, there are at least three, and they go up. HTML (as NewPipe returns it) is stripped first.
+ */
+internal fun chaptersFromDescription(description: String, durationMs: Long = 0L): List<Chapter> {
+    val text = description
+        .replace(Regex("(?i)<br\\s*/?>"), "\n")
+        .replace(Regex("<[^>]+>"), "")
+        .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">")
+    val found = text.lines().mapNotNull { line ->
+        val match = CHAPTER_LINE.find(line) ?: return@mapNotNull null
+        val parts = match.groupValues[1].split(':').map { it.toLong() }
+        val seconds = parts.fold(0L) { total, part -> total * 60 + part }
+        Chapter(match.groupValues[2], seconds * 1000L)
+    }
+    if (found.size < 3 || found.first().startMs != 0L) return emptyList()
+    if (found.zipWithNext().any { (a, b) -> b.startMs <= a.startMs }) return emptyList()
+    if (durationMs > 0 && found.last().startMs >= durationMs) return emptyList()
+    return found
+}
+
 /**
  * A downloadable file with a human label such as "720p video" or "128 kbps audio".
  * When [audioUrl] is set, [url] is a video-only stream and the two are merged after downloading.
@@ -945,6 +968,10 @@ object YouTubeRepository {
         }
     }
 
+    /** The preloaded streams of [watchUrl] (waiting for them if still loading), leaving them for playback. */
+    suspend fun prefetchedStream(watchUrl: String): ResolvedStream? =
+        prefetched[watchUrl]?.let { runCatching { it.stream.await() }.getOrNull() }
+
     /** Resolves fresh direct stream URLs for a watch URL. Call right before playback. */
     suspend fun resolveStream(watchUrl: String): Result<ResolvedStream> = io {
         prefetched.remove(watchUrl)
@@ -1124,6 +1151,7 @@ object YouTubeRepository {
             chapters = info.streamSegments.orEmpty()
                 .filter { !it.title.isNullOrBlank() }
                 .map { Chapter(it.title, it.startTimeSeconds * 1000L) }
+                .ifEmpty { chaptersFromDescription(info.description?.content.orEmpty(), info.duration * 1000L) }
         )
     }
 

@@ -324,6 +324,7 @@ fun VideoWatchScreen(
                     onOpenSettings = { showOptions = true },
                     storyboard = details?.storyboard,
                     heatmap = heatmap,
+                    chapters = details?.chapters.orEmpty(),
                     extras = playerExtras,
                     onOpenEndScreen = { e -> openExtraTarget(e.videoId, e.browseId, e.url, e.title) },
                     onOpenCard = { c -> openExtraTarget(c.videoId, null, c.url, c.title) },
@@ -736,6 +737,7 @@ fun VideoWatchScreen(
             onSave = { showSaveSheet = true },
             storyboard = details?.storyboard,
             heatmap = heatmap,
+            chapters = details?.chapters.orEmpty(),
             extras = playerExtras,
             onOpenEndScreen = { e -> isFullscreen = false; openExtraTarget(e.videoId, e.browseId, e.url, e.title) },
             onOpenCard = { c -> isFullscreen = false; openExtraTarget(c.videoId, null, c.url, c.title) }

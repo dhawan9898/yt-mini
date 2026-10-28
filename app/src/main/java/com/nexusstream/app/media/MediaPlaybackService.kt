@@ -128,6 +128,9 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     private var dashActive = false
     /** DASH failed for the current item: play the separate streams merged instead. */
     private var dashDisabled = false
+    private val precaching = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    @kotlin.OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val precacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(2))
     /** The current video's loudness relative to YouTube's target (dB), for Stable volume. */
     private var currentLoudnessDb: Double? = null
     private var loudnessJob: Job? = null
@@ -175,6 +178,9 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         private const val TAG = "MediaPlaybackService"
         /** Fetch more radio once this few tracks are left in Up next. */
         private const val RADIO_LOW_WATER = 2
+        /** About the first five seconds of a 720p short, and of its audio. */
+        private const val PRECACHE_VIDEO_BYTES = 1_200_000L
+        private const val PRECACHE_AUDIO_BYTES = 160_000L
         const val NOTIFICATION_CHANNEL_ID = "nexus_stream_playback_channel"
         const val NOTIFICATION_ID = 1001
         const val ACTION_PLAY = "com.nexusstream.action.PLAY"
@@ -239,6 +245,19 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         } catch (e: Exception) {
             Log.w(TAG, "LoudnessEnhancer could not be configured: ${e.message}")
         }
+    }
+
+    private fun resumable(item: MediaItemModel): Boolean =
+        item.sourceUrl.isNotEmpty() && !item.isShort && !item.isLive &&
+            item.contentType == MediaContentType.YOUTUBE_VIDEO
+
+    /** Remembers where the current video is, so opening it again resumes there. */
+    private fun saveCurrentPosition() {
+        if (!::exoPlayer.isInitialized) return
+        val item = _playbackState.value.currentItem ?: return
+        if (!resumable(item) || exoPlayer.currentMediaItem == null) return
+        val duration = exoPlayer.duration.takeIf { it > 0 } ?: item.durationMs
+        com.nexusstream.app.data.WatchPositions.save(item.id, exoPlayer.currentPosition, duration)
     }
 
     /** Sends how long the current video was watched, so the account's history shows progress. */
@@ -414,16 +433,22 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         item: MediaItemModel,
         startInVideoMode: Boolean = false,
         isRetry: Boolean = false,
-        startPositionMs: Long = 0L
+        requestedPositionMs: Long = 0L
     ) {
         if (!::exoPlayer.isInitialized) return
+        if (!isRetry) saveCurrentPosition()
+        // A video left part way resumes there, like YouTube; music and Shorts start over.
+        val startPositionMs = if (requestedPositionMs == 0L && !isRetry && !musicSession && resumable(item)) {
+            com.nexusstream.app.data.WatchPositions.resumeAt(item.id)
+        } else requestedPositionMs
 
         loadJob?.cancel()
         currentResolved = null
         if (!isRetry) {
             retryCount = 0
             usingMuxedFallback = false
-            dashDisabled = false
+            // Shorts are short: progressive streams start sooner and match what was precached.
+            dashDisabled = item.isShort
             reportWatchtimeOfCurrent()
             currentLoudnessDb = null
             currentExtras = null
@@ -519,6 +544,44 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         }
     }
 
+    /** Video height and audio kbps caps. Data saver caps video at 480p and audio at 96 kbps unless the user pinned a lower quality. */
+    private fun qualityCaps(): Pair<Int?, Int?> {
+        val saver = AppSettings.dataSaver.value
+        val wanted = preferredVideoHeight ?: networkDefaultHeight()
+        val heightCap = if (saver) minOf(wanted ?: 480, 480) else wanted
+        val audioCap = if (saver && preferredAudioKbps == null) 96 else preferredAudioKbps
+        return heightCap to audioCap
+    }
+
+    /**
+     * Downloads the first seconds of a short that is coming up into the playback cache, so it
+     * starts the moment it is swiped to. Shorts play the progressive streams (not DASH), so the
+     * cached bytes are exactly the ones the player asks for.
+     */
+    fun precacheShort(watchUrl: String) {
+        if (!::exoPlayer.isInitialized || watchUrl.isBlank()) return
+        if (!precaching.add(watchUrl)) return
+        precacheScope.launch {
+            try {
+                val resolved = YouTubeRepository.prefetchedStream(watchUrl) ?: return@launch
+                val (heightCap, audioCap) = qualityCaps()
+                val targets = listOfNotNull(
+                    resolved.pickVideo(heightCap)?.url?.let { it to PRECACHE_VIDEO_BYTES },
+                    resolved.pickAudio(audioCap, preferredAudioTrackId)?.url?.let { it to PRECACHE_AUDIO_BYTES }
+                )
+                for ((url, bytes) in targets) {
+                    val source = adBlockPipeline.createStreamingDataSourceFactory().createDataSource()
+                        as? androidx.media3.datasource.cache.CacheDataSource ?: return@launch
+                    val spec = androidx.media3.datasource.DataSpec.Builder().setUri(Uri.parse(url)).setPosition(0).setLength(bytes).build()
+                    runCatching { androidx.media3.datasource.cache.CacheWriter(source, spec, null, null).cache() }
+                        .onFailure { Log.d(TAG, "Precache skipped: ${it.message}") }
+                }
+            } finally {
+                if (precaching.size > 20) precaching.clear()
+            }
+        }
+    }
+
     /** Builds and starts the merged video + audio source for the preferred qualities. */
     private fun applyResolved(
         item: MediaItemModel,
@@ -539,11 +602,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             return
         }
 
-        // Data saver caps video at 480p and audio at 96 kbps unless the user pinned a lower quality.
-        val saver = AppSettings.dataSaver.value
-        val wanted = preferredVideoHeight ?: networkDefaultHeight()
-        val heightCap = if (saver) minOf(wanted ?: 480, 480) else wanted
-        val audioCap = if (saver && preferredAudioKbps == null) 96 else preferredAudioKbps
+        val (heightCap, audioCap) = qualityCaps()
         val audio = resolved.pickAudio(audioCap, preferredAudioTrackId) ?: return
         val video = resolved.pickVideo(heightCap)
 
@@ -889,6 +948,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
     /** Stops playback, clears the queue and removes the notification (the "close video" action). */
     fun closePlayback() {
+        saveCurrentPosition()
         reportWatchtimeOfCurrent()
         loadJob?.cancel()
         sleepJob?.cancel()
@@ -1017,6 +1077,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
             (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING)
         if (playing != _playbackState.value.isPlaying) {
+            if (!playing && player.playbackState != Player.STATE_ENDED) saveCurrentPosition()
             _playbackState.value = _playbackState.value.copy(isPlaying = playing)
             updateForegroundNotification()
         }
@@ -1125,7 +1186,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
                         current,
                         startInVideoMode = currentMode == PlaybackMode.VIDEO,
                         isRetry = true,
-                        startPositionMs = exoPlayer.currentPosition
+                        requestedPositionMs = exoPlayer.currentPosition
                     )
                 } else {
                     exoPlayer.prepare()
@@ -1147,9 +1208,12 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
     private fun startPositionTrackingLoop() {
         serviceScope.launch {
+            var ticks = 0
             while (true) {
                 try {
                     if (::exoPlayer.isInitialized && exoPlayer.isPlaying) {
+                        // Every 10 s, so the place is kept even if the app is killed mid-video.
+                        if (++ticks % 50 == 0) saveCurrentPosition()
                         val currentPos = exoPlayer.currentPosition.coerceAtLeast(0L)
                         val bufferedPos = exoPlayer.bufferedPosition.coerceAtLeast(0L)
                         val playerDur = exoPlayer.duration
@@ -1284,6 +1348,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     override fun onDestroy() {
         unregisterBecomingNoisyReceiver()
         serviceScope.cancel()
+        precacheScope.cancel()
         try {
             loudnessEnhancer?.release()
             loudnessEnhancer = null

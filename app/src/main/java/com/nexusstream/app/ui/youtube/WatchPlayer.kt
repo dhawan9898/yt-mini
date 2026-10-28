@@ -109,6 +109,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.data.Storyboard
+import com.nexusstream.app.data.Chapter
 import com.nexusstream.app.data.watchUrl
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.media.PlaybackState
@@ -146,6 +147,8 @@ fun WatchPlayerViewport(
     bottomBar: (@Composable () -> Unit)? = null,
     /** "Most replayed" graph: drawn over the seek bar while scrubbing, and where Jump ahead skips to. */
     heatmap: List<WatchExtras.HeatPoint> = emptyList(),
+    /** Chapters: gaps in the seek bar and the current chapter's title next to the time. */
+    chapters: List<Chapter> = emptyList(),
     /** End screen tiles and info cards of this video. */
     extras: InnerTube.PlayerExtras? = null,
     onOpenEndScreen: (WatchExtras.EndScreenElement) -> Unit = {},
@@ -364,6 +367,7 @@ fun WatchPlayerViewport(
                     onOpenSettings = onOpenSettings,
                     storyboard = storyboard,
                     heatmap = heatmap,
+                    chapters = chapters,
                     onLock = { locked = true; controlsVisible = false; showUnlock = true },
                     onHud = { hud = it },
                     topActions = topActions,
@@ -495,6 +499,7 @@ private fun WatchControls(
     onOpenSettings: () -> Unit,
     storyboard: Storyboard?,
     heatmap: List<WatchExtras.HeatPoint>,
+    chapters: List<Chapter>,
     onLock: () -> Unit,
     onHud: (String?) -> Unit,
     topActions: @Composable RowScope.() -> Unit,
@@ -624,6 +629,18 @@ private fun WatchControls(
                     fontWeight = FontWeight.Medium,
                     color = Color.White
                 )
+                // The chapter under the playhead (or under the finger while scrubbing), like YouTube.
+                chapters.lastOrNull { it.startMs <= shownMs }?.let { chapter ->
+                    Text(
+                        text = "  •  ${chapter.title}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = { onTouched(); onToggleFullscreen() }, modifier = Modifier.size(40.dp)) {
                     Icon(
@@ -645,6 +662,9 @@ private fun WatchControls(
             }
             YouTubeSeekBar(
                 fraction = fraction,
+                chapterStarts = remember(chapters, duration) {
+                    chapters.map { it.startMs.toFloat() / duration }.filter { it > 0f && it < 1f }
+                },
                 onPrecise = { precise -> onHud(if (precise) "Precise seeking" else null) },
                 bufferedFraction = (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f),
                 onScrub = {
@@ -727,6 +747,7 @@ fun FullscreenWatchLayout(
     modifier: Modifier = Modifier,
     storyboard: Storyboard? = null,
     heatmap: List<WatchExtras.HeatPoint> = emptyList(),
+    chapters: List<Chapter> = emptyList(),
     extras: InnerTube.PlayerExtras? = null,
     onOpenEndScreen: (WatchExtras.EndScreenElement) -> Unit = {},
     onOpenCard: (WatchExtras.InfoCard) -> Unit = {}
@@ -754,6 +775,7 @@ fun FullscreenWatchLayout(
             modifier = Modifier.fillMaxSize(),
             storyboard = storyboard,
             heatmap = heatmap,
+            chapters = chapters,
             extras = extras,
             onOpenEndScreen = onOpenEndScreen,
             onOpenCard = onOpenCard,
@@ -851,6 +873,8 @@ private fun YouTubeSeekBar(
     onScrub: (Float) -> Unit,
     onScrubEnd: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Where chapters start (0..1): the bar is split into segments with small gaps there. */
+    chapterStarts: List<Float> = emptyList(),
     /** Precise seeking: sliding the finger up off the bar makes it move ten times finer. */
     onPrecise: (Boolean) -> Unit = {}
 ) {
@@ -897,9 +921,26 @@ private fun YouTubeSeekBar(
         val trackHeight = (if (scrubbing) 4.dp else 3.dp).toPx()
         val radius = androidx.compose.ui.geometry.CornerRadius(trackHeight / 2f)
         val top = androidx.compose.ui.geometry.Offset(0f, cy - trackHeight / 2f)
-        drawRoundRect(Color.White.copy(alpha = 0.3f), top, androidx.compose.ui.geometry.Size(size.width, trackHeight), radius)
-        drawRoundRect(Color.White.copy(alpha = 0.5f), top, androidx.compose.ui.geometry.Size(size.width * bufferedFraction, trackHeight), radius)
-        drawRoundRect(OriginalColors.Red, top, androidx.compose.ui.geometry.Size(size.width * fraction, trackHeight), radius)
+        // Each layer (track, buffered, played) is drawn segment by segment, leaving a gap at every chapter start.
+        val gap = if (chapterStarts.isEmpty()) 0f else 2.dp.toPx()
+        val edges = listOf(0f) + chapterStarts + 1f
+        fun layer(color: Color, upTo: Float) {
+            for (i in 0 until edges.size - 1) {
+                val start = edges[i] * size.width + if (i > 0) gap / 2f else 0f
+                val segmentEnd = edges[i + 1] * size.width - if (i < edges.size - 2) gap / 2f else 0f
+                val end = minOf(segmentEnd, upTo * size.width)
+                if (end <= start) break
+                drawRoundRect(
+                    color,
+                    androidx.compose.ui.geometry.Offset(start, top.y),
+                    androidx.compose.ui.geometry.Size(end - start, trackHeight),
+                    radius
+                )
+            }
+        }
+        layer(Color.White.copy(alpha = 0.3f), 1f)
+        layer(Color.White.copy(alpha = 0.5f), bufferedFraction)
+        layer(OriginalColors.Red, fraction)
         drawCircle(OriginalColors.Red, thumb.toPx() / 2f, androidx.compose.ui.geometry.Offset(size.width * fraction, cy))
     }
 }

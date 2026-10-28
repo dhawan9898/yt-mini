@@ -96,7 +96,8 @@ jobs:
             - YT Music artists, albums, library, timed lyrics and smart downloads.
             - Android Auto, home screen widgets, app shortcuts, voice search and tablet side navigation.
             - Link with TV code, Your clips, Your movies and Time watched.
-            - Shorts: recommended Shorts, the next few load ahead, and your place is kept until the app is closed.
+            - Shorts: recommended Shorts, the next ones start instantly (their first seconds download ahead), and your place is kept until the app is closed.
+            - Videos resume where you left off, with a red progress bar on thumbnails, and chapters show on the seek bar.
             - Tap the Premium logo at the top to switch to YT Music (and the Music logo to switch back).
 
             ### What's inside
@@ -106,6 +107,10 @@ jobs:
             - Notifications for new uploads, reminders, picture-in-picture and Google Cast.
             - Light and dark themes, tablet layouts, and a Settings screen.
             - Signed with a fixed key, so each build installs over the previous one.
+
+            ### Not in this release
+            - Super Thanks, Remix, Hum to search, the Samples tab, Clip and Report.
+            - Video upload is hidden for now.
 
             Built automatically by CI/CD on commit `${{ github.sha }}`.
           files: |
