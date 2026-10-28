@@ -8,6 +8,20 @@ import org.junit.Test
 class LyricsAndDislikeTest {
 
     @Test
+    fun parsesEnhancedLrcWordTimings() {
+        val line = LyricsRepository.parseLrc("[00:12.00] <00:12.00> Hello <00:12.50> big <00:13.00> world <00:14.00>\n[00:20.00] Next").first()
+        assertEquals("Hello big world", line.text)
+        assertEquals(listOf("Hello", "big", "world"), line.words.map { it.word })
+        assertEquals(listOf(12_000L, 12_500L, 13_000L), line.words.map { it.startTimeMs })
+        assertEquals(listOf(12_500L, 13_000L, 14_000L), line.words.map { it.endTimeMs })
+    }
+
+    @Test
+    fun plainLrcLinesHaveNoWords() {
+        assertTrue(LyricsRepository.parseLrc("[00:01.00] Just a line").single().words.isEmpty())
+    }
+
+    @Test
     fun parsesLrcWithEndTimesFromTheNextLine() {
         val lines = LyricsRepository.parseLrc("[00:01.50] First\n[00:05.00] Second\n[01:02.345] Third")
         assertEquals(listOf("First", "Second", "Third"), lines.map { it.text })

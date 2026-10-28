@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -28,8 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,7 +36,6 @@ import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
@@ -61,14 +59,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.nexusstream.app.cast.CastEffect
 import com.nexusstream.app.cast.CastButton
-import kotlinx.coroutines.launch
 import com.nexusstream.app.ui.components.toFeedState
 import com.nexusstream.app.ui.components.FeedState
-import com.nexusstream.app.model.LyricLine
-import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.data.YouTubeRepository
+import com.nexusstream.app.data.YTMusicApi
 import com.nexusstream.app.data.LyricsRepository
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,24 +102,25 @@ private enum class PlayerPanel { NONE, UP_NEXT, LYRICS, RELATED }
 fun MusicPlayerScreen(
     playbackService: MediaPlaybackService,
     onCollapse: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenPlaylist: (url: String, title: String) -> Unit = { _, _ -> },
+    onOpenArtist: (url: String, name: String, avatarUrl: String) -> Unit = { _, _, _ -> }
 ) {
     val state by playbackService.playbackState.collectAsState()
     val item = state.currentItem ?: return
     var panel by remember { mutableStateOf(PlayerPanel.NONE) }
     var showOptions by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    // Lyrics are looked up the first time the Lyrics tab is opened for a song.
-    var lyrics by remember(item.id) { mutableStateOf<FeedState<List<LyricLine>>?>(null) }
-    var related by remember(item.id) { mutableStateOf<FeedState<List<MediaItemModel>>?>(null) }
+    // Lyrics and Related are looked up the first time their tab is opened for a song.
+    var lyrics by remember(item.id) { mutableStateOf<FeedState<LyricsRepository.Lyrics>?>(null) }
+    var related by remember(item.id) { mutableStateOf<FeedState<List<YTMusicApi.Section>>?>(null) }
     LaunchedEffect(panel, item.id) {
         if (panel == PlayerPanel.LYRICS && lyrics == null) {
             lyrics = FeedState.Loading
-            lyrics = LyricsRepository.fetch(item.title, item.artistOrChannel).toFeedState()
+            lyrics = LyricsRepository.fetch(item.title, item.artistOrChannel, item.durationMs, item.id).toFeedState()
         }
         if (panel == PlayerPanel.RELATED && related == null) {
             related = FeedState.Loading
-            related = YouTubeRepository.radio(item).toFeedState()
+            related = YouTubeRepository.musicRelated(item).toFeedState()
         }
     }
     val savedItems by LibraryRepository.liked.collectAsState()
@@ -204,34 +200,34 @@ fun MusicPlayerScreen(
                 .fillMaxWidth()
         ) {
             when (panel) {
-                PlayerPanel.UP_NEXT -> UpNextList(
+                PlayerPanel.UP_NEXT -> UpNextPanel(
                     queue = state.queue,
                     currentIndex = state.queueIndex,
+                    autoplay = state.autoplayNext,
                     onSelect = { index ->
                         playbackService.playQueue(
                             state.queue, index,
                             startInVideoMode = state.playbackMode == PlaybackMode.VIDEO
                         )
                     },
-                    onStartRadio = {
-                        scope.launch {
-                            YouTubeRepository.radio(item).onSuccess { related -> playbackService.setUpNext(related) }
-                        }
-                    }
+                    onMove = { from, to -> playbackService.moveQueueItem(from, to) },
+                    onRemove = { index -> playbackService.removeQueueItem(index) },
+                    onAutoplayChange = { playbackService.setAutoplayNext(it) },
+                    onStartRadio = { playbackService.startRadio() }
                 )
                 PlayerPanel.LYRICS -> when (val l = lyrics) {
                     null, is FeedState.Loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
                     }
                     is FeedState.Error -> LyricsPanel(
-                        lyrics = emptyList(),
+                        lyrics = LyricsRepository.Lyrics(emptyList()),
                         message = "Couldn't load lyrics (${l.message})",
                         currentPositionMs = state.currentPositionMs,
                         onSeek = {}
                     )
                     is FeedState.Data -> LyricsPanel(
                         lyrics = l.value,
-                        message = "No synced lyrics found for this song",
+                        message = "Lyrics aren't available for this song",
                         currentPositionMs = state.currentPositionMs,
                         onSeek = { playbackService.seekTo(it) }
                     )
@@ -241,17 +237,18 @@ fun MusicPlayerScreen(
                         CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
                     }
                     is FeedState.Error -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Couldn't load related tracks (${r.message})", color = DarkPalette.textSecondary, fontSize = 13.sp)
+                        Text("Couldn't load related music (${r.message})", color = DarkPalette.textSecondary, fontSize = 13.sp)
                     }
                     is FeedState.Data -> RelatedPanel(
-                        tracks = r.value,
-                        onSelectTrack = { selected ->
+                        sections = r.value,
+                        onPlay = { tracks, index ->
                             playbackService.playQueue(
-                                r.value,
-                                r.value.indexOf(selected).coerceAtLeast(0),
+                                tracks, index,
                                 startInVideoMode = state.playbackMode == PlaybackMode.VIDEO
                             )
-                        }
+                        },
+                        onOpenPlaylist = onOpenPlaylist,
+                        onOpenArtist = onOpenArtist
                     )
                 }
                 PlayerPanel.NONE -> Column(
@@ -538,73 +535,38 @@ private fun PanelTab(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun UpNextList(
-    queue: List<com.nexusstream.app.model.MediaItemModel>,
-    currentIndex: Int,
-    onSelect: (Int) -> Unit,
-    onStartRadio: () -> Unit
-) {
-    LazyColumn(
-        contentPadding = PaddingValues(vertical = 8.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        item(key = "start_radio") {
-            Text(
-                text = "Start radio from this song",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFF3EA6FF),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onStartRadio)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            )
-        }
-        itemsIndexed(queue, key = { index, q -> "q_${index}_${q.id}" }) { index, q ->
-            val isCurrent = index == currentIndex
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(if (isCurrent) Color.White.copy(alpha = 0.12f) else Color.Transparent)
-                    .clickable { onSelect(index) }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(q.dominantColor)
-                ) {
-                    if (q.artworkUrl.isNotEmpty()) {
-                        AsyncImage(
-                            model = q.artworkUrl,
-                            contentDescription = q.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(q.title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(q.artistOrChannel, fontSize = 12.sp, color = DarkPalette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(formatTime(q.durationMs), fontSize = 12.sp, color = DarkPalette.textSecondary)
-            }
-        }
-    }
-}
-
-@Composable
 private fun LyricsPanel(
-    lyrics: List<com.nexusstream.app.model.LyricLine>,
+    lyrics: LyricsRepository.Lyrics,
     message: String,
     currentPositionMs: Long,
     onSeek: (Long) -> Unit
 ) {
-    if (lyrics.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    when {
+        lyrics.lines.isNotEmpty() -> LyricsView(
+            lyrics = lyrics.lines,
+            currentPositionMs = currentPositionMs,
+            onSeekToTimestamp = onSeek
+        )
+        lyrics.plain.isNotBlank() -> Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+        ) {
+            // Unsynced lyrics, shown as YouTube Music shows them: plain text with the source below.
+            Text(
+                text = lyrics.plain,
+                fontSize = 18.sp,
+                lineHeight = 28.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
+            if (lyrics.source.isNotBlank()) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(lyrics.source, fontSize = 12.sp, color = DarkPalette.textSecondary)
+            }
+        }
+        else -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = message,
                 fontSize = 14.sp,
@@ -612,87 +574,10 @@ private fun LyricsPanel(
                 textAlign = TextAlign.Center
             )
         }
-    } else {
-        LyricsView(
-            lyrics = lyrics,
-            currentPositionMs = currentPositionMs,
-            onSeekToTimestamp = onSeek
-        )
     }
 }
 
 private fun formatTime(ms: Long): String {
     val total = (ms / 1000).coerceAtLeast(0)
     return "%d:%02d".format(total / 60, total % 60)
-}
-
-@Composable
-private fun RelatedPanel(
-    tracks: List<MediaItemModel>,
-    onSelectTrack: (MediaItemModel) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item {
-            Text(
-                text = "You Might Also Like",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-        }
-        itemsIndexed(tracks) { _, track ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onSelectTrack(track) }
-                    .padding(vertical = 6.dp, horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF222222))
-                ) {
-                    if (track.artworkUrl.isNotEmpty()) {
-                        AsyncImage(
-                            model = track.artworkUrl,
-                            contentDescription = track.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = track.title,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = track.artistOrChannel,
-                        fontSize = 12.sp,
-                        color = DarkPalette.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                IconButton(onClick = { onSelectTrack(track) }) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = Color.White)
-                }
-            }
-        }
-    }
 }

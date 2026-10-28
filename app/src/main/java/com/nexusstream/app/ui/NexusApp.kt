@@ -316,7 +316,9 @@ fun NexusApp() {
                                 if (activeService != null) {
                                     MusicPlayerScreen(
                                         playbackService = activeService,
-                                        onCollapse = { currentScreen = AppScreen.HOME }
+                                        onCollapse = { currentScreen = AppScreen.HOME },
+                                        onOpenPlaylist = nav.openMusicPlaylist,
+                                        onOpenArtist = nav.openMusicChannel
                                     )
                                 }
                             }

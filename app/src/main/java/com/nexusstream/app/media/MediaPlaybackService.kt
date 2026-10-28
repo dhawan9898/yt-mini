@@ -40,6 +40,7 @@ import com.nexusstream.app.data.SubtitleOption
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
+import com.nexusstream.app.model.MediaContentType
 import com.nexusstream.app.model.StreamRepeatMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -115,6 +116,11 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private var sleepJob: Job? = null
     /** Related videos to continue with when the queue runs out (set by the watch page). */
     private var autoplayQueue: List<MediaItemModel> = emptyList()
+    /** True while the queue was started from the music player (not the video watch page). */
+    private var musicSession = false
+    /** Token for the next page of the YT Music radio feeding the queue (null: start one from the last track). */
+    private var radioContinuation: String? = null
+    private var radioJob: Job? = null
 
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var mediaSession: MediaSession
@@ -140,6 +146,8 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     companion object {
         private const val TAG = "MediaPlaybackService"
+        /** Fetch more radio once this few tracks are left in Up next. */
+        private const val RADIO_LOW_WATER = 2
         const val NOTIFICATION_CHANNEL_ID = "nexus_stream_playback_channel"
         const val NOTIFICATION_ID = 1001
         const val ACTION_PLAY = "com.nexusstream.action.PLAY"
@@ -323,6 +331,10 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         val validIndex = startIndex.coerceIn(0, items.lastIndex)
         // Related-video autoplay belongs to the video watch page, never to music playback.
         if (!startInVideoMode) autoplayQueue = emptyList()
+        // The music player can show a song as video too, so music tracks count whatever the mode.
+        musicSession = !startInVideoMode || items[validIndex].contentType == MediaContentType.MUSIC_TRACK
+        radioContinuation = null
+        radioJob?.cancel()
 
         _playbackState.value = _playbackState.value.copy(
             queue = items,
@@ -385,6 +397,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         )
         updateForegroundNotification()
         _playbackState.value = _playbackState.value.copy(isResolving = false)
+        if (!isRetry) extendRadioIfNeeded()
 
         if (item.sourceUrl.isEmpty()) {
             // Item already carries direct URLs.
@@ -557,14 +570,78 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     }
 
     /** Replaces everything after the current item in the queue (used by "Start radio"). */
-    fun setUpNext(items: List<MediaItemModel>) {
+    fun setUpNext(items: List<MediaItemModel>, continuation: String? = null) {
         val state = _playbackState.value
         val current = state.currentItem ?: return
         val head = state.queue.take(state.queueIndex + 1).ifEmpty { listOf(current) }
+        radioJob?.cancel()
+        radioContinuation = continuation
         _playbackState.value = state.copy(
             queue = head + items.filter { it.id != current.id },
             queueIndex = head.lastIndex
         )
+    }
+
+    /** "Start radio": replaces Up next with the YT Music radio for the current track. */
+    fun startRadio() {
+        val current = _playbackState.value.currentItem ?: return
+        radioJob?.cancel()
+        radioJob = serviceScope.launch {
+            YouTubeRepository.startRadio(current).onSuccess { radio ->
+                if (_playbackState.value.currentItem?.id == current.id) setUpNext(radio.tracks, radio.continuation)
+            }
+        }
+    }
+
+    /** Moves a queue entry (Up next drag and drop), keeping the playing track playing. */
+    fun moveQueueItem(from: Int, to: Int) {
+        val state = _playbackState.value
+        if (from !in state.queue.indices || to !in state.queue.indices || from == to) return
+        val queue = state.queue.toMutableList()
+        queue.add(to, queue.removeAt(from))
+        val playing = state.queueIndex
+        val newIndex = when {
+            from == playing -> to
+            from < playing && to >= playing -> playing - 1
+            from > playing && to <= playing -> playing + 1
+            else -> playing
+        }
+        _playbackState.value = state.copy(queue = queue, queueIndex = newIndex)
+    }
+
+    /** Removes a queue entry (Up next swipe). The playing track cannot be removed. */
+    fun removeQueueItem(index: Int) {
+        val state = _playbackState.value
+        if (index !in state.queue.indices || index == state.queueIndex) return
+        val queue = state.queue.toMutableList().apply { removeAt(index) }
+        _playbackState.value = state.copy(
+            queue = queue,
+            queueIndex = if (index < state.queueIndex) state.queueIndex - 1 else state.queueIndex
+        )
+    }
+
+    /**
+     * Endless music radio: when autoplay is on and Up next is almost empty, appends the next page of
+     * the YT Music radio (or a new radio seeded by the last track).
+     */
+    private fun extendRadioIfNeeded() {
+        val state = _playbackState.value
+        if (!musicSession || !state.autoplayNext || state.repeatMode != StreamRepeatMode.OFF) return
+        if (state.queue.size - state.queueIndex - 1 > RADIO_LOW_WATER) return
+        if (radioJob?.isActive == true) return
+        val seed = state.queue.lastOrNull() ?: return
+        val continuation = radioContinuation
+        radioJob = serviceScope.launch {
+            val radio = if (continuation != null) YouTubeRepository.moreRadio(continuation)
+            else YouTubeRepository.startRadio(seed)
+            radio.onSuccess { page ->
+                val now = _playbackState.value
+                if (!musicSession) return@onSuccess
+                val fresh = page.tracks.filter { t -> now.queue.none { it.id == t.id } }
+                radioContinuation = page.continuation
+                if (fresh.isNotEmpty()) _playbackState.value = now.copy(queue = now.queue + fresh)
+            }
+        }
     }
 
     /** Related videos to play when the queue runs out (ignored when autoplay is off). */
@@ -578,6 +655,9 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         sleepJob?.cancel()
         currentResolved = null
         autoplayQueue = emptyList()
+        radioJob?.cancel()
+        musicSession = false
+        radioContinuation = null
         if (::exoPlayer.isInitialized) {
             exoPlayer.stop()
             exoPlayer.clearMediaItems()

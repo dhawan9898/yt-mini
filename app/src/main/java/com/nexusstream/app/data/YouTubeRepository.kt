@@ -451,15 +451,67 @@ object YouTubeRepository {
             .mapNotNull { toModel(it, false, info.name, avatar, canonical)?.copy(isShort = true) }
     }
 
+    /** A radio queue plus the token for its next page (null when it cannot be extended). */
+    class Radio(val tracks: List<MediaItemModel>, val continuation: String?)
+
+    // YT Music's `next` answer for a track, shared by the UP NEXT, LYRICS and RELATED tabs.
+    private val musicWatchCache = java.util.concurrent.ConcurrentHashMap<String, YTMusicApi.WatchInfo>()
+
+    private fun musicWatch(videoId: String): YTMusicApi.WatchInfo =
+        musicWatchCache[videoId] ?: YTMusicApi.watch(videoId).also {
+            if (musicWatchCache.size > 50) musicWatchCache.clear()
+            musicWatchCache[videoId] = it
+        }
+
     /** "Start radio": songs related to [item], for a music queue. */
-    suspend fun radio(item: MediaItemModel): Result<List<MediaItemModel>> = io {
+    suspend fun radio(item: MediaItemModel): Result<List<MediaItemModel>> = startRadio(item).map { it.tracks }
+
+    /**
+     * The official YT Music radio for [item] ("RDAMVM" + id), falling back to the YouTube radio and
+     * then to the watch page's related videos.
+     */
+    suspend fun startRadio(item: MediaItemModel): Result<Radio> = io {
+        val music = runCatching { musicWatch(item.id) }.getOrNull()
+        val musicTracks = music?.queue.orEmpty().filter { it.id != item.id }
+        if (musicTracks.isNotEmpty()) return@io Radio(musicTracks.map(::withColors), music?.continuation)
         val innerTubeRadio = runCatching { InnerTube.radio(item.id).items }.getOrNull().orEmpty()
         if (innerTubeRadio.isNotEmpty()) {
-            return@io innerTubeRadio
+            return@io Radio(innerTubeRadio.filter { it.id != item.id }, null)
         }
         val related = details(item.watchUrlOrSource()).getOrThrow().related
-        related.map { it.copy(contentType = MediaContentType.MUSIC_TRACK) }
-            .also { check(it.isNotEmpty()) { "No related songs found" } }
+        Radio(related.map { it.copy(contentType = MediaContentType.MUSIC_TRACK) }, null)
+            .also { check(it.tracks.isNotEmpty()) { "No related songs found" } }
+    }
+
+    /** The next page of a radio started with [startRadio]. */
+    suspend fun moreRadio(continuation: String): Result<Radio> = io {
+        val page = YTMusicApi.moreRadio(continuation)
+        Radio(page.items.map(::withColors), page.continuation)
+    }
+
+    /** The RELATED tab: YT Music's shelves for [item], or its radio as a single shelf when unavailable. */
+    suspend fun musicRelated(item: MediaItemModel): Result<List<YTMusicApi.Section>> = io {
+        val sections = runCatching {
+            musicWatch(item.id).relatedBrowseId?.let { YTMusicApi.related(it) }
+        }.getOrNull().orEmpty().map { section ->
+            section.copy(cards = section.cards.map { card -> card.copy(track = card.track?.let(::withColors)) })
+        }
+        sections.ifEmpty {
+            val tracks = radio(item).getOrThrow()
+            listOf(YTMusicApi.Section("You might also like", tracks.map {
+                YTMusicApi.Card(YTMusicApi.CardKind.SONG, it.title, it.artistOrChannel, it.artworkUrl, track = it)
+            }, isSongList = true))
+        }
+    }
+
+    /** YT Music's own (unsynced) lyrics for [videoId], or null when it has none. */
+    fun musicLyrics(videoId: String): YTMusicApi.PlainLyrics? = runCatching {
+        musicWatch(videoId).lyricsBrowseId?.let { YTMusicApi.lyrics(it) }
+    }.getOrNull()
+
+    private fun withColors(item: MediaItemModel): MediaItemModel {
+        val (primary, secondary) = colorsFor(item.id)
+        return item.copy(dominantColor = primary, secondaryColor = secondary)
     }
 
     private fun MediaItemModel.watchUrlOrSource(): String = sourceUrl.ifEmpty { "https://www.youtube.com/watch?v=$id" }

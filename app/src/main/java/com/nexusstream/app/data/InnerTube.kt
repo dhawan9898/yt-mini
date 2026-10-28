@@ -123,11 +123,25 @@ object InnerTube {
 
     private fun browseRaw(extra: JSONObject): JSONObject = postEndpoint(ENDPOINT, extra)
 
-    private fun postEndpoint(endpoint: String, extra: JSONObject): JSONObject {
+    private fun postEndpoint(endpoint: String, extra: JSONObject): JSONObject =
+        post(endpoint, extra, ORIGIN, "WEB", "1", CLIENT_VERSION)
+
+    /**
+     * POSTs an InnerTube request as the given web client. Shared with [YTMusicApi], which talks to
+     * music.youtube.com as the WEB_REMIX client.
+     */
+    internal fun post(
+        endpoint: String,
+        extra: JSONObject,
+        origin: String,
+        clientName: String,
+        clientNameId: String,
+        clientVersion: String
+    ): JSONObject {
         val body = JSONObject().apply {
             put("context", JSONObject().put("client", JSONObject()
-                .put("clientName", "WEB")
-                .put("clientVersion", CLIENT_VERSION)
+                .put("clientName", clientName)
+                .put("clientVersion", clientVersion)
                 .put("hl", "en")
                 .put("gl", AppSettings.contentCountry.value.ifBlank { "US" })))
             extra.keys().forEach { put(it, extra.get(it)) }
@@ -136,14 +150,14 @@ object InnerTube {
             .url(endpoint)
             .post(body.toString().toRequestBody(JSON))
             .header("User-Agent", NewPipeDownloader.USER_AGENT)
-            .header("Origin", ORIGIN)
-            .header("X-Origin", ORIGIN)
+            .header("Origin", origin)
+            .header("X-Origin", origin)
             .header("Content-Type", "application/json")
-            builder.header("X-Youtube-Client-Name", "1")
-            builder.header("X-Youtube-Client-Version", CLIENT_VERSION)
-        GoogleAccount.cookieHeaderFor(ORIGIN)?.let { cookies ->
+            builder.header("X-Youtube-Client-Name", clientNameId)
+            builder.header("X-Youtube-Client-Version", clientVersion)
+        GoogleAccount.cookieHeaderFor(origin)?.let { cookies ->
             builder.header("Cookie", cookies)
-            sapisidHash(cookies)?.let { builder.header("Authorization", it) }
+            sapisidHash(cookies, origin = origin)?.let { builder.header("Authorization", it) }
             builder.header("X-Goog-AuthUser", "0")
             builder.header("X-Youtube-Bootstrap-Logged-In", "true")
         }
@@ -154,11 +168,15 @@ object InnerTube {
     }
 
     /** `SAPISIDHASH <ts>_<sha1(ts + " " + SAPISID + " " + origin)>`, as the website sends it. */
-    internal fun sapisidHash(cookieHeader: String, nowSeconds: Long = System.currentTimeMillis() / 1000): String? {
+    internal fun sapisidHash(
+        cookieHeader: String,
+        nowSeconds: Long = System.currentTimeMillis() / 1000,
+        origin: String = ORIGIN
+    ): String? {
         val sapisid = cookieHeader.split(';').map { it.trim() }
             .firstOrNull { it.startsWith("SAPISID=") || it.startsWith("__Secure-3PAPISID=") }
             ?.substringAfter('=') ?: return null
-        val digest = MessageDigest.getInstance("SHA-1").digest("$nowSeconds $sapisid $ORIGIN".toByteArray())
+        val digest = MessageDigest.getInstance("SHA-1").digest("$nowSeconds $sapisid $origin".toByteArray())
         return "SAPISIDHASH ${nowSeconds}_" + digest.joinToString("") { "%02x".format(it) }
     }
 
@@ -189,7 +207,7 @@ object InnerTube {
         return Page(items.distinctBy { it.id }, continuation)
     }
 
-    private fun text(node: JSONObject?): String {
+    internal fun text(node: JSONObject?): String {
         node ?: return ""
         node.optString("simpleText").takeIf { it.isNotEmpty() }?.let { return it }
         val runs = node.optJSONArray("runs") ?: return ""
@@ -320,13 +338,13 @@ object InnerTube {
         isLive = live
     )
 
-    private fun lastThumbnail(node: JSONObject?): String {
+    internal fun lastThumbnail(node: JSONObject?): String {
         val list = node?.optJSONArray("thumbnails") ?: return ""
         return list.optJSONObject(list.length() - 1)?.optString("url").orEmpty()
             .let { if (it.startsWith("//")) "https:$it" else it }
     }
 
-    private fun parseDuration(text: String): Long {
+    internal fun parseDuration(text: String): Long {
         val clean = text.trim()
         if (clean.isEmpty()) return 0L
         val match = DURATION.find(clean)?.value ?: return 0L
