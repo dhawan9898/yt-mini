@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.LocalChromePadding
+import com.nexusstream.app.ui.theme.plus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -96,17 +98,18 @@ fun PlaylistScreen(
         }
     }
 
-    PageScaffold(title = route.title, onBack = nav.back, miniPlayer = miniPlayer, music = route.music) {
+    PageScaffold(title = route.title, onBack = nav.back, miniPlayer = miniPlayer, music = route.music, scrollsUnderChrome = true) {
+        val chrome = LocalChromePadding.current
         when (val state = page) {
-            is FeedState.Loading -> OriginalLoading()
-            is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
+            is FeedState.Loading -> OriginalLoading(Modifier.padding(chrome))
+            is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ }, modifier = Modifier.padding(chrome))
             is FeedState.Data -> {
                 if (videos.isEmpty()) {
-                    OriginalEmptyState("Empty playlist", "There are no playable videos in this playlist.")
+                    OriginalEmptyState("Empty playlist", "There are no playable videos in this playlist.", Modifier.padding(chrome))
                 } else {
                     LazyColumn(
                         state = listState,
-                        contentPadding = PaddingValues(bottom = 12.dp),
+                        contentPadding = chrome.plus(bottom = 12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         item(key = "header") {

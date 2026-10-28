@@ -103,7 +103,13 @@ import com.nexusstream.app.model.PlaybackMode
 import com.nexusstream.app.ui.components.OriginalColors
 import com.nexusstream.app.ui.player.MusicPlayerScreen
 import com.nexusstream.app.ui.theme.NexusTheme
-import com.nexusstream.app.ui.theme.liquidGlassSurface
+import com.nexusstream.app.ui.theme.GlassMotion
+import com.nexusstream.app.ui.theme.GlassWindowBlur
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.graphics.graphicsLayer
 import com.nexusstream.app.ui.youtube.YouTubeHomeScreen
 import com.nexusstream.app.ui.youtube.VideoWatchScreen
 import com.nexusstream.app.ui.ytmusic.YTMusicHomeScreen
@@ -135,6 +141,10 @@ fun NexusApp() {
 
     // Pages (search, channel, playlist...) stacked above the YouTube home screen.
     val backStack = remember { mutableStateListOf<Route>() }
+    // The page sliding away after Back (it leaves the stack once its exit animation ends), and how
+    // far a predictive back gesture has pulled the top page (0..1).
+    var closingIndex by remember { mutableStateOf(-1) }
+    var backProgress by remember { mutableStateOf(0f) }
     val nav = remember {
         fun push(route: Route) {
             // Leave the watch / player screen so the page is visible (playback continues).
@@ -155,7 +165,18 @@ fun NexusApp() {
                 push(musicRouteFor(url, title)?.copy(fallback = fallback) ?: fallback ?: Route.Playlist(url, title, music = true))
             },
             open = { route -> push(route) },
-            back = { if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) }
+            back = back@{
+                if (backStack.isEmpty()) return@back
+                val top = backStack.lastIndex
+                if (closingIndex == top || currentScreen != AppScreen.HOME) {
+                    // Already sliding away (or not on screen): drop it right away.
+                    backStack.removeAt(top)
+                    closingIndex = -1
+                } else {
+                    if (closingIndex in 0 until top) backStack.removeAt(closingIndex)
+                    closingIndex = backStack.lastIndex
+                }
+            }
         )
     }
 
@@ -265,7 +286,15 @@ fun NexusApp() {
         currentItem?.takeIf { !it.isShort }?.let { LibraryRepository.recordPlayed(it) }
     }
 
-    BackHandler(enabled = backStack.isNotEmpty() && currentScreen == AppScreen.HOME) { nav.back() }
+    // Back slides the top page away; on Android 14+ it follows the back gesture, like iOS's edge swipe.
+    PredictiveBackHandler(enabled = backStack.isNotEmpty() && currentScreen == AppScreen.HOME) { progress ->
+        try {
+            progress.collect { backProgress = it.progress }
+            nav.back()
+        } finally {
+            backProgress = 0f
+        }
+    }
 
     val playVideo: (MediaItemModel, List<MediaItemModel>) -> Unit = { item, queue ->
         // Playlists play in order; everywhere else the video plays alone and then continues
@@ -353,7 +382,21 @@ fun NexusApp() {
                     AnimatedContent(
                         targetState = Pair(currentMode, currentScreen),
                         transitionSpec = {
-                            fadeIn(tween(220)) togetherWith fadeOut(tween(160))
+                            val from = initialState.second
+                            val to = targetState.second
+                            when {
+                                // The player rises from the mini player like an iOS sheet...
+                                from == AppScreen.HOME && to != AppScreen.HOME ->
+                                    (slideInVertically(GlassMotion.smooth()) { it / 3 } + fadeIn(tween(200)) + scaleIn(GlassMotion.smooth(), initialScale = 0.96f)) togetherWith
+                                        (fadeOut(tween(220)) + scaleOut(GlassMotion.smooth(), targetScale = 0.97f))
+                                // ...and sinks back into it.
+                                from != AppScreen.HOME && to == AppScreen.HOME ->
+                                    (fadeIn(tween(240)) + scaleIn(GlassMotion.smooth(), initialScale = 0.97f)) togetherWith
+                                        (slideOutVertically(GlassMotion.smooth()) { it / 3 } + fadeOut(tween(180)))
+                                // YouTube <-> YT Music: a soft cross-dissolve with a little depth.
+                                else -> (fadeIn(tween(260)) + scaleIn(GlassMotion.smooth(), initialScale = 0.985f)) togetherWith
+                                    fadeOut(tween(180))
+                            }
                         },
                         label = "AppScreenMorph"
                     ) { (mode, screen) ->
@@ -418,6 +461,16 @@ fun NexusApp() {
                     if (currentScreen == AppScreen.HOME) {
                         backStack.forEachIndexed { index, route ->
                             key(index, route) {
+                                PageTransition(
+                                    closing = index == closingIndex,
+                                    dragProgress = if (index == backStack.lastIndex) backProgress else 0f,
+                                    onClosed = {
+                                        if (closingIndex == index && index < backStack.size) {
+                                            backStack.removeAt(index)
+                                            closingIndex = -1
+                                        }
+                                    }
+                                ) {
                                 when (route) {
                                     is Route.Search -> SearchScreen(nav, playVideo, miniPlayer)
                                     is Route.Channel -> ChannelScreen(route, nav, if (route.music) playTrack else playVideo, miniPlayer)
@@ -444,6 +497,7 @@ fun NexusApp() {
                                         }
                                     }
                                 }
+                                }
                             }
                         }
                     }
@@ -455,7 +509,8 @@ fun NexusApp() {
             AlertDialog(
                 onDismissRequest = { showBreakDialog = false },
                 containerColor = OriginalColors.Sheet,
-                title = { Text("Time for a break", color = OriginalColors.TextPrimary) },
+                shape = RoundedCornerShape(28.dp),
+                title = { GlassWindowBlur(); Text("Time for a break", color = OriginalColors.TextPrimary) },
                 text = {
                     Text(
                         "You've been watching for $breakMinutes minutes.",
@@ -466,7 +521,7 @@ fun NexusApp() {
                     TextButton(onClick = {
                         if (playbackState?.isPlaying == true) activeService?.togglePlayPause()
                         showBreakDialog = false
-                    }) { Text("Pause", color = Color(0xFF3EA6FF)) }
+                    }) { Text("Pause", color = OriginalColors.Accent) }
                 },
                 dismissButton = {
                     TextButton(onClick = { showBreakDialog = false }) {
@@ -476,5 +531,51 @@ fun NexusApp() {
             )
         }
     }
+    }
+}
+
+/**
+ * A page of the stack: slides in from the right edge, slides back out when [closing] (then calls
+ * [onClosed]), and follows a predictive back gesture ([dragProgress]) in between, dimming what is
+ * underneath as it covers it, like an iOS navigation push.
+ */
+@Composable
+private fun PageTransition(
+    closing: Boolean,
+    dragProgress: Float,
+    onClosed: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val offset = remember { Animatable(1f) }
+    val currentOnClosed by androidx.compose.runtime.rememberUpdatedState(onClosed)
+    LaunchedEffect(closing) {
+        if (closing) {
+            offset.animateTo(1f, spring(dampingRatio = 1f, stiffness = 420f, visibilityThreshold = 0.002f))
+            currentOnClosed()
+        } else {
+            offset.animateTo(0f, spring(dampingRatio = 1f, stiffness = 340f, visibilityThreshold = 0.002f))
+        }
+    }
+    LaunchedEffect(dragProgress) {
+        if (closing) return@LaunchedEffect
+        if (dragProgress > 0f) offset.snapTo(dragProgress * 0.9f)
+        else if (offset.value > 0f) offset.animateTo(0f, spring(dampingRatio = 1f, stiffness = 380f, visibilityThreshold = 0.002f))
+    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Shade over the page underneath, fading as this page slides away.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = 1f - offset.value }
+                .background(Color.Black.copy(alpha = 0.22f))
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationX = offset.value * size.width
+                    shadowElevation = if (offset.value > 0.001f) 24.dp.toPx() else 0f
+                }
+        ) { content() }
     }
 }

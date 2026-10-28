@@ -84,7 +84,7 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
             Text("Sign in to Google", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = OriginalColors.TextPrimary)
         }
         loadError?.let {
-            Text(it, fontSize = 12.sp, color = androidx.compose.ui.graphics.Color(0xFFFF6B6B), modifier = Modifier.padding(12.dp))
+            Text(it, fontSize = 12.sp, color = OriginalColors.Danger, modifier = Modifier.padding(12.dp))
         }
         if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = OriginalColors.Red)
 

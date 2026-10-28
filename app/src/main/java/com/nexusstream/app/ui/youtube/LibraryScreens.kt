@@ -617,9 +617,9 @@ internal fun ConfirmDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = OriginalColors.Sheet,
-        title = { Text(title, color = OriginalColors.TextPrimary) },
+        title = { com.nexusstream.app.ui.theme.GlassWindowBlur(); Text(title, color = OriginalColors.TextPrimary) },
         text = { Text(message, color = OriginalColors.TextSecondary) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel, color = Color(0xFF3EA6FF)) } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel, color = OriginalColors.Accent) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = OriginalColors.TextSecondary) } }
     )
 }

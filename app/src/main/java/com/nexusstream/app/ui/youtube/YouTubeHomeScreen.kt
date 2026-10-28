@@ -1,5 +1,18 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.GlassMotion
+import com.nexusstream.app.ui.theme.GlassWeight
+import com.nexusstream.app.ui.theme.LocalChromePadding
+import com.nexusstream.app.ui.theme.glassBackdrop
+import com.nexusstream.app.ui.theme.liquidGlass
+import com.nexusstream.app.ui.theme.plus
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import dev.chrisbanes.haze.HazeState
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -240,53 +253,33 @@ fun YouTubeHomeScreen(
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= com.nexusstream.app.ui.components.RAIL_MIN_WIDTH_DP
     val navSpace = if (wide) navBarInset else NAV_BAR_SPACE + navBarInset
 
-    Row(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground).statusBarsPadding()) {
+    // Glass chrome: the header (with the topic chips) and the bottom bar float over the feed and
+    // blur it as it scrolls underneath.
+    val backdrop = remember { HazeState() }
+    val density = LocalDensity.current
+    var headerHeight by remember { mutableStateOf(0.dp) }
+    val pullState = rememberPullToRefreshState()
+
+    Row(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground)) {
     if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = { selectedTab = it })
     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-    Column(modifier = Modifier.fillMaxSize()) {
         val inbox by LibraryRepository.inbox.collectAsState()
         val inboxSeenAt by LibraryRepository.inboxSeenAtMs.collectAsState()
-        // Shorts is full screen: no header or chips there.
-        if (selectedTab != 1) {
-            YouTubeHeader(
-                unreadCount = inbox.count { it.publishedAtMs > inboxSeenAt },
-                onNotifications = { nav.open(Route.Notifications) },
-                onSearch = nav.openSearch,
-                onLogo = onSwitchApp
-            )
-        }
-
-        if (selectedTab == 0) {
-            OriginalFilterChips(
-                labels = categories,
-                selected = selectedCategory,
-                onSelect = { selectedCategory = it },
-                unselectedColor = OriginalColors.Chip,
-                leadingIcon = Icons.Outlined.Explore,
-                onLeadingClick = { showExplore = true }
-            )
-            // Explore: YouTube's destination pages (Trending, Music, Gaming, News...).
-            androidx.compose.material3.DropdownMenu(expanded = showExplore, onDismissRequest = { showExplore = false }) {
-                com.nexusstream.app.data.YouTubeWeb.exploreDestinations.forEach { (label, _) ->
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text(label) },
-                        onClick = { showExplore = false; selectedCategory = label }
-                    )
-                }
-            }
-        }
-
         val floatingBottom by animateDpAsState(
             targetValue = if (navVisible) navSpace else navBarInset,
             animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
             label = "FloatingBottom"
         )
+        // The audio mini player sits on top of the bar, so lists leave room for both.
+        val bottomSpace = navSpace + if (currentPlayingItem != null && selectedTab != 1 && !floatingVideo) MINI_PLAYER_SPACE else 0.dp
+        val chrome = PaddingValues(top = if (selectedTab != 1) headerHeight else 0.dp, bottom = bottomSpace)
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
+                .glassBackdrop(backdrop)
                 .nestedScroll(scrollConnection)
         ) {
+            CompositionLocalProvider(LocalChromePadding provides chrome) {
             if (floatingVideo && currentPlayingItem != null && playbackService != null && homeState != null) {
                 FloatingMiniPlayer(
                     item = currentPlayingItem,
@@ -296,17 +289,21 @@ fun YouTubeHomeScreen(
                     onClose = onClosePlayer,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 12.dp, bottom = floatingBottom + 12.dp)
+                        .padding(top = headerHeight, end = 12.dp, bottom = floatingBottom + 12.dp)
                         .zIndex(2f)
                 )
             }
             when (selectedTab) {
-                1 -> ShortsScreen(
-                    playbackService = playbackService,
-                    onOpenChannel = { nav.openChannelOf(it) },
-                    bottomInset = navSpace
-                )
-                2 -> SubscriptionsTab(nav = nav, onSelectVideo = onSelectVideo)
+                1 -> Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                    ShortsScreen(
+                        playbackService = playbackService,
+                        onOpenChannel = { nav.openChannelOf(it) },
+                        bottomInset = navSpace
+                    )
+                }
+                2 -> Box(modifier = Modifier.fillMaxSize().padding(top = headerHeight)) {
+                    SubscriptionsTab(nav = nav, onSelectVideo = onSelectVideo)
+                }
                 3 -> YouTab(nav = nav, onSelectVideo = onSelectVideo)
                 else -> PullToRefreshBox(
                     isRefreshing = refreshing,
@@ -315,28 +312,39 @@ fun YouTubeHomeScreen(
                         forceRefresh = true
                         reloadKey++
                     },
+                    state = pullState,
+                    indicator = {
+                        PullToRefreshDefaults.Indicator(
+                            state = pullState,
+                            isRefreshing = refreshing,
+                            containerColor = OriginalColors.Chip,
+                            color = OriginalColors.TextPrimary,
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = headerHeight)
+                        )
+                    },
                     modifier = Modifier.fillMaxSize()
                 ) {
                     when (val state = feed) {
-                        is FeedState.Loading -> OriginalLoading()
+                        is FeedState.Loading -> OriginalLoading(Modifier.padding(chrome))
                         is FeedState.Error -> OriginalError(
                             message = state.message,
                             onRetry = {
                                 forceRefresh = true
                                 reloadKey++
-                            }
+                            },
+                            modifier = Modifier.padding(chrome)
                         )
                         is FeedState.Data -> {
                             val visible = remember(state.value, hidden) {
                                 state.value.filter { it.id !in hidden.videoIds && it.artistOrChannel !in hidden.channels }
                             }
                             if (visible.isEmpty()) {
-                                OriginalEmptyState("Nothing here", "No videos found. Pull down to refresh.")
+                                OriginalEmptyState("Nothing here", "No videos found. Pull down to refresh.", Modifier.padding(chrome))
                             } else {
                                 LazyVerticalGrid(
                                     state = listState,
                                     columns = GridCells.Adaptive(minSize = 340.dp),
-                                    contentPadding = PaddingValues(top = 4.dp, bottom = navSpace + 8.dp),
+                                    contentPadding = PaddingValues(top = headerHeight + 6.dp, bottom = bottomSpace + 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxSize()
@@ -346,7 +354,8 @@ fun YouTubeHomeScreen(
                                             item = video,
                                             onClick = { onSelectVideo(video, visible) },
                                             onChannelClick = video.channelUrl.takeIf { it.isNotBlank() }
-                                                ?.let { { nav.openChannelOf(video) } }
+                                                ?.let { { nav.openChannelOf(video) } },
+                                            modifier = Modifier.animateItem()
                                         )
                                     }
                                     if (loadingMore) {
@@ -372,34 +381,85 @@ fun YouTubeHomeScreen(
                     }
                 }
             }
+            }
         }
 
-    }
+        // Shorts is full screen: no header or chips there.
+        if (selectedTab != 1) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }
+                    .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false)
+                    .statusBarsPadding()
+            ) {
+                YouTubeHeader(
+                    unreadCount = inbox.count { it.publishedAtMs > inboxSeenAt },
+                    onNotifications = { nav.open(Route.Notifications) },
+                    onSearch = nav.openSearch,
+                    onLogo = onSwitchApp
+                )
+                if (selectedTab == 0) {
+                    OriginalFilterChips(
+                        labels = categories,
+                        selected = selectedCategory,
+                        onSelect = { selectedCategory = it },
+                        unselectedColor = OriginalColors.Chip,
+                        leadingIcon = Icons.Outlined.Explore,
+                        onLeadingClick = { showExplore = true }
+                    )
+                    // Explore: YouTube's destination pages (Trending, Music, Gaming, News...).
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = showExplore,
+                        onDismissRequest = { showExplore = false },
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = OriginalColors.Sheet
+                    ) {
+                        com.nexusstream.app.data.YouTubeWeb.exploreDestinations.forEach { (label, _) ->
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = { showExplore = false; selectedCategory = label }
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
     // Bottom overlay: the mini player (audio) and the navigation bar float over the scrolling content.
     Column(modifier = Modifier.align(Alignment.BottomCenter)) {
-        if (currentPlayingItem != null && selectedTab != 1 && !floatingVideo) {
-            OriginalMiniPlayer(
-                item = currentPlayingItem,
-                isPlaying = isPlaying,
-                onExpand = onExpandPlayer,
-                onTogglePlay = onTogglePlayPause,
-                onClose = onClosePlayer,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-            )
+        AnimatedVisibility(
+            visible = currentPlayingItem != null && selectedTab != 1 && !floatingVideo,
+            enter = slideInVertically(GlassMotion.smooth()) { it / 2 } + fadeIn(GlassMotion.smooth()),
+            exit = slideOutVertically(GlassMotion.smooth()) { it / 2 } + fadeOut(GlassMotion.smooth())
+        ) {
+            val item = currentPlayingItem
+            if (item != null) {
+                OriginalMiniPlayer(
+                    item = item,
+                    isPlaying = isPlaying,
+                    onExpand = onExpandPlayer,
+                    onTogglePlay = onTogglePlayPause,
+                    onClose = onClosePlayer,
+                    backdrop = backdrop,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
         }
         AnimatedVisibility(
             visible = !wide && (navVisible || selectedTab == 1),
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            enter = slideInVertically(GlassMotion.smooth()) { it } + fadeIn(GlassMotion.smooth()),
+            exit = slideOutVertically(GlassMotion.smooth()) { it } + fadeOut(GlassMotion.smooth())
         ) {
             GlassNavBar(
                 entries = navEntries,
                 selectedIndex = selectedTab,
                 onSelect = { selectedTab = it },
+                backdrop = backdrop,
                 modifier = Modifier
                     .navigationBarsPadding()
-                    .padding(horizontal = 36.dp, vertical = 8.dp)
+                    .padding(horizontal = 28.dp, vertical = 8.dp)
             )
         }
     }
@@ -408,7 +468,10 @@ fun YouTubeHomeScreen(
 }
 
 /** Height of the floating bar plus its vertical padding. */
-private val NAV_BAR_SPACE = 72.dp
+private val NAV_BAR_SPACE = 76.dp
+
+/** Height of the glass mini player plus its padding. */
+internal val MINI_PLAYER_SPACE = 72.dp
 
 /** Subscriptions + the most-watched channels, used to mix personal uploads into the feed. */
 private fun personalChannels(): List<String> {
@@ -520,7 +583,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
     val userProfile by GoogleAccount.userProfile.collectAsState()
 
     LazyColumn(
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = LocalChromePadding.current.plus(top = 8.dp, bottom = 8.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         item(key = "user_account_header") {
@@ -609,7 +672,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
                         text = "View all",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF3EA6FF),
+                        color = OriginalColors.Accent,
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
                             .clickable { nav.open(Route.History) }

@@ -31,6 +31,26 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nexusstream.app.model.MediaItemModel
+import com.nexusstream.app.ui.theme.GlassMotion
+import com.nexusstream.app.ui.theme.GlassWeight
+import com.nexusstream.app.ui.theme.LocalChromePadding
+import com.nexusstream.app.ui.theme.glassBackdrop
+import com.nexusstream.app.ui.theme.liquidGlass
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import dev.chrisbanes.haze.HazeState
 
 /** What a page needs to draw the docked mini-player. */
 class MiniPlayerHooks(
@@ -42,8 +62,12 @@ class MiniPlayerHooks(
 )
 
 /**
- * Full-screen page chrome: status-bar inset, back arrow + title bar, content, and the mini-player
- * (when something is playing) above the navigation bar.
+ * Full-screen page chrome: a glass top bar (back arrow + title) under the status bar, the content,
+ * and the glass mini-player (when something is playing) above the navigation bar.
+ *
+ * With [scrollsUnderChrome] the content fills the whole page and the bars float over it, blurring
+ * it as it scrolls underneath; the content must then add [LocalChromePadding] to its list padding.
+ * Without it the content is laid out between the bars.
  */
 @Composable
 fun PageScaffold(
@@ -56,17 +80,20 @@ fun PageScaffold(
     actions: @Composable RowScope.() -> Unit = {},
     /** Replaces the title text (e.g. with a search field). */
     header: (@Composable RowScope.() -> Unit)? = null,
+    scrollsUnderChrome: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(if (music) OriginalColors.MusicBackground else OriginalColors.YouTubeBackground)
-            .statusBarsPadding()
-    ) {
+    val playing = miniPlayer.item
+    // Keeps the last item on screen while the mini player slides away after closing.
+    val shownItem = remember { mutableStateOf<MediaItemModel?>(null) }.apply { if (playing != null) value = playing }.value
+    val background = if (music) OriginalColors.MusicBackground else OriginalColors.YouTubeBackground
+
+    val topBar = @Composable { backdrop: HazeState?, barModifier: Modifier ->
         Row(
-            modifier = Modifier
+            modifier = barModifier
                 .fillMaxWidth()
+                .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false)
+                .statusBarsPadding()
                 .height(56.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -79,7 +106,7 @@ fun PageScaffold(
                 Text(
                     text = title,
                     fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     color = OriginalColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -88,22 +115,51 @@ fun PageScaffold(
             }
             actions()
         }
-        Box(modifier = Modifier.weight(1f)) { content() }
-        val playing = miniPlayer.item
-        if (playing != null) {
-            OriginalMiniPlayer(
-                item = playing,
-                isPlaying = miniPlayer.isPlaying,
-                onExpand = miniPlayer.onExpand,
-                onTogglePlay = miniPlayer.onTogglePlay,
-                onClose = miniPlayer.onClose,
-                modifier = Modifier
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                    .navigationBarsPadding()
-            )
-        } else {
-            Box(modifier = Modifier.navigationBarsPadding())
+    }
+    val bottomBar = @Composable { backdrop: HazeState?, barModifier: Modifier ->
+        Box(modifier = barModifier.fillMaxWidth().navigationBarsPadding()) {
+            AnimatedVisibility(
+                visible = playing != null,
+                enter = slideInVertically(GlassMotion.smooth()) { it } + fadeIn(),
+                exit = slideOutVertically(GlassMotion.smooth()) { it } + fadeOut()
+            ) {
+                val item = shownItem
+                if (item != null) {
+                    OriginalMiniPlayer(
+                        item = item,
+                        isPlaying = miniPlayer.isPlaying,
+                        onExpand = miniPlayer.onExpand,
+                        onTogglePlay = miniPlayer.onTogglePlay,
+                        onClose = miniPlayer.onClose,
+                        backdrop = backdrop,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                    )
+                }
+            }
         }
+    }
+
+    if (!scrollsUnderChrome) {
+        Column(modifier = modifier.fillMaxSize().background(background)) {
+            topBar(null, Modifier)
+            Box(modifier = Modifier.weight(1f)) { content() }
+            bottomBar(null, Modifier)
+        }
+        return
+    }
+
+    val backdrop = remember { HazeState() }
+    val density = LocalDensity.current
+    var topHeight by remember { mutableStateOf(0.dp) }
+    var bottomHeight by remember { mutableStateOf(0.dp) }
+    Box(modifier = modifier.fillMaxSize().background(background)) {
+        Box(modifier = Modifier.fillMaxSize().glassBackdrop(backdrop)) {
+            CompositionLocalProvider(LocalChromePadding provides PaddingValues(top = topHeight, bottom = bottomHeight)) {
+                content()
+            }
+        }
+        topBar(backdrop, Modifier.align(Alignment.TopCenter).onSizeChanged { topHeight = with(density) { it.height.toDp() } })
+        bottomBar(backdrop, Modifier.align(Alignment.BottomCenter).onSizeChanged { bottomHeight = with(density) { it.height.toDp() } })
     }
 }
 

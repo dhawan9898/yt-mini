@@ -135,4 +135,6 @@ dependencies {
 
     // Coil Image Loading
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Backdrop blur for the liquid glass surfaces (RenderEffect on Android 12+, tinted fallback below).
+    implementation("dev.chrisbanes.haze:haze:1.0.2")
 }

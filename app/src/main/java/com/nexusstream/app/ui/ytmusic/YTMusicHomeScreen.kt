@@ -1,5 +1,23 @@
 package com.nexusstream.app.ui.ytmusic
 
+import com.nexusstream.app.ui.theme.GlassMotion
+import com.nexusstream.app.ui.theme.GlassWeight
+import com.nexusstream.app.ui.theme.LocalChromePadding
+import com.nexusstream.app.ui.theme.glassBackdrop
+import com.nexusstream.app.ui.theme.liquidGlass
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import dev.chrisbanes.haze.HazeState
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -174,32 +192,29 @@ fun YTMusicHomeScreen(
     }
 
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= com.nexusstream.app.ui.components.RAIL_MIN_WIDTH_DP
-    Row(modifier = modifier.fillMaxSize().background(OriginalColors.MusicBackground).statusBarsPadding()) {
+    // Glass chrome: the header and the bottom bar float over the shelves and blur them.
+    val backdrop = remember { HazeState() }
+    val density = LocalDensity.current
+    var headerHeight by remember { mutableStateOf(0.dp) }
+    val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomSpace = navBarInset + (if (wide) 0.dp else 76.dp) + (if (currentPlayingItem != null) 72.dp else 0.dp)
+
+    Row(modifier = modifier.fillMaxSize().background(OriginalColors.MusicBackground)) {
     if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = { selectedTab = it })
-    Column(
+    Box(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
     ) {
-        YTMusicHeader(
-            isSearchActive = isSearchActive,
-            searchQuery = searchQuery,
-            onSearchQueryChange = { searchQuery = it },
-            onToggleSearch = {
-                isSearchActive = !isSearchActive
-                if (!isSearchActive) searchQuery = ""
-            },
-            onProfile = { nav.open(if (signedIn) Route.Settings else Route.SignIn) },
-            onLogo = onSwitchApp
-        )
-
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
+                .glassBackdrop(backdrop)
         ) {
+            CompositionLocalProvider(LocalChromePadding provides PaddingValues(top = headerHeight, bottom = bottomSpace)) {
+        Box(modifier = Modifier.fillMaxSize()) {
             if (isSearchActive && searchQuery.isNotBlank()) {
-                Column(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize().padding(top = headerHeight)) {
                     OriginalFilterChips(
                         labels = YTMusicPages.SearchFilter.entries.map { it.label },
                         selected = searchFilter.label,
@@ -209,7 +224,7 @@ fun YTMusicHomeScreen(
                     when (val ytm = musicSearch) {
                         is FeedState.Loading -> OriginalLoading()
                         is FeedState.Data -> LazyColumn(
-                            contentPadding = PaddingValues(vertical = 8.dp),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = bottomSpace + 8.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             musicSections(
@@ -240,7 +255,7 @@ fun YTMusicHomeScreen(
                         listOf("Downloads", "On this device")
                 }
                 val current = libraryTab.takeIf { it in tabs } ?: tabs.first()
-                Column(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize().padding(top = headerHeight)) {
                     OriginalFilterChips(
                         labels = tabs,
                         selected = current,
@@ -255,7 +270,10 @@ fun YTMusicHomeScreen(
                     }
                     if (accountBrowse != null) {
                         key(accountBrowse) {
-                            MusicPageList(browseId = accountBrowse, nav = nav, onPlay = onSelectTrack, reloadKey = reloadKey)
+                            // Already below the header: only the bottom chrome to clear.
+                            CompositionLocalProvider(LocalChromePadding provides PaddingValues(bottom = bottomSpace)) {
+                                MusicPageList(browseId = accountBrowse, nav = nav, onPlay = onSelectTrack, reloadKey = reloadKey)
+                            }
                         }
                     } else {
                         val library = remember(current, downloadedItems, likedItems, savedItems) {
@@ -272,7 +290,7 @@ fun YTMusicHomeScreen(
                             )
                         } else {
                             LazyColumn(
-                                contentPadding = PaddingValues(vertical = 8.dp),
+                                contentPadding = PaddingValues(top = 8.dp, bottom = bottomSpace + 8.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 items(library, key = { "lib_${it.id}" }) { track ->
@@ -306,25 +324,62 @@ fun YTMusicHomeScreen(
             }
         }
 
-        if (currentPlayingItem != null) {
-            OriginalMiniPlayer(
-                item = currentPlayingItem,
-                isPlaying = isPlaying,
-                onExpand = onExpandPlayer,
-                onTogglePlay = onTogglePlayPause,
-                onClose = onClosePlayer,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }
+                .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false)
+                .statusBarsPadding()
+        ) {
+            YTMusicHeader(
+                isSearchActive = isSearchActive,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { searchQuery = it },
+                onToggleSearch = {
+                    isSearchActive = !isSearchActive
+                    if (!isSearchActive) searchQuery = ""
+                },
+                onProfile = { nav.open(if (signedIn) Route.Settings else Route.SignIn) },
+                onLogo = onSwitchApp
             )
         }
 
-        if (!wide) GlassNavBar(
-            entries = navEntries,
-            selectedIndex = selectedTab,
-            onSelect = { selectedTab = it },
-            modifier = Modifier
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
-        )
+        // Bottom overlay: the mini player and the navigation bar float over the shelves.
+        Column(modifier = Modifier.align(Alignment.BottomCenter)) {
+            AnimatedVisibility(
+                visible = currentPlayingItem != null,
+                enter = slideInVertically(GlassMotion.smooth()) { it / 2 } + fadeIn(GlassMotion.smooth()),
+                exit = slideOutVertically(GlassMotion.smooth()) { it / 2 } + fadeOut(GlassMotion.smooth())
+            ) {
+                val item = currentPlayingItem
+                if (item != null) {
+                    OriginalMiniPlayer(
+                        item = item,
+                        isPlaying = isPlaying,
+                        onExpand = onExpandPlayer,
+                        onTogglePlay = onTogglePlayPause,
+                        onClose = onClosePlayer,
+                        backdrop = backdrop,
+                        modifier = Modifier
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .then(if (wide) Modifier.navigationBarsPadding() else Modifier)
+                    )
+                }
+            }
+            if (!wide) GlassNavBar(
+                entries = navEntries,
+                selectedIndex = selectedTab,
+                onSelect = { selectedTab = it },
+                backdrop = backdrop,
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(horizontal = 28.dp, vertical = 8.dp)
+            )
+        }
     }
     }
 }

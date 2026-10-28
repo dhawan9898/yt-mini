@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.ytmusic
 
+import com.nexusstream.app.ui.theme.LocalChromePadding
+import com.nexusstream.app.ui.theme.plus
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -94,7 +96,7 @@ fun MusicBrowseScreen(
         fallbackContent(fallback)
         return
     }
-    PageScaffold(title = route.title, onBack = nav.back, miniPlayer = miniPlayer, music = true) {
+    PageScaffold(title = route.title, onBack = nav.back, miniPlayer = miniPlayer, music = true, scrollsUnderChrome = true) {
         MusicPageList(
             browseId = route.browseId,
             params = route.params,
@@ -157,8 +159,10 @@ internal fun MusicPageList(
     }
 
     when (val s = state) {
-        is FeedState.Loading -> OriginalLoading(modifier)
-        is FeedState.Error -> errorContent?.invoke(s.message) { retry++ } ?: OriginalError(s.message, onRetry = { retry++ }, modifier = modifier)
+        is FeedState.Loading -> OriginalLoading(modifier.padding(LocalChromePadding.current))
+        is FeedState.Error -> if (errorContent != null) {
+            Box(modifier = modifier.padding(LocalChromePadding.current)) { errorContent(s.message) { retry++ } }
+        } else OriginalError(s.message, onRetry = { retry++ }, modifier = modifier.padding(LocalChromePadding.current))
         is FeedState.Data -> {
             val listState = rememberLazyListState()
             val page = s.value
@@ -180,7 +184,7 @@ internal fun MusicPageList(
             }
             LazyColumn(
                 state = listState,
-                contentPadding = PaddingValues(bottom = 16.dp),
+                contentPadding = LocalChromePadding.current.plus(bottom = 16.dp),
                 modifier = modifier.fillMaxSize()
             ) {
                 leading()

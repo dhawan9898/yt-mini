@@ -340,7 +340,7 @@ fun VideoWatchScreen(
             Text(
                 text = playbackState.errorMessage ?: "Playback error",
                 fontSize = 12.sp,
-                color = Color(0xFFFF6B6B),
+                color = OriginalColors.Danger,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
             )
         }
@@ -779,6 +779,7 @@ fun VideoWatchScreen(
             containerColor = OriginalColors.Sheet,
             contentColor = OriginalColors.TextPrimary
         ) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
             LazyColumn(modifier = Modifier.fillMaxHeight(0.7f), contentPadding = PaddingValues(bottom = 24.dp)) {
                 item {
                     Text(
@@ -802,7 +803,7 @@ fun VideoWatchScreen(
                         Text(
                             text = formatVideoDuration(chapter.startMs),
                             fontSize = 14.sp,
-                            color = Color(0xFF3EA6FF),
+                            color = OriginalColors.Accent,
                             modifier = Modifier.width(64.dp)
                         )
                         Text(text = chapter.title, fontSize = 14.sp, color = OriginalColors.TextPrimary)
@@ -834,6 +835,7 @@ fun VideoWatchScreen(
             containerColor = OriginalColors.Sheet,
             contentColor = OriginalColors.TextPrimary
         ) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
             Column(modifier = Modifier.fillMaxHeight(0.8f)) {
                 Text(
                     text = "Comments",
@@ -1000,7 +1002,7 @@ private fun CommentComposer(avatarUrl: String, placeholder: String, onSend: (Str
                 onSend(text.trim())
                 text = ""
             }) {
-                Icon(Icons.AutoMirrored.Rounded.Send, "Send", tint = Color(0xFF3EA6FF))
+                Icon(Icons.AutoMirrored.Rounded.Send, "Send", tint = OriginalColors.Accent)
             }
         }
     }
@@ -1013,7 +1015,7 @@ private fun LinkifiedText(text: String, onSeek: (Long) -> Unit) {
     val annotated = remember(text) {
         buildAnnotatedString {
             var cursor = 0
-            val linkStyle = SpanStyle(color = Color(0xFF3EA6FF))
+            val linkStyle = SpanStyle(color = OriginalColors.Accent)
             DescriptionLinks.find(text).forEach { link ->
                 if (link.start < cursor) return@forEach
                 append(text.substring(cursor, link.start))
@@ -1127,7 +1129,7 @@ private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
                         text = if (loadingReplies) "Loading replies..." else "${comment.replyCount} replies",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF3EA6FF),
+                        color = OriginalColors.Accent,
                         modifier = Modifier.clickable(enabled = !loadingReplies) {
                             loadingReplies = true
                             scope.launch {
@@ -1226,6 +1228,7 @@ private fun TranscriptSheet(
         if (current > 2 && !listState.isScrollInProgress) listState.animateScrollToItem(current - 2)
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = OriginalColors.Sheet, contentColor = OriginalColors.TextPrimary) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         Column(modifier = Modifier.fillMaxHeight(0.75f)) {
             Text(
                 text = "Transcript",
@@ -1257,7 +1260,7 @@ private fun TranscriptSheet(
                             Text(
                                 text = formatVideoDuration(line.startMs),
                                 fontSize = 13.sp,
-                                color = Color(0xFF3EA6FF),
+                                color = OriginalColors.Accent,
                                 modifier = Modifier.width(56.dp)
                             )
                             Text(text = line.text, fontSize = 14.sp, color = OriginalColors.TextPrimary)
@@ -1296,6 +1299,7 @@ private fun LiveChatSheet(start: com.nexusstream.app.data.LiveChat.Start, positi
     val shown = if (start.replay) messages.filter { it.offsetMs <= positionMs() } else messages
     LaunchedEffect(shown.size) { if (shown.isNotEmpty()) listState.animateScrollToItem(shown.size - 1) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = OriginalColors.Sheet, contentColor = OriginalColors.TextPrimary) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         Column(modifier = Modifier.fillMaxHeight(0.75f)) {
             Text(
                 text = if (start.replay) "Live chat replay" else "Live chat",

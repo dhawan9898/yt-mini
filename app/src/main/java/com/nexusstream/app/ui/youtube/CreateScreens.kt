@@ -158,7 +158,7 @@ fun UploadScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     color = OriginalColors.TextSecondary
                 )
             }
-            error?.let { Text(it, fontSize = 13.sp, color = Color(0xFFFF6B6B)) }
+            error?.let { Text(it, fontSize = 13.sp, color = OriginalColors.Danger) }
             doneId?.let { id ->
                 Text("Uploaded. YouTube is processing it now.", fontSize = 14.sp, color = OriginalColors.TextPrimary)
                 TextButton(onClick = {
@@ -254,7 +254,7 @@ fun TimeWatchedScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                                     .fillMaxWidth()
                                     .fillMaxHeight((ms.toFloat() / max).coerceAtLeast(0.02f))
                                     .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                    .background(if (day == days.first().first) Color(0xFF3EA6FF) else OriginalColors.TextSecondary)
+                                    .background(if (day == days.first().first) OriginalColors.Accent else OriginalColors.TextSecondary)
                             )
                         }
                         Spacer(Modifier.height(6.dp))

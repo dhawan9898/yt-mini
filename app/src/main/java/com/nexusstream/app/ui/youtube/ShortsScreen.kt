@@ -513,6 +513,7 @@ private fun ShortComments(item: MediaItemModel, onDismiss: () -> Unit) {
         containerColor = com.nexusstream.app.ui.components.OriginalColors.Sheet,
         contentColor = com.nexusstream.app.ui.components.OriginalColors.TextPrimary
     ) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.75f)) {
             Text("Comments", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             when (val state = page) {

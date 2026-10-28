@@ -55,6 +55,7 @@ fun AddToPlaylistSheet(item: MediaItemModel, onDismiss: () -> Unit) {
         containerColor = OriginalColors.Sheet,
         contentColor = OriginalColors.TextPrimary
     ) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         Column(modifier = Modifier.navigationBarsPadding()) {
             Text(
                 text = "Save to...",
@@ -144,7 +145,7 @@ internal fun TextInputDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = OriginalColors.Sheet,
-        title = { Text(title, color = OriginalColors.TextPrimary) },
+        title = { com.nexusstream.app.ui.theme.GlassWindowBlur(); Text(title, color = OriginalColors.TextPrimary) },
         text = {
             TextField(
                 value = text,
@@ -155,7 +156,7 @@ internal fun TextInputDialog(
         },
         confirmButton = {
             TextButton(onClick = { if (text.isNotBlank()) onConfirm(text) }) {
-                Text(confirmLabel, color = Color(0xFF3EA6FF))
+                Text(confirmLabel, color = OriginalColors.Accent)
             }
         },
         dismissButton = {

@@ -50,6 +50,8 @@ import com.nexusstream.app.ui.Route
 import com.nexusstream.app.ui.YouTubeNav
 import com.nexusstream.app.ui.playlistFallbackFor
 import com.nexusstream.app.ui.components.OriginalColors
+import com.nexusstream.app.ui.theme.pressScale
+import androidx.compose.foundation.interaction.MutableInteractionSource
 
 /**
  * What tapping a YT Music card does: songs play with the rest of their shelf as the queue;
@@ -237,10 +239,12 @@ internal fun MusicCardRow(card: YTMusicApi.Card, number: Int? = null, onClick: (
     var showMenu by remember { mutableStateOf(false) }
     val track = card.track
     if (showMenu && track != null) SongMenuSheet(item = track, onDismiss = { showMenu = false })
+    val interaction = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = if (track != null) ({ showMenu = true }) else null)
+            .pressScale(interaction, 0.98f)
+            .combinedClickable(interactionSource = interaction, indication = null, onClick = onClick, onLongClick = if (track != null) ({ showMenu = true }) else null)
             .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -302,8 +306,11 @@ internal fun MusicTile(card: YTMusicApi.Card, modifier: Modifier, fill: Boolean 
     val track = card.track
     if (showMenu && track != null) SongMenuSheet(item = track, onDismiss = { showMenu = false })
     val round = card.kind == YTMusicApi.CardKind.ARTIST
+    val interaction = remember { MutableInteractionSource() }
     Column(
-        modifier = modifier.combinedClickable(onClick = onClick, onLongClick = if (track != null) ({ showMenu = true }) else null),
+        modifier = modifier
+            .pressScale(interaction, 0.96f)
+            .combinedClickable(interactionSource = interaction, indication = null, onClick = onClick, onLongClick = if (track != null) ({ showMenu = true }) else null),
         horizontalAlignment = if (round) Alignment.CenterHorizontally else Alignment.Start
     ) {
         Box(

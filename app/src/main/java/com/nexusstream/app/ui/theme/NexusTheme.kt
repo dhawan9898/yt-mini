@@ -212,27 +212,62 @@ fun NexusTheme(
         textSecondary = Color(0xFFA1A1AA)
     )
 
+    val view = LocalView.current
+    SideEffect { ThemeState.windowBlur = windowBlurSupported(view) }
+
+    // Monochrome Material colours: controls (switches, sliders, fields, menus) take the text and
+    // surface greys instead of a stock hue, so artwork and thumbnails carry the colour.
     val colorScheme = if (palette.isDark) {
         darkColorScheme(
-            primary = dominantColor,
-            secondary = secondaryColor,
+            primary = palette.text,
+            onPrimary = palette.onInverse,
+            primaryContainer = palette.chip,
+            onPrimaryContainer = palette.text,
+            secondary = palette.textSecondary,
+            onSecondary = palette.onInverse,
+            secondaryContainer = palette.chip,
+            onSecondaryContainer = palette.text,
+            tertiary = palette.accent,
             background = palette.background,
-            surface = palette.surface,
-            onPrimary = Color.White,
-            onSecondary = Color.White,
             onBackground = palette.text,
-            onSurface = palette.text
+            surface = palette.surface,
+            onSurface = palette.text,
+            surfaceVariant = palette.chip,
+            onSurfaceVariant = palette.textSecondary,
+            surfaceContainerLowest = palette.background,
+            surfaceContainerLow = palette.surface,
+            surfaceContainer = palette.surface,
+            surfaceContainerHigh = palette.chip,
+            surfaceContainerHighest = palette.chip,
+            outline = palette.divider,
+            outlineVariant = palette.divider,
+            error = palette.danger
         )
     } else {
         lightColorScheme(
-            primary = dominantColor,
-            secondary = secondaryColor,
+            primary = palette.text,
+            onPrimary = palette.onInverse,
+            primaryContainer = palette.chip,
+            onPrimaryContainer = palette.text,
+            secondary = palette.textSecondary,
+            onSecondary = palette.onInverse,
+            secondaryContainer = palette.chip,
+            onSecondaryContainer = palette.text,
+            tertiary = palette.accent,
             background = palette.background,
-            surface = palette.surface,
-            onPrimary = Color.White,
-            onSecondary = Color.White,
             onBackground = palette.text,
-            onSurface = palette.text
+            surface = palette.surface,
+            onSurface = palette.text,
+            surfaceVariant = palette.chip,
+            onSurfaceVariant = palette.textSecondary,
+            surfaceContainerLowest = palette.background,
+            surfaceContainerLow = palette.surface,
+            surfaceContainer = palette.surface,
+            surfaceContainerHigh = palette.chip,
+            surfaceContainerHighest = palette.chip,
+            outline = palette.divider,
+            outlineVariant = palette.divider,
+            error = palette.danger
         )
     }
 

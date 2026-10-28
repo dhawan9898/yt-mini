@@ -73,7 +73,7 @@ import com.nexusstream.app.ui.components.OriginalEmptyState
 import com.nexusstream.app.ui.components.OriginalFilterChips
 import com.nexusstream.app.ui.components.PageScaffold
 
-private val NewDotBlue = Color(0xFF3EA6FF)
+private val NewDotBlue: Color get() = OriginalColors.Accent
 
 /** Inbox of new-upload notifications. Opening it clears the bell badge. */
 @Composable

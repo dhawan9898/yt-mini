@@ -245,7 +245,7 @@ fun SearchScreen(
                         Text(
                             text = "Clear search history",
                             fontSize = 14.sp,
-                            color = Color(0xFF3EA6FF),
+                            color = OriginalColors.Accent,
                             modifier = Modifier
                                 .clickable { LibraryRepository.clearSearchHistory() }
                                 .padding(16.dp)
@@ -466,6 +466,7 @@ internal fun PlaylistResultRow(playlist: PlaylistResult, onClick: () -> Unit) {
 private fun SearchFiltersSheet(initial: YouTubeWeb.SearchFilters, onApply: (YouTubeWeb.SearchFilters) -> Unit, onDismiss: () -> Unit) {
     var f by remember { mutableStateOf(initial) }
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, containerColor = OriginalColors.Sheet, contentColor = OriginalColors.TextPrimary) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         LazyColumn(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item { Text("Search filters", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp)) }
             item { FilterLabel("Sort by") }

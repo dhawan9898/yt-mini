@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nexusstream.app.ui.theme.liquidGlassSurface
+import com.nexusstream.app.ui.theme.pressScale
 
 /**
  * High-end Vector Path Morphing Play/Pause button.
@@ -54,22 +55,19 @@ fun PlayPauseMorphButton(
 ) {
     // 0f = Play (Arrowhead), 1f = Pause (Dual Bars)
     val morphProgress = remember { Animatable(if (isPlaying) 1f else 0f) }
-    val pressScale = remember { Animatable(1f) }
+    val interaction = remember { MutableInteractionSource() }
 
     LaunchedEffect(isPlaying) {
         morphProgress.animateTo(
             targetValue = if (isPlaying) 1f else 0f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessLow
-            )
+            animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f)
         )
     }
 
     Box(
         modifier = modifier
             .size(size)
-            .scale(pressScale.value)
+            .pressScale(interaction, 0.88f)
             .then(
                 if (flatBackground != null) {
                     Modifier
@@ -91,7 +89,7 @@ fun PlayPauseMorphButton(
                 }
             )
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interaction,
                 indication = null
             ) {
                 onClick()

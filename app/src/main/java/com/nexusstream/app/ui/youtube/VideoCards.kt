@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.components.OriginalColors
+import com.nexusstream.app.ui.theme.bouncyClickable
 
 /**
  * Large feed card: thumbnail, avatar, title, "channel ▷ views age", ⋮ menu.
@@ -52,14 +53,15 @@ internal fun YouTubeVideoCard(
     inset: Boolean = false,
     onChannelClick: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
-    removeLabel: String = "Remove"
+    removeLabel: String = "Remove",
+    modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClickLabel = "Play ${item.title}", onClick = onClick)
+            .bouncyClickable(onClickLabel = "Play ${item.title}", pressedScale = 0.98f, onClick = onClick)
     ) {
         Thumbnail(item, inset)
 
@@ -146,7 +148,7 @@ internal fun CompactVideoRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClickLabel = "Play ${item.title}", onClick = onClick)
+            .bouncyClickable(onClickLabel = "Play ${item.title}", pressedScale = 0.98f, onClick = onClick)
             .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.Top
     ) {

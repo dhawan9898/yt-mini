@@ -42,70 +42,38 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nexusstream.app.ui.theme.GlassMotion
+import com.nexusstream.app.ui.theme.GlassWeight
 import com.nexusstream.app.ui.theme.ThemeState
+import com.nexusstream.app.ui.theme.liquidGlass
+import androidx.compose.animation.animateColorAsState
+import dev.chrisbanes.haze.HazeState
 
 /**
- * A floating "liquid glass" navigation bar: a translucent capsule hovering above the content with
- * a specular edge and sheen. The selection is a glass bubble that slides (with a little overshoot)
- * between items, and the selected icon swells slightly.
- *
- * True backdrop blur is not available to Compose, so the glass look is built from translucency,
- * gradients and a bright rim rather than blurring what is behind it.
+ * A floating "liquid glass" navigation bar: a capsule hovering above the content that blurs what
+ * scrolls underneath it ([backdrop]), with a bright rim and a soft sheen. The selection is a glass
+ * droplet that glides between tabs and stretches a little while it moves, and the selected icon
+ * swells slightly. Slide a finger along the bar to scrub between tabs.
  */
 @Composable
 fun GlassNavBar(
     entries: List<BottomNavEntry>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    backdrop: HazeState? = null
 ) {
     val onSelectState by rememberUpdatedState(onSelect)
     val dark = ThemeState.palette.isDark
-    val shape = RoundedCornerShape(28.dp)
-    val tint = if (dark) Color(0xFF16161B) else Color(0xFFFFFFFF)
-    val rim = if (dark) Color.White else Color(0xFF9A9AA5)
+    val shape = RoundedCornerShape(percent = 50)
+    val ink = OriginalColors.TextPrimary
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .shadow(
-                elevation = 18.dp,
-                shape = shape,
-                clip = false,
-                ambientColor = Color.Black.copy(alpha = 0.5f),
-                spotColor = Color.Black.copy(alpha = 0.5f)
-            )
-            .clip(shape)
-            .background(tint.copy(alpha = if (dark) 0.62f else 0.70f))
-            .drawBehind {
-                // Sheen: light falling on the top of the glass.
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.White.copy(alpha = if (dark) 0.16f else 0.55f), Color.Transparent),
-                        startY = 0f,
-                        endY = size.height * 0.55f
-                    )
-                )
-                // A soft glow at the bottom edge.
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, rim.copy(alpha = 0.07f)),
-                        startY = size.height * 0.5f,
-                        endY = size.height
-                    )
-                )
-            }
-            .border(
-                width = 1.dp,
-                brush = Brush.linearGradient(
-                    colors = listOf(rim.copy(alpha = 0.55f), rim.copy(alpha = 0.08f), rim.copy(alpha = 0.30f)),
-                    start = Offset(0f, 0f),
-                    end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
-                ),
-                shape = shape
-            )
-            .padding(4.dp)
+            .height(60.dp)
+            .liquidGlass(shape, backdrop, GlassWeight.Thick, elevation = 14.dp)
+            .padding(5.dp)
             .pointerInput(entries.size) {
                 // Slide a finger along the bar to move the selection.
                 var last = -1
@@ -126,39 +94,42 @@ fun GlassNavBar(
             }
     ) {
         val itemWidth = maxWidth / entries.size
+        val target = itemWidth * selectedIndex
         val bubbleX by animateDpAsState(
-            targetValue = itemWidth * selectedIndex,
-            animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow),
+            targetValue = target,
+            animationSpec = spring(dampingRatio = 0.78f, stiffness = 380f),
             label = "GlassBubbleX"
         )
+        // The droplet stretches with the distance it still has to travel, then settles round.
+        val stretch = kotlin.math.min(kotlin.math.abs((target - bubbleX).value), itemWidth.value).dp * 0.45f
 
-        // The sliding glass bubble behind the selected item.
         Spacer(
             modifier = Modifier
-                .offset(x = bubbleX)
-                .width(itemWidth)
+                .offset(x = bubbleX - stretch / 2)
+                .width(itemWidth + stretch)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(24.dp))
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            rim.copy(alpha = if (dark) 0.26f else 0.20f),
-                            rim.copy(alpha = if (dark) 0.10f else 0.08f)
-                        )
-                    )
+                .clip(shape)
+                .background(ink.copy(alpha = if (dark) 0.11f else 0.07f))
+                .border(
+                    0.75.dp,
+                    Brush.verticalGradient(listOf(ink.copy(alpha = if (dark) 0.22f else 0.10f), Color.Transparent)),
+                    shape
                 )
-                .border(0.8.dp, rim.copy(alpha = 0.35f), RoundedCornerShape(24.dp))
         )
 
         Row(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
             entries.forEachIndexed { index, entry ->
                 val selected = index == selectedIndex
                 val scale by animateFloatAsState(
-                    targetValue = if (selected) 1.38f else 1f,
-                    animationSpec = spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMedium),
+                    targetValue = if (selected) 1.1f else 1f,
+                    animationSpec = spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium),
                     label = "GlassIconScale"
                 )
-                val color = if (selected) OriginalColors.TextPrimary else OriginalColors.TextSecondary
+                val color by animateColorAsState(
+                    targetValue = if (selected) OriginalColors.TextPrimary else OriginalColors.TextSecondary,
+                    animationSpec = GlassMotion.snappy(),
+                    label = "GlassIconColor"
+                )
                 Column(
                     modifier = Modifier
                         .width(itemWidth)
@@ -177,15 +148,15 @@ fun GlassNavBar(
                         contentDescription = entry.label,
                         tint = color,
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(22.dp)
                             .scale(scale)
                     )
-                    Spacer(modifier = Modifier.height(if (selected) 4.dp else 1.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = entry.label,
-                        fontSize = 9.sp,
+                        fontSize = 10.sp,
                         color = color,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1
                     )
                 }
@@ -213,7 +184,14 @@ fun SideNavRail(
                 selected = selected,
                 onClick = { onSelect(index) },
                 icon = { androidx.compose.material3.Icon(if (selected) entry.selectedIcon else entry.icon, contentDescription = entry.label) },
-                label = { androidx.compose.material3.Text(entry.label, fontSize = 11.sp) }
+                label = { androidx.compose.material3.Text(entry.label, fontSize = 11.sp) },
+                colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
+                    selectedIconColor = OriginalColors.TextPrimary,
+                    selectedTextColor = OriginalColors.TextPrimary,
+                    unselectedIconColor = OriginalColors.TextSecondary,
+                    unselectedTextColor = OriginalColors.TextSecondary,
+                    indicatorColor = OriginalColors.TextPrimary.copy(alpha = 0.10f)
+                )
             )
         }
     }

@@ -1,5 +1,12 @@
 package com.nexusstream.app.ui.player
 
+import com.nexusstream.app.ui.theme.frostedGlass
+import com.nexusstream.app.ui.theme.GlassMotion
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import com.nexusstream.app.model.MediaItemModel
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
@@ -141,7 +148,13 @@ fun MusicPlayerScreen(
     )
     var isDragging by remember { mutableStateOf(false) }
 
-    Column(
+    val artScale by animateFloatAsState(
+        targetValue = if (state.isPlaying) 1f else 0.86f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 260f),
+        label = "ArtScale"
+    )
+
+    Box(
         modifier = modifier
             .fillMaxSize()
             .offset { IntOffset(0, (if (isDragging) dragY else animatedDragY).roundToInt()) }
@@ -164,11 +177,12 @@ fun MusicPlayerScreen(
                     )
                 }
             }
-            .background(
-                Brush.verticalGradient(
-                    listOf(item.dominantColor.copy(alpha = 0.55f), Color.Black, Color.Black)
-                )
-            )
+            .clip(RoundedCornerShape(topStart = cornerFor(isDragging, dragY), topEnd = cornerFor(isDragging, dragY)))
+    ) {
+    NowPlayingBackdrop(item)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -276,7 +290,7 @@ fun MusicPlayerScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(16f / 9f)
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(Color.Black)
                         )
                     } else {
@@ -284,7 +298,9 @@ fun MusicPlayerScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f)
-                                .clip(RoundedCornerShape(4.dp))
+                                .graphicsLayer { scaleX = artScale; scaleY = artScale }
+                                .shadow(28.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black, spotColor = Color.Black)
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(item.dominantColor)
                         ) {
                             if (item.artworkUrl.isNotEmpty()) {
@@ -337,7 +353,7 @@ fun MusicPlayerScreen(
             Text(
                 text = state.errorMessage ?: "Playback error",
                 fontSize = 12.sp,
-                color = Color(0xFFFF6B6B),
+                color = com.nexusstream.app.ui.components.OriginalColors.Danger,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
         }
@@ -414,6 +430,7 @@ fun MusicPlayerScreen(
         }
     }
 
+    }
     if (showMenu) {
         SongMenuSheet(item = item, onDismiss = { showMenu = false }, onQuality = { showOptions = true })
     }
@@ -435,16 +452,20 @@ private fun SongVideoToggle(isVideo: Boolean, onSelect: (isVideo: Boolean) -> Un
         modifier = Modifier
             .width(160.dp)
             .height(34.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.15f))
+            .frostedGlass(CircleShape)
             .padding(3.dp)
     ) {
         val half = maxWidth / 2
+        val knobX by animateDpAsState(
+            targetValue = if (isVideo) half else 0.dp,
+            animationSpec = GlassMotion.bouncy(),
+            label = "SongVideoKnob"
+        )
         Box(
             modifier = Modifier
                 .width(half)
                 .fillMaxHeight()
-                .offset(x = if (isVideo) half else 0.dp)
+                .offset(x = knobX)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.9f))
         )
@@ -586,4 +607,50 @@ private fun LyricsPanel(
 private fun formatTime(ms: Long): String {
     val total = (ms / 1000).coerceAtLeast(0)
     return "%d:%02d".format(total / 60, total % 60)
+}
+
+/** Rounds the top of the now-playing sheet while it is pulled down, like an iOS card. */
+private fun cornerFor(dragging: Boolean, dragY: Float): androidx.compose.ui.unit.Dp =
+    if (dragging && dragY > 0f) 28.dp else 0.dp
+
+/**
+ * The now-playing background: the artwork, heavily blurred and darkened so the controls read on
+ * top (Android 12+), crossfading between songs. Older versions get a gradient from the artwork's
+ * colour instead.
+ */
+@Composable
+private fun NowPlayingBackdrop(item: MediaItemModel) {
+    androidx.compose.animation.Crossfade(
+        targetState = item,
+        animationSpec = androidx.compose.animation.core.tween(700),
+        label = "NowPlayingBackdrop"
+    ) { shown ->
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(shown.dominantColor.copy(alpha = 0.55f), Color.Black, Color.Black)))
+            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && shown.artworkUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = shown.artworkUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = 0.8f }
+                        .blur(80.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Rectangle)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Black.copy(alpha = 0.30f), Color.Black.copy(alpha = 0.45f), Color.Black.copy(alpha = 0.80f))
+                            )
+                        )
+                )
+            }
+        }
+    }
 }

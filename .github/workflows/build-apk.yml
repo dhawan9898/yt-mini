@@ -88,6 +88,12 @@ jobs:
           body: |
             ## yt-mini v${{ env.VERSION_NAME }}
 
+            ### New look
+            - Liquid glass design: the header, navigation bar, mini player, sheets and player controls are translucent glass that blurs what scrolls underneath (Android 12 and newer; older versions get a frosted tint).
+            - A quiet, minimalist palette in light and dark, with colour left to thumbnails and artwork.
+            - Smoother motion everywhere: pages slide in and follow the back gesture, the player rises from the mini player, and buttons and cards respond to touch with soft springs.
+            - Now playing shows the song's artwork blurred behind the controls.
+
             ### New since 1.0
             - Account sync both ways: likes, Watch later, playlists and subscriptions follow your Google account, with a channel / Brand account switcher.
             - Faster playback with adaptive streaming, a play next queue, sleep timer, captions styling and auto-translate.

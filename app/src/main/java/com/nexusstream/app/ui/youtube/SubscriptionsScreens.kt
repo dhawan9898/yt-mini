@@ -75,7 +75,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val NewDotBlue = Color(0xFF3EA6FF)
+private val NewDotBlue: Color get() = OriginalColors.Accent
 private const val DAY_MS = 24 * 60 * 60 * 1000L
 
 /**

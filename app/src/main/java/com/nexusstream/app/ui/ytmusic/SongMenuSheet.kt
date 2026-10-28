@@ -128,6 +128,7 @@ fun SongMenuSheet(
         containerColor = OriginalColors.Sheet,
         contentColor = OriginalColors.TextPrimary
     ) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         Column(modifier = Modifier.navigationBarsPadding().verticalScroll(rememberScrollState())) {
             SongHeader(item)
             MenuRow(Icons.Outlined.Radio, "Start radio") {
@@ -250,6 +251,7 @@ private fun CreditsSheet(item: MediaItemModel, creditsBrowseId: String?, onDismi
         containerColor = OriginalColors.Sheet,
         contentColor = OriginalColors.TextPrimary
     ) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         Column(modifier = Modifier.fillMaxHeight(0.7f).navigationBarsPadding()) {
             Text(
                 text = "Song credits",

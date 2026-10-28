@@ -64,7 +64,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val LinkBlue = Color(0xFF3EA6FF)
+private val LinkBlue: Color get() = OriginalColors.Accent
 private val QUALITY_OPTIONS = listOf(
     "Auto" to 0, "2160p" to 2160, "1440p" to 1440, "1080p" to 1080, "720p" to 720, "480p" to 480, "360p" to 360
 )
@@ -481,7 +481,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { selfTestReport = null },
             containerColor = OriginalColors.Sheet,
-            title = { Text("Playback self-test", color = OriginalColors.TextPrimary) },
+            title = { com.nexusstream.app.ui.theme.GlassWindowBlur(); Text("Playback self-test", color = OriginalColors.TextPrimary) },
             text = {
                 androidx.compose.foundation.lazy.LazyColumn {
                     items(report.size) { index ->
@@ -490,7 +490,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                             text = line,
                             fontSize = 12.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            color = if (line.startsWith("FAIL")) Color(0xFFFF6B6B) else OriginalColors.TextPrimary
+                            color = if (line.startsWith("FAIL")) OriginalColors.Danger else OriginalColors.TextPrimary
                         )
                     }
                 }
@@ -607,7 +607,7 @@ private fun TvLinkDialog(onDismiss: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Link with TV code") },
+        title = { com.nexusstream.app.ui.theme.GlassWindowBlur(); Text("Link with TV code") },
         text = {
             Column {
                 Text("On your TV, open YouTube, go to Settings > Link with TV code and enter the code shown.", fontSize = 13.sp, color = OriginalColors.TextSecondary)
@@ -619,7 +619,7 @@ private fun TvLinkDialog(onDismiss: () -> Unit) {
                     label = { Text("TV code") },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                 )
-                error?.let { Text(it, fontSize = 12.sp, color = Color(0xFFFF6B6B)) }
+                error?.let { Text(it, fontSize = 12.sp, color = OriginalColors.Danger) }
             }
         },
         confirmButton = {
@@ -656,7 +656,7 @@ private fun AccountSwitcherDialog(onDismiss: () -> Unit) {
     }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Accounts") },
+        title = { com.nexusstream.app.ui.theme.GlassWindowBlur(); Text("Accounts") },
         text = {
             val list = accounts
             when {

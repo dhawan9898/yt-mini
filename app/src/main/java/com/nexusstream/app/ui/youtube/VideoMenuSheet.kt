@@ -98,6 +98,7 @@ fun VideoMenuSheet(
         containerColor = OriginalColors.Sheet,
         contentColor = OriginalColors.TextPrimary
     ) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         Column(modifier = Modifier.navigationBarsPadding()) {
             MenuRow(Icons.AutoMirrored.Outlined.PlaylistPlay, "Play next in queue") {
                 service?.playNext(listOf(item), asVideo = true)

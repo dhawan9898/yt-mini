@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.frostedGlass
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -84,6 +85,7 @@ import com.nexusstream.app.data.AppSettings
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -685,19 +687,24 @@ private fun WatchControls(
 
 @Composable
 private fun AutoplayPill(on: Boolean, onClick: () -> Unit) {
+    val knobX by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (on) 24.dp else 0.dp,
+        animationSpec = com.nexusstream.app.ui.theme.GlassMotion.bouncy(),
+        label = "autoplayKnob"
+    )
     Box(
         modifier = Modifier
             .padding(horizontal = 6.dp)
             .width(52.dp)
             .height(28.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.28f))
+            .frostedGlass(CircleShape)
             .clickable(onClickLabel = "Autoplay", onClick = onClick)
             .padding(3.dp)
     ) {
         Box(
             modifier = Modifier
-                .align(if (on) Alignment.CenterEnd else Alignment.CenterStart)
+                .align(Alignment.CenterStart)
+                .offset { androidx.compose.ui.unit.IntOffset(knobX.roundToPx(), 0) }
                 .size(22.dp)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.9f)),
@@ -844,7 +851,7 @@ internal tailrec fun Context.hostActivity(): android.app.Activity? = when (this)
     else -> null
 }
 
-/** YouTube's round player button: a dim translucent disc behind a white icon, slightly shrinking while pressed. */
+/** YouTube's round player button: a frosted glass disc behind a white icon, slightly shrinking while pressed. */
 @Composable
 private fun PlayerCircleButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit, content: @Composable () -> Unit) {
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -858,8 +865,7 @@ private fun PlayerCircleButton(size: androidx.compose.ui.unit.Dp, onClick: () ->
         modifier = Modifier
             .size(size)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = if (pressed) 0.45f else 0.3f))
+            .frostedGlass(CircleShape, pressed)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) { content() }

@@ -81,6 +81,7 @@ fun PlayerOptionsSheet(
         containerColor = OriginalColors.Sheet,
         contentColor = OriginalColors.TextPrimary
     ) {
+        com.nexusstream.app.ui.theme.GlassWindowBlur()
         LazyColumn(
             modifier = Modifier.fillMaxHeight(0.85f),
             contentPadding = PaddingValues(bottom = 24.dp)

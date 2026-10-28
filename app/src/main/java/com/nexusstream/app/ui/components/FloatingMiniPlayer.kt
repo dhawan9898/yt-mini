@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.components
 
+import com.nexusstream.app.ui.theme.frostedGlass
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.annotation.OptIn
@@ -80,7 +81,7 @@ fun FloatingMiniPlayer(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(16.dp)
     val window = FloatingWindowState
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -122,7 +123,11 @@ fun FloatingMiniPlayer(
                     .aspectRatio(16f / 9f)
                     .clip(shape)
                     .background(Color.Black)
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
+                    .border(
+                        0.75.dp,
+                        Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.32f), Color.White.copy(alpha = 0.06f))),
+                        shape
+                    )
                     .pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, _ ->
                             // Pinch resizes around the bottom-end corner; one finger moves the window.
@@ -160,8 +165,7 @@ fun FloatingMiniPlayer(
                         .align(Alignment.TopStart)
                         .padding(4.dp)
                         .size(30.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f))
+                        .frostedGlass(CircleShape, strength = 1.6f)
                         .clickable { playbackService.togglePlayPause() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -179,8 +183,7 @@ fun FloatingMiniPlayer(
                         .align(Alignment.TopEnd)
                         .padding(4.dp)
                         .size(30.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f))
+                        .frostedGlass(CircleShape, strength = 1.6f)
                         .clickable(onClick = onClose),
                     contentAlignment = Alignment.Center
                 ) {

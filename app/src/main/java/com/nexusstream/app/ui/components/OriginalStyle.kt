@@ -53,6 +53,17 @@ import coil.compose.AsyncImage
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.player.PlayPauseMorphButton
 import com.nexusstream.app.ui.theme.ThemeState
+import com.nexusstream.app.ui.theme.GlassMotion
+import com.nexusstream.app.ui.theme.GlassWeight
+import com.nexusstream.app.ui.theme.bouncyClickable
+import com.nexusstream.app.ui.theme.liquidGlass
+import com.nexusstream.app.ui.theme.pressScale
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import dev.chrisbanes.haze.HazeState
 
 /**
  * Flat, near-black palette matching the official YouTube / YouTube Music apps.
@@ -64,13 +75,19 @@ object OriginalColors {
     val Chip: Color get() = ThemeState.palette.chip
     val MusicChip: Color get() = ThemeState.palette.musicChip
     val MiniPlayer: Color get() = ThemeState.palette.surface
-    val Sheet: Color get() = ThemeState.palette.surface
+    /** Sheets and dialogs: frosted glass where the window behind can be blurred, solid otherwise. */
+    val Sheet: Color get() = ThemeState.palette.let { if (ThemeState.windowBlur) it.surface.copy(alpha = if (it.isDark) 0.80f else 0.84f) else it.surface }
     val Divider: Color get() = ThemeState.palette.divider
     val TextPrimary: Color get() = ThemeState.palette.text
     val TextSecondary: Color get() = ThemeState.palette.textSecondary
     /** Text colour for use on a TextPrimary-coloured filled button. */
     val OnInverse: Color get() = ThemeState.palette.onInverse
-    val Red = Color(0xFFFF0000)
+    /** The one accent colour: links, "new" dots, dialog actions. */
+    val Accent: Color get() = ThemeState.palette.accent
+    /** Errors. */
+    val Danger: Color get() = ThemeState.palette.danger
+    /** Brand red: logos, progress, live badges. */
+    val Red = Color(0xFFFF0033)
 }
 
 /**
@@ -108,12 +125,22 @@ fun OriginalFilterChips(
         }
         items(labels) { label ->
             val isSelected = label == selected
+            val background by animateColorAsState(
+                targetValue = if (isSelected) OriginalColors.TextPrimary else unselectedColor,
+                animationSpec = GlassMotion.snappy(),
+                label = "ChipBackground"
+            )
+            val textColor by animateColorAsState(
+                targetValue = if (isSelected) OriginalColors.OnInverse else OriginalColors.TextPrimary,
+                animationSpec = GlassMotion.snappy(),
+                label = "ChipText"
+            )
             Box(
                 modifier = Modifier
                     .heightIn(min = 32.dp)
+                    .bouncyClickable(pressedScale = 0.94f) { onSelect(label) }
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (isSelected) OriginalColors.TextPrimary else unselectedColor)
-                    .clickable { onSelect(label) }
+                    .background(background)
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -121,7 +148,7 @@ fun OriginalFilterChips(
                     text = label,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (isSelected) OriginalColors.OnInverse else OriginalColors.TextPrimary
+                    color = textColor
                 )
             }
         }
@@ -129,8 +156,9 @@ fun OriginalFilterChips(
 }
 
 /**
- * Flat docked mini player with a thin progress hairline.
- * Swipe up to expand, swipe sideways (or tap ✕) to close it and stop playback.
+ * Docked mini player as a floating glass capsule. With a [backdrop] it blurs the content scrolling
+ * underneath. Swipe up to expand, swipe sideways (or tap ✕) to close it and stop playback; let go
+ * early and it springs back.
  */
 @Composable
 fun OriginalMiniPlayer(
@@ -139,21 +167,33 @@ fun OriginalMiniPlayer(
     onExpand: () -> Unit,
     onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier,
-    onClose: (() -> Unit)? = null
+    onClose: (() -> Unit)? = null,
+    backdrop: HazeState? = null
 ) {
     val currentOnExpand by rememberUpdatedState(onExpand)
     val currentOnClose by rememberUpdatedState(onClose)
     var dragX by remember { mutableFloatStateOf(0f) }
     var dragY by remember { mutableFloatStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    val shownX by animateFloatAsState(if (dragging) dragX else 0f, if (dragging) snap<Float>() else GlassMotion.bouncy<Float>(), label = "MiniDragX")
+    val shownY by animateFloatAsState(if (dragging) dragY else 0f, if (dragging) snap<Float>() else GlassMotion.bouncy<Float>(), label = "MiniDragY")
+    val shape = RoundedCornerShape(18.dp)
+    val interaction = remember { MutableInteractionSource() }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .offset { IntOffset(dragX.roundToInt(), 0) }
-            .clip(RoundedCornerShape(10.dp))
-            .background(OriginalColors.MiniPlayer)
+            .graphicsLayer {
+                translationX = shownX
+                // Rubber band: an upward pull moves it a little, hinting that it expands.
+                translationY = (shownY * 0.25f).coerceAtMost(0f)
+                alpha = 1f - (abs(shownX) / (size.width.coerceAtLeast(1f))).coerceIn(0f, 0.6f)
+            }
+            .pressScale(interaction, 0.98f)
+            .liquidGlass(shape, backdrop, GlassWeight.Regular, elevation = 10.dp)
             .pointerInput(Unit) {
                 detectDragGestures(
+                    onDragStart = { dragging = true },
                     onDragEnd = {
                         val closeThreshold = size.width * 0.35f
                         val expandThreshold = 48.dp.toPx()
@@ -162,10 +202,12 @@ fun OriginalMiniPlayer(
                         } else if (dragY < -expandThreshold && abs(dragY) > abs(dragX)) {
                             currentOnExpand()
                         }
+                        dragging = false
                         dragX = 0f
                         dragY = 0f
                     },
                     onDragCancel = {
+                        dragging = false
                         dragX = 0f
                         dragY = 0f
                     }
@@ -175,19 +217,19 @@ fun OriginalMiniPlayer(
                     dragY += amount.y
                 }
             }
-            .clickable(onClick = onExpand)
+            .clickable(interactionSource = interaction, indication = null, onClick = onExpand)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = 8.dp),
+                .height(60.dp)
+                .padding(start = 10.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(item.dominantColor)
             ) {
                 if (item.artworkUrl.isNotEmpty()) {
@@ -223,7 +265,7 @@ fun OriginalMiniPlayer(
                 size = 40.dp,
                 tint = OriginalColors.TextPrimary,
                 glowColor = Color.Transparent,
-                flatBackground = OriginalColors.TextPrimary.copy(alpha = 0.10f)
+                flatBackground = Color.Transparent
             )
             if (onClose != null) {
                 IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
@@ -236,12 +278,6 @@ fun OriginalMiniPlayer(
                 }
             }
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(2.dp)
-                .background(OriginalColors.TextPrimary.copy(alpha = 0.15f))
-        )
     }
 }
 
@@ -355,9 +391,9 @@ fun OriginalError(message: String, onRetry: () -> Unit, modifier: Modifier = Mod
         Spacer(modifier = Modifier.height(16.dp))
         Box(
             modifier = Modifier
+                .bouncyClickable(onClick = onRetry)
                 .clip(RoundedCornerShape(18.dp))
                 .background(OriginalColors.TextPrimary)
-                .clickable(onClick = onRetry)
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
             Text(text = "Retry", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = OriginalColors.OnInverse)
