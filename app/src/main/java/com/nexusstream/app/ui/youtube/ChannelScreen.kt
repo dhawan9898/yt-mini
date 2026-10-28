@@ -45,6 +45,10 @@ import com.nexusstream.app.data.NotifyLevel
 import com.nexusstream.app.data.Paged
 import com.nexusstream.app.data.PlaylistResult
 import com.nexusstream.app.data.YouTubeRepository
+import com.nexusstream.app.data.YouTubeWeb
+import com.nexusstream.app.ui.components.OriginalFilterChips
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.Route
 import com.nexusstream.app.ui.YouTubeNav
@@ -59,9 +63,43 @@ import com.nexusstream.app.ui.components.PageScaffold
 import com.nexusstream.app.ui.components.toFeedState
 import kotlinx.coroutines.launch
 
-private val CHANNEL_TABS = listOf("Videos", "Playlists", "About")
+private val CHANNEL_TABS = listOf("Home", "Videos", "Shorts", "Live", "Releases", "Playlists", "Posts", "About")
+private const val TAB_VIDEOS = 1
+private const val TAB_PLAYLISTS = 5
+private const val TAB_ABOUT = 7
 
-/** A channel: banner, avatar, Subscribe, and Videos / Playlists / About tabs with infinite scroll. */
+/** The website tab behind each channel tab index (Videos and Playlists also have NewPipe lists). */
+private fun webTab(index: Int): YouTubeWeb.ChannelTab? = when (index) {
+    0 -> YouTubeWeb.ChannelTab.HOME
+    2 -> YouTubeWeb.ChannelTab.SHORTS
+    3 -> YouTubeWeb.ChannelTab.LIVE
+    4 -> YouTubeWeb.ChannelTab.RELEASES
+    6 -> YouTubeWeb.ChannelTab.POSTS
+    else -> null
+}
+
+/** Accumulated pages of one website tab (or of the Videos tab in a non-default sort). */
+private data class WebTabState(
+    val state: FeedState<Unit> = FeedState.Loading,
+    val videos: List<MediaItemModel> = emptyList(),
+    val shorts: List<MediaItemModel> = emptyList(),
+    val playlists: List<PlaylistResult> = emptyList(),
+    val posts: List<YouTubeWeb.Post> = emptyList(),
+    val chips: List<Pair<String, String>> = emptyList(),
+    val continuation: String? = null
+) {
+    fun plus(page: YouTubeWeb.TabPage) = copy(
+        state = FeedState.Data(Unit),
+        videos = (videos + page.videos).distinctBy { it.id },
+        shorts = (shorts + page.shorts).distinctBy { it.id },
+        playlists = (playlists + page.playlists).distinctBy { it.url },
+        posts = (posts + page.posts).distinctBy { it.id },
+        chips = chips.ifEmpty { page.chips },
+        continuation = page.continuation
+    )
+}
+
+/** A channel: banner, avatar, Subscribe, and YouTube's channel tabs with infinite scroll. */
 @Composable
 fun ChannelScreen(
     route: Route.Channel,
@@ -74,7 +112,12 @@ fun ChannelScreen(
     var videoCursor by remember(route.url) { mutableStateOf<Paged<MediaItemModel>?>(null) }
     var playlists by remember(route.url) { mutableStateOf<FeedState<List<PlaylistResult>>?>(null) }
     var playlistCursor by remember(route.url) { mutableStateOf<Paged<PlaylistResult>?>(null) }
-    var tab by remember(route.url) { mutableStateOf(0) }
+    var tab by remember(route.url) { mutableStateOf(TAB_VIDEOS) }
+    var webTabs by remember(route.url) { mutableStateOf<Map<Int, WebTabState>>(emptyMap()) }
+    var webReload by remember { mutableStateOf(0) }
+    // Videos sort: "Latest" is NewPipe's list; Popular / Oldest come from the website's sort chips.
+    var videoSort by remember(route.url) { mutableStateOf("Latest") }
+    var sortedVideos by remember(route.url) { mutableStateOf<WebTabState?>(null) }
     var loadingMore by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
     var playlistReload by remember { mutableStateOf(0) }
@@ -97,10 +140,38 @@ fun ChannelScreen(
         )
     }
 
+    // Website tabs load the first time they are opened.
+    LaunchedEffect(tab, page, webReload) {
+        val loaded = (page as? FeedState.Data)?.value ?: return@LaunchedEffect
+        val web = webTab(tab) ?: return@LaunchedEffect
+        if (webTabs[tab]?.state is FeedState.Data) return@LaunchedEffect
+        webTabs = webTabs + (tab to WebTabState())
+        YouTubeRepository.channelTab(loaded.url, web).fold(
+            onSuccess = { webTabs = webTabs + (tab to WebTabState().plus(it)) },
+            onFailure = { webTabs = webTabs + (tab to WebTabState(state = FeedState.Error(it.message ?: "Something went wrong"))) }
+        )
+    }
+    LaunchedEffect(videoSort, page) {
+        val loaded = (page as? FeedState.Data)?.value ?: return@LaunchedEffect
+        if (videoSort == "Latest") { sortedVideos = null; return@LaunchedEffect }
+        sortedVideos = WebTabState()
+        val chips = YouTubeRepository.channelTab(loaded.url, YouTubeWeb.ChannelTab.VIDEOS).getOrNull()?.chips.orEmpty()
+        val token = chips.firstOrNull { it.first.equals(videoSort, ignoreCase = true) }?.second
+            ?: chips.getOrNull(if (videoSort == "Popular") 1 else 2)?.second
+        if (token == null) {
+            sortedVideos = WebTabState(state = FeedState.Error("This channel can't be sorted"))
+            return@LaunchedEffect
+        }
+        YouTubeRepository.channelTab(loaded.url, YouTubeWeb.ChannelTab.VIDEOS, token).fold(
+            onSuccess = { sortedVideos = WebTabState().plus(it) },
+            onFailure = { sortedVideos = WebTabState(state = FeedState.Error(it.message ?: "Something went wrong")) }
+        )
+    }
+
     // Playlists load the first time their tab is opened.
     LaunchedEffect(tab, page, playlistReload) {
         val loaded = (page as? FeedState.Data)?.value ?: return@LaunchedEffect
-        if (tab != 1 || playlists != null) return@LaunchedEffect
+        if (tab != TAB_PLAYLISTS || playlists != null) return@LaunchedEffect
         playlists = FeedState.Loading
         loaded.loadPlaylists().fold(
             onSuccess = {
@@ -115,14 +186,24 @@ fun ChannelScreen(
         if (loadingMore) return
         loadingMore = true
         scope.launch {
-            when (tab) {
-                0 -> videoCursor?.takeIf { it.hasMore }?.next()?.onSuccess { next ->
+            val loaded = (page as? FeedState.Data)?.value
+            when {
+                tab == TAB_VIDEOS && sortedVideos != null -> sortedVideos?.continuation?.let { token ->
+                    YouTubeRepository.channelTab(loaded?.url.orEmpty(), YouTubeWeb.ChannelTab.VIDEOS, token).onSuccess { sortedVideos = sortedVideos?.plus(it) }
+                }
+                tab == TAB_VIDEOS -> videoCursor?.takeIf { it.hasMore }?.next()?.onSuccess { next ->
                     videos = (videos + next.items).distinctBy { it.id }
                     videoCursor = next
                 }
-                1 -> playlistCursor?.takeIf { it.hasMore }?.next()?.onSuccess { next ->
+                tab == TAB_PLAYLISTS -> playlistCursor?.takeIf { it.hasMore }?.next()?.onSuccess { next ->
                     playlists = FeedState.Data(((playlists as? FeedState.Data)?.value.orEmpty()) + next.items)
                     playlistCursor = next
+                }
+                webTab(tab) != null -> webTabs[tab]?.continuation?.let { token ->
+                    val web = webTab(tab)!!
+                    YouTubeRepository.channelTab(loaded?.url.orEmpty(), web, token).onSuccess { more ->
+                        webTabs[tab]?.let { webTabs = webTabs + (tab to it.plus(more)) }
+                    }
                 }
             }
             loadingMore = false
@@ -157,12 +238,12 @@ fun ChannelScreen(
                         )
                     }
                     item(key = "tabs") {
-                        Row(modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                             CHANNEL_TABS.forEachIndexed { index, label ->
                                 Column(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { tab = index },
+                                        .clickable { tab = index }
+                                        .padding(horizontal = 4.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
@@ -170,11 +251,11 @@ fun ChannelScreen(
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = if (tab == index) OriginalColors.TextPrimary else OriginalColors.TextSecondary,
-                                        modifier = Modifier.padding(vertical = 12.dp)
+                                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp)
                                     )
                                     Box(
                                         modifier = Modifier
-                                            .fillMaxWidth()
+                                            .width(64.dp)
                                             .height(2.dp)
                                             .background(if (tab == index) OriginalColors.TextPrimary else OriginalColors.Divider)
                                     )
@@ -184,14 +265,27 @@ fun ChannelScreen(
                     }
 
                     when (tab) {
-                        0 -> if (visibleVideos.isEmpty()) {
+                        TAB_VIDEOS -> {
+                            item(key = "video_sort") {
+                                OriginalFilterChips(
+                                    labels = listOf("Latest", "Popular", "Oldest"),
+                                    selected = videoSort,
+                                    onSelect = { videoSort = it },
+                                    unselectedColor = OriginalColors.Chip
+                                )
+                            }
+                            val sorted = sortedVideos
+                            if (sorted != null) {
+                                webTabItems(sorted, channel, nav, onSelectVideo, retry = { videoSort = "Latest" })
+                            } else if (visibleVideos.isEmpty()) {
                             item(key = "no_videos") { OriginalEmptyState("No videos", "This channel has no videos yet.", Modifier.height(240.dp)) }
                         } else {
                             items(visibleVideos, key = { "cv_${it.id}" }) { video ->
                                 YouTubeVideoCard(item = video, onClick = { onSelectVideo(video, visibleVideos) })
                             }
+                            }
                         }
-                        1 -> when (val lists = playlists) {
+                        TAB_PLAYLISTS -> when (val lists = playlists) {
                             null, is FeedState.Loading -> item(key = "pl_loading") { Box(Modifier.height(160.dp)) { OriginalLoading() } }
                             is FeedState.Error -> item(key = "pl_error") { Box(Modifier.height(240.dp)) { OriginalError(lists.message, onRetry = { playlists = null; playlistReload++ }) } }
                             is FeedState.Data -> if (lists.value.isEmpty()) {
@@ -202,7 +296,7 @@ fun ChannelScreen(
                                 }
                             }
                         }
-                        else -> item(key = "about") {
+                        TAB_ABOUT -> item(key = "about") {
                             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                                 Text("Description", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = OriginalColors.TextPrimary)
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -218,6 +312,11 @@ fun ChannelScreen(
                                 }
                             }
                         }
+                    }
+
+                    if (webTab(tab) != null) {
+                        val state = webTabs[tab] ?: WebTabState()
+                        webTabItems(state, channel, nav, onSelectVideo, retry = { webTabs = webTabs - tab; webReload++ })
                     }
 
                     if (loadingMore) {
@@ -296,6 +395,119 @@ private fun ChannelHeader(
             if (subscribed && notifyLevel != null) {
                 Spacer(modifier = Modifier.width(4.dp))
                 NotifyLevelButton(level = notifyLevel, onSelect = onNotifyLevel)
+            }
+        }
+    }
+}
+
+/** The items of a website channel tab: videos, a Shorts grid, playlists / releases or posts. */
+private fun androidx.compose.foundation.lazy.LazyListScope.webTabItems(
+    state: WebTabState,
+    channel: ChannelPage,
+    nav: YouTubeNav,
+    onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit,
+    retry: () -> Unit
+) {
+    when (val s = state.state) {
+        is FeedState.Loading -> item(key = "web_loading") { Box(Modifier.height(160.dp)) { OriginalLoading() } }
+        is FeedState.Error -> item(key = "web_error") { Box(Modifier.height(240.dp)) { OriginalError(s.message, onRetry = retry) } }
+        is FeedState.Data -> {
+            val videos = state.videos.map { it.copy(artistOrChannel = it.artistOrChannel.ifBlank { channel.name }, channelAvatarUrl = it.channelAvatarUrl.ifBlank { channel.avatarUrl }, channelUrl = it.channelUrl.ifBlank { channel.url }) }
+            val shorts = state.shorts.map { it.copy(artistOrChannel = channel.name, channelAvatarUrl = channel.avatarUrl, channelUrl = channel.url) }
+            if (videos.isEmpty() && shorts.isEmpty() && state.playlists.isEmpty() && state.posts.isEmpty()) {
+                item(key = "web_empty") { OriginalEmptyState("Nothing here", "This channel has nothing in this tab yet.", Modifier.height(240.dp)) }
+            }
+            if (shorts.isNotEmpty()) {
+                items(shorts.chunked(3), key = { "sh_${it.first().id}" }) { row ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                        row.forEach { short ->
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(2.dp)
+                                    .clickable { onSelectVideo(short, shorts) }
+                            ) {
+                                AsyncImage(
+                                    model = short.artworkUrl,
+                                    contentDescription = short.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxWidth().aspectRatio(9f / 16f).clip(RoundedCornerShape(8.dp))
+                                )
+                                Text(short.title, fontSize = 12.sp, color = OriginalColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                if (short.viewsOrPlays.isNotBlank()) Text(short.viewsOrPlays, fontSize = 11.sp, color = OriginalColors.TextSecondary)
+                            }
+                        }
+                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+            items(videos, key = { "wv_${it.id}" }) { video ->
+                YouTubeVideoCard(item = video, onClick = { onSelectVideo(video, videos) })
+            }
+            items(state.playlists, key = { "wp_${it.url}" }) { playlist ->
+                PlaylistResultRow(playlist) { nav.openPlaylist(playlist.url, playlist.title) }
+            }
+            items(state.posts, key = { "post_${it.id}" }) { post ->
+                PostCard(post, onOpenVideo = { onSelectVideo(it, listOf(it)) })
+            }
+        }
+    }
+}
+
+/** A community post: author, text, images or an attached video / poll, likes and comments. */
+@Composable
+private fun PostCard(post: YouTubeWeb.Post, onOpenVideo: (MediaItemModel) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(OriginalColors.Chip)
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(post.authorAvatar, post.author, 32.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(post.author, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextPrimary)
+            Spacer(Modifier.width(6.dp))
+            Text(post.published, fontSize = 12.sp, color = OriginalColors.TextSecondary)
+        }
+        if (post.text.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(post.text, fontSize = 14.sp, color = OriginalColors.TextPrimary, lineHeight = 20.sp)
+        }
+        post.images.forEach { url ->
+            Spacer(Modifier.height(8.dp))
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+            )
+        }
+        post.video?.let { video ->
+            Spacer(Modifier.height(8.dp))
+            YouTubeVideoCard(item = video, onClick = { onOpenVideo(video) })
+        }
+        post.pollChoices.forEach { choice ->
+            Spacer(Modifier.height(6.dp))
+            Text(
+                choice,
+                fontSize = 14.sp,
+                color = OriginalColors.TextPrimary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(OriginalColors.YouTubeBackground)
+                    .padding(10.dp)
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row {
+            if (post.likes.isNotBlank()) Text("${post.likes} likes", fontSize = 12.sp, color = OriginalColors.TextSecondary)
+            if (post.comments.isNotBlank()) {
+                Spacer(Modifier.width(12.dp))
+                Text("${post.comments} comments", fontSize = 12.sp, color = OriginalColors.TextSecondary)
             }
         }
     }

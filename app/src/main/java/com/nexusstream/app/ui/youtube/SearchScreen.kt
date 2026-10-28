@@ -65,6 +65,8 @@ import com.nexusstream.app.data.Paged
 import com.nexusstream.app.data.PlaylistResult
 import com.nexusstream.app.data.SearchResult
 import com.nexusstream.app.data.SearchType
+import com.nexusstream.app.data.YouTubeWeb
+import androidx.compose.material.icons.outlined.Tune
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.YouTubeNav
@@ -81,17 +83,6 @@ import com.nexusstream.app.ui.components.toFeedState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val DURATION_FILTERS = listOf("Any length", "Under 4 min", "4-20 min", "Over 20 min")
-
-private fun matchesDuration(filter: String, durationMs: Long): Boolean {
-    val minutes = durationMs / 60_000.0
-    return when (filter) {
-        "Under 4 min" -> minutes < 4
-        "4-20 min" -> minutes in 4.0..20.0
-        "Over 20 min" -> minutes > 20
-        else -> true
-    }
-}
 
 /**
  * YouTube search: recent searches, live suggestions while typing, and typed results
@@ -106,7 +97,8 @@ fun SearchScreen(
     var query by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf<String?>(null) }
     var type by remember { mutableStateOf(SearchType.ALL) }
-    var duration by remember { mutableStateOf(DURATION_FILTERS.first()) }
+    var filters by remember { mutableStateOf(YouTubeWeb.SearchFilters()) }
+    var showFilters by remember { mutableStateOf(false) }
     var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var results by remember { mutableStateOf<FeedState<List<SearchResult>>>(FeedState.Loading) }
     var cursor by remember { mutableStateOf<Paged<SearchResult>?>(null) }
@@ -142,11 +134,13 @@ fun SearchScreen(
     }
 
     // Results for the submitted query and type.
-    LaunchedEffect(submitted, type, reloadKey) {
+    LaunchedEffect(submitted, type, reloadKey, filters) {
         val q = submitted ?: return@LaunchedEffect
         results = FeedState.Loading
         cursor = null
-        YouTubeRepository.search(q, type).fold(
+        // YouTube's own filters when any are set (videos), otherwise the regular typed search.
+        val useFilters = !filters.isDefault && (type == SearchType.ALL || type == SearchType.VIDEOS)
+        (if (useFilters) YouTubeRepository.filteredSearch(q, type, filters) else YouTubeRepository.search(q, type)).fold(
             onSuccess = {
                 cursor = it
                 results = FeedState.Data(it.items)
@@ -247,24 +241,34 @@ fun SearchScreen(
                     unselectedColor = OriginalColors.Chip
                 )
                 if (type == SearchType.ALL || type == SearchType.VIDEOS) {
-                    OriginalFilterChips(
-                        labels = DURATION_FILTERS,
-                        selected = duration,
-                        onSelect = { duration = it },
-                        unselectedColor = OriginalColors.Chip
-                    )
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (filters.isDefault) OriginalColors.Chip else OriginalColors.TextPrimary)
+                            .clickable { showFilters = true }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.Tune, null, tint = if (filters.isDefault) OriginalColors.TextPrimary else OriginalColors.OnInverse, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (filters.isDefault) "Filters" else "Filters (${filters.count})",
+                            fontSize = 14.sp,
+                            color = if (filters.isDefault) OriginalColors.TextPrimary else OriginalColors.OnInverse
+                        )
+                    }
                 }
                 when (val state = results) {
                     is FeedState.Loading -> OriginalLoading()
                     is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
                     is FeedState.Data -> {
-                        val visible = remember(state.value, hidden, duration) {
+                        val visible = remember(state.value, hidden) {
                             state.value.filter { result ->
                                 when (result) {
                                     is SearchResult.Video ->
                                         result.item.id !in hidden.videoIds &&
-                                            result.item.artistOrChannel !in hidden.channels &&
-                                            matchesDuration(duration, result.item.durationMs)
+                                            result.item.artistOrChannel !in hidden.channels
                                     else -> true
                                 }
                             }
@@ -319,6 +323,9 @@ fun SearchScreen(
                 }
             }
         }
+    }
+    if (showFilters) {
+        SearchFiltersSheet(filters, onApply = { filters = it; showFilters = false }, onDismiss = { showFilters = false })
     }
 }
 
@@ -430,4 +437,69 @@ internal fun PlaylistResultRow(playlist: PlaylistResult, onClick: () -> Unit) {
             }
         }
     }
+}
+
+/** YouTube's search filters: sort order, upload date, length and features. */
+@kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchFiltersSheet(initial: YouTubeWeb.SearchFilters, onApply: (YouTubeWeb.SearchFilters) -> Unit, onDismiss: () -> Unit) {
+    var f by remember { mutableStateOf(initial) }
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, containerColor = OriginalColors.Sheet, contentColor = OriginalColors.TextPrimary) {
+        LazyColumn(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item { Text("Search filters", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp)) }
+            item { FilterLabel("Sort by") }
+            item {
+                OriginalFilterChips(
+                    labels = YouTubeWeb.SortBy.entries.map { it.label },
+                    selected = f.sort.label,
+                    onSelect = { l -> f = f.copy(sort = YouTubeWeb.SortBy.entries.first { it.label == l }) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+            item { FilterLabel("Upload date") }
+            item {
+                OriginalFilterChips(
+                    labels = YouTubeWeb.UploadDate.entries.map { it.label },
+                    selected = f.date.label,
+                    onSelect = { l -> f = f.copy(date = YouTubeWeb.UploadDate.entries.first { it.label == l }) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+            item { FilterLabel("Length") }
+            item {
+                OriginalFilterChips(
+                    labels = YouTubeWeb.Duration.entries.map { it.label },
+                    selected = f.duration.label,
+                    onSelect = { l -> f = f.copy(duration = YouTubeWeb.Duration.entries.first { it.label == l }) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+            item { FilterLabel("Features") }
+            items(YouTubeWeb.Feature.entries.toList(), key = { "f_${it.name}" }) { feature ->
+                val on = feature in f.features
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { f = f.copy(features = if (on) f.features - feature else f.features + feature) }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(feature.label, fontSize = 15.sp, modifier = Modifier.weight(1f), color = OriginalColors.TextPrimary)
+                    androidx.compose.material3.Checkbox(checked = on, onCheckedChange = null)
+                }
+            }
+            item {
+                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.End) {
+                    androidx.compose.material3.TextButton(onClick = { f = YouTubeWeb.SearchFilters() }) { Text("Reset") }
+                    Spacer(Modifier.width(8.dp))
+                    androidx.compose.material3.Button(onClick = { onApply(f) }) { Text("Apply") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterLabel(text: String) {
+    Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextSecondary, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
 }

@@ -392,6 +392,22 @@ object YouTubeRepository {
                 return@io personal
             }
         }
+        // A topic chip from the signed-in Home feed: YouTube's own feed for that topic.
+        _homeChips.value.firstOrNull { it.first == category && it.second.isNotEmpty() }?.let { (_, token) ->
+            runCatching { webFeed(YouTubeWeb.continuation(token)) }.getOrNull()?.takeIf { it.items.isNotEmpty() }?.let {
+                lastVideoFeed = it.items
+                feedCache[category] = Cached(System.currentTimeMillis(), it)
+                return@io it
+            }
+        }
+        // Explore destinations: the topic's own YouTube page.
+        YouTubeWeb.exploreDestinations.firstOrNull { it.first == category }?.let { (_, browseId) ->
+            runCatching { webFeed(YouTubeWeb.explore(browseId)) }.getOrNull()?.takeIf { it.items.size >= 4 }?.let {
+                lastVideoFeed = it.items
+                feedCache[category] = Cached(System.currentTimeMillis(), it)
+                return@io it
+            }
+        }
         val query = if (category == "All") "trending videos today" else category
         val base = searchPaged(query, YoutubeSearchQueryHandlerFactory.VIDEOS) { videoOnly(it) }
         val first = if (category == "All" && personalChannels.isNotEmpty()) {
@@ -419,11 +435,40 @@ object YouTubeRepository {
     /** Typed, paged search (videos, channels, playlists). */
     /** The signed-in account's own Home feed; null when it is empty or the request fails. */
     private fun personalHome(): Paged<MediaItemModel>? {
-        fun page(p: InnerTube.Page): Paged<MediaItemModel> = Paged(p.items, p.continuation?.let { token ->
-            { withContext(Dispatchers.IO) { runCatching { page(InnerTube.more(token)) } } }
+        val first = runCatching { YouTubeWeb.home() }.getOrNull() ?: return null
+        if (first.chips.size > 1) _homeChips.value = first.chips
+        return if (first.items.size >= 4) webFeed(first) else null
+    }
+
+    private fun webFeed(feed: YouTubeWeb.Feed): Paged<MediaItemModel> = Paged(feed.items, feed.continuation?.let { token ->
+        { withContext(Dispatchers.IO) { runCatching { webFeed(YouTubeWeb.continuation(token)) } } }
+    })
+
+    private val _homeChips = kotlinx.coroutines.flow.MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    /** Topic chips of the signed-in Home feed (label to feed token); empty when signed out. */
+    val homeChips: kotlinx.coroutines.flow.StateFlow<List<Pair<String, String>>> = _homeChips
+
+    /** Search with YouTube's filters (sort, upload date, length, features). */
+    suspend fun filteredSearch(query: String, type: SearchType, filters: YouTubeWeb.SearchFilters): Result<Paged<SearchResult>> = io {
+        fun page(p: YouTubeWeb.ResultPage): Paged<SearchResult> = Paged(p.results, p.continuation?.let { token ->
+            { io { page(YouTubeWeb.searchMore(token)) } }
         })
-        val first = runCatching { InnerTube.home() }.getOrNull() ?: return null
-        return if (first.items.size >= 4) page(first) else null
+        page(YouTubeWeb.search(query, filters, videosOnly = type == SearchType.VIDEOS)).also {
+            check(it.items.isNotEmpty()) { "No results" }
+        }
+    }
+
+    /** One channel tab (Home, Shorts, Live, Releases, Posts...), or a sort chip / next page via [continuation]. */
+    suspend fun channelTab(channelUrl: String, tab: YouTubeWeb.ChannelTab, continuation: String? = null): Result<YouTubeWeb.TabPage> = io {
+        if (continuation != null) return@io YouTubeWeb.channelTabMore(continuation)
+        val id = Regex("""/channel/(UC[\w-]{22})""").find(channelUrl)?.groupValues?.get(1)
+            ?: AccountApi.channelId(channelUrl) ?: error("Channel not found")
+        YouTubeWeb.channelTab(id, tab)
+    }
+
+    /** Title and channel of a short that came from the Shorts sequence without them. */
+    suspend fun shortInfo(videoId: String): Result<MediaItemModel> = io {
+        YouTubeWeb.reelInfo(videoId) ?: error("No details for this short")
     }
 
     /** Forget cached feeds, e.g. after signing in or out. */
@@ -474,8 +519,29 @@ object YouTubeRepository {
         }
 
         check(pagedResult.items.isNotEmpty()) { "No Shorts available right now" }
-        shortsCache.set(pagedResult)
-        pagedResult
+        val withSequence = withReelSequence(pagedResult)
+        shortsCache.set(withSequence)
+        withSequence
+    }
+
+    /**
+     * Continues the feed with the Shorts player's own sequence (what YouTube plays after a short),
+     * falling back to more search pages when the sequence ends or fails.
+     */
+    private fun withReelSequence(base: Paged<MediaItemModel>): Paged<MediaItemModel> {
+        val seed = base.items.firstOrNull()?.id ?: return base
+        fun next(token: String?, fallback: (suspend () -> Result<Paged<MediaItemModel>>)?): suspend () -> Result<Paged<MediaItemModel>> = {
+            io {
+                val (ids, more) = runCatching { YouTubeWeb.reelSequence(if (token == null) seed else null, token) }.getOrDefault(emptyList<String>() to null)
+                if (ids.isEmpty()) {
+                    fallback?.invoke()?.getOrThrow() ?: Paged(emptyList(), null)
+                } else {
+                    val items = ids.map { id -> InnerTube.build(id, "", "", "https://i.ytimg.com/vi/$id/oar2.jpg", "", 0, "", "", "", false).copy(isShort = true) }
+                    Paged(items, if (more != null) next(more, fallback) else fallback)
+                }
+            }
+        }
+        return Paged(base.items, next(null, base.loadMore))
     }
 
     private fun fetchShortsSearchPaged(query: String): Paged<MediaItemModel> {

@@ -193,7 +193,13 @@ fun YouTubeHomeScreen(
         }
     }
 
-    val categories = remember { listOf("All", "Music", "Gaming", "News", "Sports", "Movies", "Technology", "Cooking") }
+    // Signed in: the account's own Home topic chips; otherwise general topics.
+    val accountChips by YouTubeRepository.homeChips.collectAsState()
+    val categories = remember(accountChips, selectedCategory) {
+        val base = accountChips.map { it.first }.ifEmpty { listOf("All", "Music", "Gaming", "News", "Sports", "Live", "Learning", "Podcasts") }
+        if (selectedCategory in base) base else base + selectedCategory
+    }
+    var showExplore by remember { mutableStateOf(false) }
     val navEntries = remember {
         listOf(
             BottomNavEntry("Home", Icons.Outlined.Home, Icons.Filled.Home),
@@ -241,8 +247,17 @@ fun YouTubeHomeScreen(
                 onSelect = { selectedCategory = it },
                 unselectedColor = OriginalColors.Chip,
                 leadingIcon = Icons.Outlined.Explore,
-                onLeadingClick = { selectedCategory = "Trending" }
+                onLeadingClick = { showExplore = true }
             )
+            // Explore: YouTube's destination pages (Trending, Music, Gaming, News...).
+            androidx.compose.material3.DropdownMenu(expanded = showExplore, onDismissRequest = { showExplore = false }) {
+                com.nexusstream.app.data.YouTubeWeb.exploreDestinations.forEach { (label, _) ->
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = { showExplore = false; selectedCategory = label }
+                    )
+                }
+            }
         }
 
         val floatingBottom by animateDpAsState(

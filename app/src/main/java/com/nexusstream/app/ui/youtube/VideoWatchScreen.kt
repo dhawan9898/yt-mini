@@ -837,7 +837,7 @@ private fun LazyListScope.relatedSection(
  * list came from YouTube's own API) there is a box to comment, and like / reply on each comment.
  */
 @Composable
-private fun CommentsList(page: CommentsPage, sort: CommentsApi.Sort, onSort: (CommentsApi.Sort) -> Unit) {
+internal fun CommentsList(page: CommentsPage, sort: CommentsApi.Sort, onSort: (CommentsApi.Sort) -> Unit) {
     var items by remember(page) { mutableStateOf(page.items) }
     var cursor by remember(page) { mutableStateOf<Paged<CommentModel>?>(page.paged) }
     var loadingMore by remember(page) { mutableStateOf(false) }

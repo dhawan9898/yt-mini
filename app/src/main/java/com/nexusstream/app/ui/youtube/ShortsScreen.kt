@@ -25,6 +25,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.outlined.Comment
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ThumbUp
@@ -214,7 +218,7 @@ private fun ShortsPager(
         val item = items[page]
         val isActive = page == pagerState.settledPage
         ShortPage(
-            item = item,
+            item0 = item,
             isActive = isActive,
             resolving = isActive && playback?.isResolving == true,
             // Only real playback counts (not buffering), so the thumbnail stays until the first frame.
@@ -229,7 +233,7 @@ private fun ShortsPager(
 @OptIn(UnstableApi::class)
 @Composable
 private fun ShortPage(
-    item: MediaItemModel,
+    item0: MediaItemModel,
     isActive: Boolean,
     resolving: Boolean,
     playing: Boolean,
@@ -238,9 +242,18 @@ private fun ShortPage(
     onOpenChannel: (MediaItemModel) -> Unit
 ) {
     val context = LocalContext.current
+    // Shorts from the Shorts player's sequence arrive with only an id; their overlay fills in the rest.
+    var item by remember(item0.id) { mutableStateOf(item0) }
+    LaunchedEffect(item0.id) {
+        if (item0.title.isBlank()) YouTubeRepository.shortInfo(item0.id).onSuccess { info ->
+            item = item0.copy(title = info.title, artistOrChannel = info.artistOrChannel, channelAvatarUrl = info.channelAvatarUrl, channelUrl = info.channelUrl)
+        }
+    }
     val liked by LibraryRepository.liked.collectAsState()
+    val disliked by LibraryRepository.disliked.collectAsState()
     val saved by LibraryRepository.saved.collectAsState()
     var showSave by remember { mutableStateOf(false) }
+    var showComments by remember { mutableStateOf(false) }
     // Once this short has really played, the thumbnail cover is removed for good (pausing keeps the frame).
     var started by remember(item.id) { mutableStateOf(false) }
     LaunchedEffect(playing) { if (playing) started = true }
@@ -349,6 +362,17 @@ private fun ShortPage(
                         modifier = Modifier.size(28.dp)
                     )
                 }
+                IconButton(onClick = { LibraryRepository.toggleDislike(item) }) {
+                    Icon(
+                        imageVector = if (item.id in disliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                        contentDescription = "Dislike",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                IconButton(onClick = { showComments = true }) {
+                    Icon(Icons.Outlined.Comment, "Comments", tint = Color.White, modifier = Modifier.size(28.dp))
+                }
                 IconButton(onClick = { showSave = true }) {
                     Icon(
                         imageVector = if (saved.any { it.id == item.id }) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
@@ -371,4 +395,31 @@ private fun ShortPage(
     }
 
     if (showSave) AddToPlaylistSheet(item = item, onDismiss = { showSave = false })
+    if (showComments) ShortComments(item, onDismiss = { showComments = false })
+}
+
+@kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ShortComments(item: MediaItemModel, onDismiss: () -> Unit) {
+    var sort by remember { mutableStateOf(com.nexusstream.app.data.CommentsApi.Sort.TOP) }
+    var page by remember(item.id) { mutableStateOf<FeedState<com.nexusstream.app.data.CommentsPage>>(FeedState.Loading) }
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(item.id, sort, reload) {
+        page = FeedState.Loading
+        page = YouTubeRepository.comments(item.watchUrl, sort).toFeedState()
+    }
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = com.nexusstream.app.ui.components.OriginalColors.Sheet,
+        contentColor = com.nexusstream.app.ui.components.OriginalColors.TextPrimary
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.75f)) {
+            Text("Comments", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            when (val state = page) {
+                is FeedState.Loading -> OriginalLoading()
+                is FeedState.Error -> OriginalError(state.message, onRetry = { reload++ })
+                is FeedState.Data -> CommentsList(state.value, sort, onSort = { sort = it })
+            }
+        }
+    }
 }
