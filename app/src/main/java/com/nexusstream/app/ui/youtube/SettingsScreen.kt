@@ -376,7 +376,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 androidx.compose.material3.TextButton(onClick = {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, "NexusStream playback self-test\n$text")
+                        putExtra(Intent.EXTRA_TEXT, "yt-mini playback self-test\n$text")
                     }
                     context.startActivity(Intent.createChooser(send, "Share self-test"))
                 }) { Text("Share", color = LinkBlue) }
@@ -396,7 +396,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
             confirmLabel = "Restore",
             onConfirm = {
                 val ok = LibraryRepository.importBackup(json)
-                Toast.makeText(context, if (ok) "Backup restored" else "That isn't a NexusStream backup", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, if (ok) "Backup restored" else "That isn't a yt-mini backup", Toast.LENGTH_LONG).show()
                 pendingRestore = null
             },
             onDismiss = { pendingRestore = null }

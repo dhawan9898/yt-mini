@@ -448,7 +448,7 @@ object LibraryRepository {
 
     /** Everything worth moving to another device, as JSON (downloads are files and are not included). */
     fun exportBackup(): String = JSONObject()
-        .put("app", "NexusStream")
+        .put("app", "NexusStream") // backup format id, kept so older backups still restore
         .put("format", 1)
         .put("saved", JSONArray(encodeItems(_saved.value)))
         .put("liked", JSONArray(encodeItems(_liked.value)))

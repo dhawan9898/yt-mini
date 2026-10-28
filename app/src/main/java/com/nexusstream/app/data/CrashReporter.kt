@@ -41,6 +41,6 @@ object CrashReporter {
     internal fun format(version: String, device: String, thread: String, error: Throwable, timeMs: Long): String {
         val trace = StringWriter().also { error.printStackTrace(PrintWriter(it)) }.toString()
         val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(timeMs))
-        return "NexusStream crash report\nTime: $time\nVersion: $version\nDevice: $device\nThread: $thread\n\n$trace"
+        return "yt-mini crash report\nTime: $time\nVersion: $version\nDevice: $device\nThread: $thread\n\n$trace"
     }
 }

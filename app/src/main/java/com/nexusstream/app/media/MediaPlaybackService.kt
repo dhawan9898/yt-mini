@@ -913,7 +913,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                "NexusStream Playback",
+                "yt-mini Playback",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Continuous playback and media notification controls"
@@ -926,7 +926,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     private fun startForegroundWithInitialNotification() {
         val initialNotification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("NexusStream Engine")
+            .setContentTitle("yt-mini")
             .setContentText("Unified Audio & Video Pipeline Active")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)

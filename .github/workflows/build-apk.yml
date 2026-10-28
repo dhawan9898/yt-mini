@@ -1,4 +1,4 @@
-name: Build and Release NexusStream APK
+name: Build and Release yt-mini APK
 
 on:
   push:
@@ -61,15 +61,15 @@ jobs:
             APK_PATH=$(find . -name "*.apk" | head -n 1)
           fi
           echo "Found APK at: $APK_PATH"
-          cp "$APK_PATH" "./NexusStream-v${{ env.VERSION_NAME }}.apk"
+          cp "$APK_PATH" "./yt-mini-v${{ env.VERSION_NAME }}.apk"
 
       - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ env.VERSION_NAME }}"
-          name: "NexusStream v${{ env.VERSION_NAME }}"
+          name: "yt-mini v${{ env.VERSION_NAME }}"
           body: |
-            ## NexusStream Production Release v${{ env.VERSION_NAME }}
+            ## yt-mini Production Release v${{ env.VERSION_NAME }}
             
             ### What's inside
             - **YouTube and YouTube Music in one app**, with a pill to switch between them.
@@ -81,7 +81,7 @@ jobs:
 
             Built automatically by CI/CD on commit `${{ github.sha }}`.
           files: |
-            NexusStream-v${{ env.VERSION_NAME }}.apk
+            yt-mini-v${{ env.VERSION_NAME }}.apk
           draft: false
           prerelease: false
         env:
