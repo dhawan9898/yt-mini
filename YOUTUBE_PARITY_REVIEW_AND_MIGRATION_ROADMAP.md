@@ -1,346 +1,201 @@
-# NexusStream vs. YouTube & YouTube Music: Comprehensive Architectural Review & Parity Migration Roadmap
+# NexusStream vs. YouTube & YouTube Music: Parity Review & Migration Roadmap
+
+_Last reviewed against the code on 2026-10-28 (commit `6036fd2`). Paths are relative to `app/src/main/java/com/nexusstream/app/`._
 
 ---
 
 ## 1. Executive Summary
 
-**NexusStream (`yt-mini`)** is a lightweight, ad-free unified Android client built with modern Android engineering standards:
-* **Language & UI Framework:** Kotlin 1.9+ with 100% Jetpack Compose (Material 3).
-* **Media Engine:** AndroidX Media3 Suite (`ExoPlayer`, `MediaSessionService`, `PlayerView` v1.4.1).
-* **Content Extraction:** Dual-engine approach combining `NewPipeExtractor` (`v0.26.5`) with a custom `InnerTube` HTTP client (`/youtubei/v1/browse`) using extracted Google cookies (`SAPISIDHASH`).
-* **Design Philosophy:** Dual-persona architecture combining **YouTube Video** and **YouTube Music** under a single unified application with both "Original Style" (near-black Material You) and "Liquid Glass" themes.
-* **Included Extras:** Sponsor/ad-blocking media pipeline, Return YouTube Dislike integration, dynamic LRCLIB lyrics synchronization, local downloads, picture-in-picture, and Google Cast support.
+**NexusStream (`yt-mini`)** is an ad-free Android client that combines YouTube and YouTube Music in one app.
 
-### Core Strengths
-1. **Zero Advertisements & Tracking:** Complete interception of ad serving networks and query-level tracking parameters via [AdBlockMediaPipeline.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/media/AdBlockMediaPipeline.kt).
-2. **Unified Dual Experience:** Seamless switching between long-form video watching and music streaming without opening two distinct applications.
-3. **Background & PiP Playback as Standard:** Native `MediaSessionService` foreground playback and auto-PiP mode on navigation.
-4. **Independent Identity:** Capable of working completely signed out (local subscriptions, local playlists, local history) while also supporting Google account cookie extraction for personalized recommendations.
+* **Language & UI:** Kotlin 2.0 with Jetpack Compose (Material 3).
+* **Media engine:** AndroidX Media3 1.4.1 (`ExoPlayer`, `MediaSessionService`). Video is drawn by our own Compose layout around a texture surface (`ui/components/VideoSurface.kt`).
+* **Data sources:** `NewPipeExtractor` v0.26.5 for public data and streams, plus a hand-written InnerTube client (`data/InnerTube.kt`) that uses the signed-in Google web-session cookies and a `SAPISIDHASH` header. There is no official YouTube Data API or OAuth.
+* **Sign-in:** WebView cookie login (`ui/youtube/GoogleSignInScreen.kt`, `data/GoogleAccount.kt`). Cookies are backed up to `SharedPreferences` and restored on launch so the session survives cookie-store resets.
+* **Extras:** ad-network filtering in the media pipeline, Return YouTube Dislike counts, LRCLIB synced lyrics, downloads, picture-in-picture, Google Cast, upload notifications, bedtime reminders, Google Takeout import.
 
-### Key Parity Gaps Compared to Official YouTube & YT Music
-1. **Read-Only / One-Way Account Sync:** Users cannot leave comments, like/dislike on Google servers, subscribe to channels on the server, or edit cloud playlists. All user mutations are stored locally in `SharedPreferences`.
-2. **Playback Engine Refinements:** Missing official YouTube features like **Ambient Mode** (real-time glowing canvas matching video colors), **Hold-to-2x speed**, **Pinch-to-zoom** (crop-to-fill up to 8x), and **Stable Volume** (loudness normalization).
-3. **YT Music Algorithmic Parity:** Lacks dynamic radio stations generated from a track seed (`watch?v=...&list=RD...`), personalized mixes (Discover Mix, Replay Mix), and the official 3-tab bottom sheet (**Up Next / Lyrics / Related**).
-4. **Data Persistence Limitations:** Reliance on `SharedPreferences` via [LibraryRepository.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/LibraryRepository.kt) for playlists, downloads, and history introduces scale and query limitations compared to an SQLite/Room architecture.
-5. **Web Client Disconnect:** The `web/` module is currently a static mockup with dummy catalogs and is not connected to live YouTube or the Android app's data layer.
+### Core strengths
+1. **No ads:** ad and tracker requests are filtered in `media/AdBlockMediaPipeline.kt`.
+2. **One app for both:** video and music share one player service, queue and library.
+3. **Background and PiP playback for free** via `media/MediaPlaybackService.kt` and `PipController.kt`.
+4. **Works signed out:** subscriptions, playlists and history are kept locally; signing in adds personalised feeds.
+
+### Biggest remaining gaps
+1. **Account writes are partial and silent.** Likes and subscribes are now sent to YouTube, but results are ignored, failures are not shown, and the local state is not reconciled with the server. Comments, playlist edits and watch history are still local only or read-only.
+2. **Video quality:** progressive/merged streams with a 720p default cap; no DASH adaptive streaming, no 1440p/4K/HDR.
+3. **Ambient mode is approximate:** the glow uses a colour derived from the video id, not the actual frames.
+4. **YT Music depth:** no artist discography page, no 4-row Quick Picks grid, moods are search-backed rather than real YT Music browse pages.
+5. **Persistence:** everything still lives as JSON in `SharedPreferences` (`data/LibraryRepository.kt`).
+6. **Web client:** `web/` is still a static mockup with hardcoded data.
 
 ---
 
 ## 2. Feature-by-Feature Parity Matrix
 
-### A. YouTube Video vs. NexusStream
+Status key: **Done** (matches or beats the official app), **Partial** (exists but noticeably weaker), **Missing**.
 
-| Feature Area | Official YouTube Android | NexusStream Current State | Migration Priority |
-| :--- | :--- | :--- | :--- |
-| **Ad-Free Playback** | Requires YouTube Premium | Built-in via [AdBlockMediaPipeline.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/media/AdBlockMediaPipeline.kt) | Parity Exceeded |
-| **Background Playback & PiP** | Requires YouTube Premium | Built-in via [MediaPlaybackService.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/media/MediaPlaybackService.kt) & [PipController.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/PipController.kt) | Parity Exceeded |
-| **Dislike Counter** | Dislike counts hidden | Restored via [DislikeApi.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/DislikeApi.kt) (Return YouTube Dislike) | Parity Exceeded |
-| **SponsorBlock Integration** | Not available | Basic domain ad-filter only; no segment skipping | **Medium** |
-| **Ambient Mode** | Real-time ambient color glow around video | None | **High** |
-| **Hold-to-2x Speed Gesture** | Press & hold anywhere to speed up to 2.0x | Speed menu in player sheet only | **High** |
-| **Pinch-to-Zoom** | Fluid zoom from fit-to-screen to 8x crop | Fit vs Zoom fixed aspect ratio toggle only | **Medium** |
-| **Stable Volume** | Dynamic audio loudness normalization | Raw audio track volume only | **Medium** |
-| **Storyboard Scrubbing** | Real-time scrubber thumbnail preview | Implemented via [Storyboard](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/YouTubeRepository.kt#L128) in [WatchPlayer.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/youtube/WatchPlayer.kt) | Parity Achieved |
-| **Adaptive Bitrate (ABR)** | Full DASH / VP9 / AV1 up to 4K 60fps HDR | Separate progressive audio + video merged via `MergingMediaSource`; capped at 720p/1080p | **High** |
-| **Shorts Feed** | Algorithmic infinite vertical pager with audio remixes | [ShortsScreen.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/youtube/ShortsScreen.kt) vertical pager with cycling ExoPlayer; no remix/comments drawer | **Low - Medium** |
-| **Comments & Replies** | Multi-level replies, liking, posting, sorting | Read-only comments and reply expansion via [YouTubeRepository.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/YouTubeRepository.kt#L138); cannot post | **High** |
-| **Search Engine** | Query suggestions, voice search, rich filters (date, duration, 4K) | Keyword search + type filter chips (All/Video/Channel/Playlist); no date/duration filters | **Medium** |
-| **Live Chat** | Real-time WebSocket chat and Super Chats | Live HLS stream supported; Live Chat completely absent | **Low** |
-| **Channel Pages** | Home, Videos, Shorts, Live, Playlists, Community, About | Videos and Playlists tabs loaded; Community and Live tabs absent | **Medium** |
+### A. YouTube vs. NexusStream
 
----
+| Feature | Official YouTube | NexusStream today | Status | Priority |
+| :--- | :--- | :--- | :--- | :--- |
+| Ad-free playback | Premium only | Built in (`media/AdBlockMediaPipeline.kt`) | Done | – |
+| Background & PiP | Premium only | Built in (`media/MediaPlaybackService.kt`, `PipController.kt`) | Done | – |
+| Dislike count | Hidden | Shown via Return YouTube Dislike (`data/DislikeApi.kt`) | Done | – |
+| Like a video | Synced to account | Stored locally and sent to `/youtubei/v1/like/like` / `removelike` (`InnerTube.likeVideo`); fire-and-forget, no error handling, liked list not read back from the account | Partial | High |
+| Subscribe to a channel | Synced to account | Stored locally and sent to `/youtubei/v1/subscription/subscribe` / `unsubscribe` (`InnerTube.subscribeChannel`) when the channel URL has a `UC…` id; fire-and-forget | Partial | High |
+| Subscriptions feed & channel list | Account | `FEsubscriptions` feed and channel import from the account (`InnerTube.subscriptions()`, `InnerTube.channels()`) | Done | – |
+| Home & history feeds | Account | `FEwhat_to_watch` and `FEhistory` via InnerTube when signed in | Done | – |
+| Hold for 2x speed | Hold anywhere | Long-press on the video with haptic and "2x speed" HUD (`ui/youtube/WatchPlayer.kt`) | Done | – |
+| Double-tap seek | Left/right thirds | Left/right third seeks 10 s (`WatchPlayer.kt`) | Done | – |
+| Pinch to zoom | Fit ↔ fill | Pinch toggles fit ↔ zoom-to-fill (two states, no free zoom) | Done | Low |
+| Ambient mode | Glow sampled from video frames | Radial glow behind the player, colour derived from the video id (`colorsFor(id)`), not from frames; toggle in settings | Partial | Medium |
+| Stable volume | Loudness normalisation | Android `LoudnessEnhancer` on the player session, toggle in settings | Partial | Low |
+| Storyboard scrubbing | Thumbnail preview on seek | Implemented (`data/YouTubeRepository.kt` storyboard + `WatchPlayer.kt`) | Done | – |
+| Video quality / ABR | DASH, VP9/AV1, up to 4K HDR | Separate video + audio merged with `MergingMediaSource`; quality picker; default cap 720p (`DEFAULT_MAX_HEIGHT`) | Partial | High |
+| SponsorBlock | Not available | Not integrated (ad-network filter only) | Missing | Medium |
+| Shorts | Infinite vertical feed | Vertical pager, `#shorts` search + subscribed channels' Shorts, edge-to-edge (`ui/youtube/ShortsScreen.kt`); no comments drawer or remix | Partial | Low |
+| Comments | Read, reply, like, post, sort | Read-only list with replies and infinite scroll (`ui/youtube/VideoWatchScreen.kt`); cannot post, like or sort | Partial | High |
+| Search | Suggestions, voice, rich filters | Type chips plus length filter (`ui/youtube/SearchScreen.kt`); no upload-date / feature filters, no voice | Partial | Medium |
+| Channel pages | Home, Videos, Shorts, Live, Playlists, Posts, About | Videos, Playlists, About (`ui/youtube/ChannelScreen.kt`) | Partial | Medium |
+| Live chat | Real-time chat, Super Chat | Live streams play; no chat | Missing | Low |
+| Save to playlist | Account playlists | Local playlists only (`ui/youtube/AddToPlaylistSheet.kt`) | Partial | Medium |
+| Watch history sync | Account | Local history; account history is read but plays are not reported back | Partial | Medium |
 
 ### B. YouTube Music vs. NexusStream
 
-| Feature Area | Official YouTube Music | NexusStream Current State | Migration Priority |
-| :--- | :--- | :--- | :--- |
-| **Audio-Only Streaming** | Requires YT Music Premium | Built-in (extracts M4A/Opus audio-only streams) | Parity Exceeded |
-| **Song / Video Seamless Switch** | Instant switch keeping audio in exact sync | Implemented in [MusicPlayerScreen.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/player/MusicPlayerScreen.kt), but reloads player view | **Medium** |
-| **Synchronized Lyrics** | Musixmatch / Google synchronized line & word karaoke | Real-time synchronized lyrics via [LyricsRepository.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/LyricsRepository.kt) & [LyricsView.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/player/LyricsView.kt) (LRCLIB) | Parity Achieved |
-| **Now Playing Bottom Tabs** | 3 Persistent Tabs: **Up Next**, **Lyrics**, **Related** | Panels toggled via buttons for Up Next and Lyrics; **Related** missing | **High** |
-| **Dynamic Radio Stations** | Continuous radio from any song seed (`RD...`) | Basic related videos list; does not fetch true YT Music Radio queues | **High** |
-| **Moods & Genres Hub** | Deep multi-tier carousels for Chill, Commute, Energy, Focus, etc. | Top mood chips row with basic search query mapping | **Medium** |
-| **Quick Picks (4xN Grid)** | 4 items per column horizontal carousel | Single horizontal row cards | **Medium** |
-| **Artist Discography** | Albums, Singles, EPs, Featured On, Similar Artists | Generic channel video listing | **High** |
-| **Custom Radio Builder** | Pick artists + mood blend tuning | Absent | **Low** |
-| **Sleep Timer** | Built into player options (5m, 15m, 30m, End of Track) | Implemented via [AppSettings.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/AppSettings.kt) & `MediaPlaybackService` | Parity Achieved |
+| Feature | Official YT Music | NexusStream today | Status | Priority |
+| :--- | :--- | :--- | :--- | :--- |
+| Audio-only streaming | Premium only | Built in | Done | – |
+| Song / Video switch | Instant, in sync | Song / Video toggle in `ui/player/MusicPlayerScreen.kt` | Done | Low |
+| Now Playing tabs | Up Next, Lyrics, Related | UP NEXT, LYRICS and RELATED tabs (`MusicPlayerScreen.kt`) | Done | – |
+| Synced lyrics | Line and word sync | Line-synced LRCLIB lyrics (`data/LyricsRepository.kt`, `ui/player/LyricsView.kt`) | Done | – |
+| Radio from a song | `RDAMVM<videoId>` queue | `InnerTube.radio()` calls `/youtubei/v1/next` with `RDAMVM` + id; falls back to NewPipe related videos (`YouTubeRepository.radio`) | Done | – |
+| Queue editing | Reorder, swipe away | Shuffle and repeat; no drag-to-reorder or swipe-to-remove | Partial | Medium |
+| Moods & genres | Real browse pages per mood | Mood chips that drive search-backed shelves (`ui/ytmusic/YTMusicHomeScreen.kt`) | Partial | Medium |
+| Quick Picks | 4-row horizontal grid | Single-row carousels | Partial | Medium |
+| Albums | Album page | Album cards open their own page | Done | – |
+| Artist discography | Top songs, albums, singles, fans also like | Generic channel page | Missing | High |
+| Personal mixes | Supermix, Discover, Replay | None | Missing | Medium |
+| Sleep timer | Built in | Built in (`data/AppSettings.kt`, `MediaPlaybackService`) | Done | – |
 
 ---
 
-## 3. Deep Architectural Analysis
+## 3. Architecture Notes
 
-### 3.1 Network & Extraction Pipeline
+### 3.1 Network & extraction
+
 ```mermaid
 graph TD
-    UI[Jetpack Compose UI] --> Repo[YouTubeRepository]
+    UI[Compose UI] --> Repo[YouTubeRepository / LibraryRepository]
     Repo --> NewPipe[NewPipeExtractor v0.26.5]
-    Repo --> InnerTube[InnerTube Client]
-    InnerTube --> GoogleAccount[GoogleAccount Cookie & SAPISIDHASH]
-    NewPipe --> DirectStreams[Audio/Video Stream URLs]
-    InnerTube --> PersonalFeeds[Home / Subscriptions / History Feeds]
-    DirectStreams --> Pipeline[AdBlockMediaPipeline]
-    Pipeline --> ExoPlayer[AndroidX Media3 ExoPlayer]
+    Repo --> InnerTube[InnerTube client]
+    InnerTube --> GoogleAccount[GoogleAccount cookies + SAPISIDHASH]
+    NewPipe --> Streams[Audio / video stream URLs]
+    InnerTube --> Feeds[Home / Subscriptions / History / Radio]
+    InnerTube --> Writes[Like / Subscribe]
+    Streams --> Pipeline[AdBlockMediaPipeline]
+    Pipeline --> ExoPlayer[Media3 ExoPlayer]
 ```
 
-#### Observations:
-1. **NewPipeExtractor (`org.schabi.newpipe.extractor:v0.26.5`)**:
-   - Handles public video metadata, stream resolution, comment scraping, and search.
-   - **Risk:** Sensitive to YouTube frontend layout changes; extractor updates can lag behind breaking changes from YouTube.
-   - **Resolution limitation:** Merges separate video and audio streams via `MergingMediaSource`. High-resolution streams (>1080p) frequently trigger bot-detection / throttling if chunk sizes and headers are not closely mimicking web clients.
-2. **InnerTube Client (`com.nexusstream.app.data.InnerTube`)**:
-   - Uses `https://www.youtube.com/youtubei/v1/browse` with `WEB` client context and `CLIENT_VERSION = 2.20250101.00.00`.
-   - Incorporates `SAPISIDHASH` header generated from cookie data.
-   - **Limitation:** Currently only implements `browse` with `FEwhat_to_watch`, `FEsubscriptions`, and `FEhistory`. It does not support `next` (watch next / radio generation), `player` (direct InnerTube playback resolution), `search`, or write endpoints (`like/like`, `comment/create_comment`).
+**NewPipeExtractor** handles public metadata, streams, comments, search and channels. It breaks when YouTube changes its frontend, so the version needs to be kept current.
+
+**InnerTube client** (`data/InnerTube.kt`) posts to `youtubei/v1` with the `WEB` client context (`CLIENT_VERSION = 2.20250101.00.00`) and a `SAPISIDHASH` header. Endpoints in use today:
+
+| Endpoint | Use |
+| :--- | :--- |
+| `browse` `FEwhat_to_watch` / `FEsubscriptions` / `FEhistory` | Home, subscriptions and history feeds, plus continuations |
+| `browse` (channels) | Importing the account's subscribed channels |
+| `next` with `playlistId = RDAMVM<id>` | Music radio queue |
+| `like/like`, `like/removelike` | Like / unlike |
+| `subscription/subscribe`, `subscription/unsubscribe` | Subscribe / unsubscribe |
+
+Not yet used: `player` (InnerTube stream resolution), `search`, `comment/create_comment`, `browse/edit_playlist`, `feedback`, and the YT Music (`WEB_REMIX`) client for music browse pages.
+
+**Known weaknesses in the write path:**
+* `likeVideo` and `subscribeChannel` return `true` whenever the HTTP call does not throw; the response is not checked and the callers in `LibraryRepository` ignore the result, so a rejected write leaves the UI out of sync with the account without telling the user.
+* Subscribe only syncs when the stored channel URL contains a `UC…` id; handle-style URLs (`/@name`) are skipped silently.
+* The client version string is hardcoded and dated; YouTube may start rejecting it.
+
+### 3.2 Playback
+
+* `MediaPlaybackService` handles foreground playback, audio focus, becoming-noisy, media session controls, sleep timer, autoplay queue and the `LoudnessEnhancer` for stable volume.
+* Video is merged from separate progressive/adaptive video and audio streams via `MergingMediaSource`, with a default 720p cap that the user can raise per video. There is no DASH manifest playback, so there is no true adaptive bitrate switching.
+* The watch player (`ui/youtube/WatchPlayer.kt`) owns its gestures: double-tap seek, hold for 2x, vertical swipe for fullscreen / minimise, pinch for fit ↔ fill. Fullscreen is edge-to-edge with overlaid controls.
+* A floating mini player (`ui/components/FloatingMiniPlayer.kt`) and an auto-hiding glass nav bar (`ui/components/GlassNavBar.kt`) are in place.
+
+### 3.3 Persistence
+
+`LibraryRepository` serialises subscriptions, likes, history, playlists and settings to JSON strings in `SharedPreferences`. Every write rewrites the whole list, there are no transactions, and all filtering happens in memory. This is fine at current sizes but will not scale to synced account data.
+
+### 3.4 Web client (`web/`)
+
+Still a static Vite mockup built on hardcoded arrays (`MUSIC_CATALOG`) and sample MP4s. It is not connected to any real data.
 
 ---
 
-### 3.2 Playback Engine & Audio/Video Pipeline
-
-#### Strengths in Current Codebase:
-- [MediaPlaybackService.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/media/MediaPlaybackService.kt) provides robust foreground service integration, handling `AUDIO_BECOMING_NOISY`, audio focus changes, lock screen media controls, and notification channels.
-- [AdBlockMediaPipeline.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/media/AdBlockMediaPipeline.kt) uses an intercepting `HttpDataSource` to catch google ad networks (`pagead2`, `doubleclick`, `googlevideo.com/videoplayback?*adformat=*`) and sanitize trackers.
-
-#### Missing Video Player Capabilities:
-1. **Ambient Lighting Effect (Cinema Glow):**
-   - In official YouTube, the space immediately above and below the video softly mirrors the dominant colors of the active video frame in real time.
-   - In NexusStream, the background is a static `#0F0F0F` or theme glass gradient.
-2. **Hold-to-2x Speed (Quick Boost):**
-   - Official YouTube allows users to hold their finger anywhere on the video surface to temporarily engage `2.0x` speed with subtle haptic feedback, releasing to resume `1.0x`.
-   - NexusStream requires tapping player controls -> opening the options sheet -> changing speed.
-3. **Audio Normalization (Stable Volume):**
-   - YouTube streams include loudness metadata (ReplayGain / LUFS target). Official YouTube balances dynamically so commercials or quiet videos don't cause volume jumps.
-   - NexusStream passes raw streams to ExoPlayer without `SonicAudioProcessor` or loudness volume gain leveling.
-
----
-
-### 3.3 Data Layer & Persistence Architecture
-
-#### Current State:
-- Local state (bookmarks, subscriptions, history, playlists, notification settings) is managed via [LibraryRepository.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/LibraryRepository.kt) serialized to JSON strings inside Android `SharedPreferences`.
-- While simple and lightweight, this design has notable downsides:
-  - **No Transactions / Atomic Guarantees:** Susceptible to corruption during unexpected process termination while serializing large JSON arrays.
-  - **Performance Degradation at Scale:** Every write serializes the entire list (e.g. 300 history items) into a JSON string and writes to disk.
-  - **No SQL Querying / Sorting / Pagination:** Queries require loading the entire collection into memory and filtering in Kotlin.
-
----
-
-### 3.4 Web Client (`web/`) Status
-
-The `web/` folder contains a Vite application featuring a styled UI with:
-- Dual-mode header (YT Music / YouTube).
-- Canvas dynamic mesh background.
-- Floating glass player and lyrics sheet.
-- **Limitation:** Built entirely around hardcoded arrays (`MUSIC_CATALOG` in `web/main.js`) and sample Google Video bucket MP4s (`BigBuckBunny.mp4`, etc.). It does not query NewPipe, InnerTube, or any backend proxy.
-
----
-
-## 4. Comprehensive Migration Roadmap
-
-To migrate NexusStream towards 1:1 parity with the official YouTube and YouTube Music applications, we propose a 5-phase migration strategy:
+## 4. Roadmap
 
 ```mermaid
 timeline
-    title NexusStream Parity Migration Roadmap
-    Phase 1 : Ambient Mode & Gestures : Stable Volume : Hold-to-2x Gesture
-    Phase 2 : InnerTube Radio & Up Next : Related Tab : Mood & Discography Hub
-    Phase 3 : Bi-Directional Actions : Server Subscriptions : Comment Posting
-    Phase 4 : Room Database Migration : Offline Cache : WorkManager Sync
-    Phase 5 : Web PWA Alignment : Shared API Backend : Unified Theme Tokens
+    title NexusStream parity roadmap
+    Phase 1 : Harden account writes : Read likes and playlists back from the account
+    Phase 2 : Comments, playlists and history sync
+    Phase 3 : Playback quality (DASH / higher resolutions) : Frame-sampled ambient mode : SponsorBlock
+    Phase 4 : YT Music depth (artist pages, Quick Picks grid, real moods, mixes, queue editing)
+    Phase 5 : Room database and playback cache
+    Phase 6 : Web client on real data
 ```
 
----
+### Phase 1: Make the existing account writes reliable
 
-### Phase 1: High-Impact Video Player & Interaction Enhancements
+1. Check the InnerTube response for like and subscribe, return a real success/failure, and roll back the local toggle with a short message when the write fails.
+2. Resolve channel ids for handle-style channel URLs before subscribing, so `/@name` channels sync too.
+3. Read the account's liked videos (`browse` `FElibrary` / the `LL` playlist) and merge them with local likes on sign-in, the same way subscribed channels are already imported.
+4. Move `CLIENT_VERSION` somewhere it can be refreshed (or read it from a fetched page) instead of a hardcoded date.
+5. Add unit tests for the request bodies and response handling next to `InnerTubeTest.kt`.
 
-#### Goal: Make the video and music playback experience indistinguishable from the official apps.
+### Phase 2: Remaining account features
 
-1. **Implement Ambient Mode (Cinema Glow) in [WatchPlayer.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/youtube/WatchPlayer.kt):**
-   - Extract sample frame bitmaps or dominant color tokens at regular intervals (e.g., every 500ms using a lightweight `TextureView` / `SurfaceView` pixel sampler or ExoPlayer video frame metadata).
-   - Render a blurred radial gradient backdrop directly behind the video player container in Jetpack Compose:
-   ```kotlin
-   // Concept: Compose Ambient Glow Behind Video
-   Box(
-       modifier = Modifier
-           .fillMaxWidth()
-           .aspectRatio(16f / 9f)
-           .drawBehind {
-               drawRect(
-                   brush = Brush.radialGradient(
-                       colors = listOf(activeFrameColor.copy(alpha = 0.45f), Color.Transparent),
-                       center = center,
-                       radius = size.width * 0.75f
-                   )
-               )
-           }
-   ) {
-       AndroidView(factory = { playerView })
-   }
-   ```
+1. **Comments:** post comments and replies (`comment/create_comment`), like comments, Top / Newest sort.
+2. **Playlists:** list the account's playlists, open them, and add/remove videos via `browse/edit_playlist`; keep local playlists for signed-out use.
+3. **Watch history:** report plays back to YouTube so the account history and recommendations reflect what was watched in NexusStream.
 
-2. **Implement Hold-to-2x Playback Gesture:**
-   - Enhance the gesture detector on the video surface to detect long presses:
-   - On long-press down: trigger `HapticFeedbackType.LongPress`, set `player.setPlaybackSpeed(2.0f)`, and show a top pill chip indicating `2x >>`.
-   - On release: restore previous user playback speed (`1.0f`).
+### Phase 3: Playback quality and player polish
 
-3. **Implement Stable Volume (Loudness Normalization):**
-   - Configure ExoPlayer's `DefaultRenderersFactory` to include a custom `AudioProcessor` or activate Android's `LoudnessEnhancer` audio effect attached to `player.audioSessionId`:
-   ```kotlin
-   val loudnessEnhancer = LoudnessEnhancer(exoPlayer.audioSessionId).apply {
-       setTargetGain(800) // target standard LUFS
-       enabled = AppSettings.stableVolume.value
-   }
-   ```
+1. Play DASH manifests (or InnerTube `player` adaptive formats) so ExoPlayer can switch bitrates and reach 1440p/4K, with VP9/AV1 where the device supports it.
+2. Sample real colours for ambient mode (from the thumbnail with Palette as a first step, then from video frames), instead of the id-derived colour.
+3. Add SponsorBlock segment skipping as an opt-in setting.
+4. Optional: free pinch zoom beyond the current fit/fill toggle, Shorts comments drawer, live chat (read-only first).
 
-4. **Add Pinch-to-Zoom Gesture:**
-   - Implement `detectTransformGestures` on the video player container to smoothly scale the video canvas from 1.0x to 8.0x, allowing users to inspect details or fill ultra-wide aspect ratio screens.
+### Phase 4: YouTube Music depth
+
+1. Artist page: top songs, albums, singles, videos, "Fans also like".
+2. Quick Picks as a 4-row horizontal grid on `YTMusicHomeScreen`.
+3. Real Moods & genres pages and Home shelves from the YT Music (`WEB_REMIX`) browse endpoints rather than search.
+4. Personal mixes (Supermix, Discover, Replay) for signed-in users.
+5. Queue editing: drag to reorder and swipe to remove in UP NEXT.
+
+### Phase 5: Persistence
+
+1. Move `LibraryRepository` data to Room (history, playlists, playlist items, subscriptions, likes) with a one-time migration from the existing `SharedPreferences` JSON.
+2. Add a bounded `SimpleCache` + `CacheDataSource` so recently played tracks replay without re-downloading.
+
+### Phase 6: Web client
+
+Connect `web/` to real data through a small proxy (InnerTube or a Piped/Invidious instance), add a service worker, and share settings via the existing Takeout/backup format. Lowest priority while the Android app is the focus.
 
 ---
 
-### Phase 2: YouTube Music Parity (Radio, Queue, & 3-Tab Player)
+## 5. Done since the first version of this review
 
-#### Goal: Transform the YT Music persona into a full-fledged competitor to the official app.
+These items were listed as gaps or planned work in the previous revision and now exist in the code:
 
-1. **Implement the 3-Panel Now Playing Sheet:**
-   - Restructure [MusicPlayerScreen.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/player/MusicPlayerScreen.kt) to feature the official 3 bottom tabs:
-     1. **UP NEXT:** Full queue with drag-and-drop reordering, swipe-to-dismiss, and continuous dynamic radio toggle.
-     2. **LYRICS:** The existing synchronized [LyricsView.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/player/LyricsView.kt) with auto-scrolling and word-level progress.
-     3. **RELATED:** Similar artists, more tracks by the primary artist, featured playlists, and artist bio.
-
-2. **Implement InnerTube Music Radio Generation:**
-   - In official YouTube Music, starting a track calls `/youtubei/v1/next` with `playlistId = "RDAMVM" + videoId`.
-   - Add this endpoint to [InnerTube.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/InnerTube.kt) to fetch genuine YouTube Music continuous radio queues rather than relying on generic search results.
-
-3. **Artist Discography & Album Presentation:**
-   - Create a dedicated `ArtistScreen.kt` and `AlbumScreen.kt` supporting:
-     - Top Songs list.
-     - Discography sections: Albums, Singles, EPs.
-     - "Fans Also Like" carousels.
-
-4. **Multi-Row Quick Picks (4xN):**
-   - Upgrade [YTMusicHomeScreen.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/ytmusic/YTMusicHomeScreen.kt) to present 4-item high horizontal carousels mirroring the official app's layout.
-
----
-
-### Phase 3: Bi-Directional Account & Cloud Synchronization
-
-#### Goal: Move from read-only scraping to interactive YouTube account features.
-
-1. **InnerTube Write Endpoints:**
-   - Expand [InnerTube.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/InnerTube.kt) to support authenticated write mutations using the existing `GoogleAccount` cookie session:
-     - `POST /youtubei/v1/like/like` and `POST /youtubei/v1/like/removelike`.
-     - `POST /youtubei/v1/subscription/subscribe` and `POST /youtubei/v1/subscription/unsubscribe`.
-     - `POST /youtubei/v1/comment/create_comment`.
-     - `POST /youtubei/v1/browse/edit_playlist`.
-
-2. **Two-Way Playlist Synchronization:**
-   - Enable users to view and edit both local offline playlists and remote cloud playlists tied to their Google account.
-
-3. **Server-Side Watch History:**
-   - Send playback progress pings to `/youtubei/v1/feedback` or the playback watchtime tracker so videos played in NexusStream correctly update the user's official YouTube history and recommendation weights across devices.
-
----
-
-### Phase 4: Production Architecture & Local Persistence Refactor
-
-#### Goal: Upgrade from `SharedPreferences` to an offline-first Room database architecture.
-
-1. **Implement Android Jetpack Room Database:**
-   - Replace JSON-in-SharedPreferences in [LibraryRepository.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/LibraryRepository.kt) with a Room schema:
-   ```kotlin
-   @Entity(tableName = "playback_history")
-   data class HistoryEntity(
-       @PrimaryKey val videoId: String,
-       val title: String,
-       val channelName: String,
-       val channelAvatarUrl: String,
-       val durationMs: Long,
-       val lastWatchedPositionMs: Long,
-       val watchedAtTimestamp: Long
-   )
-
-   @Entity(tableName = "playlists")
-   data class PlaylistEntity(
-       @PrimaryKey val playlistId: String,
-       val name: String,
-       val isRemote: Boolean,
-       val createdAt: Long
-   )
-
-   @Entity(tableName = "playlist_items", primaryKeys = ["playlistId", "videoId"])
-   data class PlaylistItemEntity(
-       val playlistId: String,
-       val videoId: String,
-       val position: Int
-   )
-   ```
-
-2. **Smart Offline Audio Caching:**
-   - Integrate ExoPlayer's `CacheDataSource` with a bounded LRU disk cache (`SimpleCache`) so played tracks are cached locally, enabling zero-data repeat plays and seamless offline listening.
-
----
-
-### Phase 5: Web Application (`web/`) Modernization
-
-#### Goal: Turn `web/` from a static mockup into a full Web/PWA companion.
-
-1. **Shared Extraction Backend:**
-   - Implement an open-source proxy layer (or connect to public Invidious / Piped APIs, or a lightweight Node.js/Cloudflare Worker proxying InnerTube) so `web/main.js` can search, stream, and browse real YouTube data.
-2. **PWA Offline Support:**
-   - Add a Service Worker (`sw.js`) and Web App Manifest (`manifest.json`) for desktop and mobile installability.
-3. **Synchronized State:**
-   - Allow importing/exporting Google Takeout JSON or backing up settings between the Android client and the web client.
-
----
-
-## 5. Architectural Blueprint for Phase 1 & 2 Execution
-
-To assist engineering in implementing these changes immediately, here are the target file modifications:
-
-```
-yt-mini/
-├── app/src/main/java/com/nexusstream/app/
-│   ├── data/
-│   │   ├── InnerTube.kt            <-- Add radio generation & like/comment endpoints
-│   │   ├── YouTubeRepository.kt    <-- Add album/artist tab parsing & related tracks
-│   │   └── database/               <-- [NEW] Room database, DAOs, and entities
-│   │       ├── AppDatabase.kt
-│   │       ├── HistoryDao.kt
-│   │       └── PlaylistDao.kt
-│   ├── media/
-│   │   ├── MediaPlaybackService.kt <-- Integrate LoudnessEnhancer & CacheDataSource
-│   │   └── AmbientEngine.kt        <-- [NEW] Pixel sampling for Ambient Mode
-│   └── ui/
-│       ├── youtube/
-│       │   ├── WatchPlayer.kt      <-- Add Hold-to-2x & Pinch-to-zoom gestures
-│       │   └── AmbientBackdrop.kt  <-- [NEW] Real-time colored glow behind player
-│       └── player/
-│           ├── MusicPlayerScreen.kt<-- Implement 3-panel layout (Up Next, Lyrics, Related)
-│           └── RelatedPanel.kt     <-- [NEW] Related tracks and artist info
-```
-
----
-
-## 6. Parity Fixes Implemented
-
-### A. Seamless Google Sign-In Integration
-* **Bypass WebView Detection:** Added `androidx.webkit:webkit` and configured `WebSettingsCompat.setRequestedWithHeaderAllowList(settings, emptySet())` so Google's login server cannot flag requests with `X-Requested-With: com.nexusstream.app`.
-* **Clean Mobile Chrome User-Agent:** Stripped `; wv` and `Version/4.0` from the device user agent string to prevent Google "This browser or app may not be secure" blocks.
-* **Popup & OAuth Window Management:** Handled multiple window redirects via `WebChromeClient.onCreateWindow`.
-* **Multi-Domain Cookie Aggregation:** [GoogleAccount.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/GoogleAccount.kt) aggregates `SAPISID`, `__Secure-3PAPISID`, `LOGIN_INFO`, `SID`, and `SSID` across `youtube.com`, `m.youtube.com`, and `accounts.google.com`.
-* **Instant Login Auto-Dismiss:** Detects auth cookie arrival across `onPageStarted`, `doUpdateVisitedHistory`, and `shouldOverrideUrlLoading`, seamlessly popping back to the previous screen without getting stuck on YouTube web.
-
-### B. Robust Shorts Loading & Playback Pipeline
-* **Direct Shorts Search & Endless Pagination:** [YouTubeRepository.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/YouTubeRepository.kt) now utilizes `#shorts` query via `SearchInfo` with full continuation support (`SearchInfo.getMoreItems`), ensuring shorts load instantly even for brand-new users with zero subscriptions or watch history.
-* **Channel Shorts Parallel Blend:** If user has subscribed channels, channel shorts are retrieved concurrently and blended at the top.
-* **Edge-to-Edge Full-Screen Presentation:** [ShortsScreen.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/youtube/ShortsScreen.kt) uses `ContentScale.Crop` and `AspectRatioFrameLayout.RESIZE_MODE_ZOOM` to eliminate letterboxing and match the native YouTube Shorts experience.
-
-### C. Real Google Subscriptions Feed & Channel Sync
-* **InnerTube Personalized Feed Integration:** [SubscriptionsScreens.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/ui/youtube/SubscriptionsScreens.kt) and [YouTubeRepository.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/YouTubeRepository.kt) fetch `InnerTube.subscriptions()` with authenticated `SAPISIDHASH` headers when signed in.
-* **Extended InnerTube Parser:** Added support for `gridVideoRenderer`, `compactVideoRenderer`, and channel `browseId` resolution.
-* **Automatic Subscribed Channel Import:** Channels from Google account (`InnerTube.channels()`) are imported into [LibraryRepository.kt](file:///d:/workspace/yt-mini/app/src/main/java/com/nexusstream/app/data/LibraryRepository.kt), immediately populating the top avatar carousel and channel list.
-
----
-
-## 7. Conclusion & Next Steps
-
-NexusStream now delivers authentic Google Sign-in, personalized Subscriptions, reliable Shorts, ambient mode lighting, gesture controls, and dual YouTube / YouTube Music parity.
+* **Likes and subscribes sent to YouTube** (`InnerTube.likeVideo`, `InnerTube.subscribeChannel`, called from `LibraryRepository.toggleLike` / `toggleSubscribe`).
+* **Music radio from InnerTube** (`InnerTube.radio` via `/youtubei/v1/next`, used by `YouTubeRepository.radio`).
+* **3-tab Now Playing** (UP NEXT / LYRICS / RELATED).
+* **Hold-to-2x, pinch fit/fill, double-tap seek** in the watch player.
+* **Stable volume** with `LoudnessEnhancer`, and an **ambient glow** behind the player (approximate colour).
+* **Search length filter** in addition to type filters.
+* **Subscriptions feed and channel import** from the Google account; **Shorts** feed with `#shorts` search and subscribed channels' Shorts.
+* **Sign-in** reverted from Play Services to WebView cookie login, with cookie backup and restore so the session persists.
+* **Player layout** rebuilt in Compose (centered fit/fill surface, edge-to-edge fullscreen), smaller floating mini player, auto-hiding glass nav bar.
