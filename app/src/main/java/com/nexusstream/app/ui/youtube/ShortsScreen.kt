@@ -53,6 +53,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -72,7 +76,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Shorts: a vertical pager of short videos. Only the page on screen plays (through the shared
- * player, looping); swiping to the next one starts it. Leaving the tab stops playback.
+ * player, looping); swiping to the next one starts it. Leaving the tab stops playback, and leaving
+ * the app pauses it (Shorts never play in the background); coming back resumes it.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -110,6 +115,46 @@ fun ShortsScreen(
     // Leaving the Shorts tab stops whatever short is playing.
     DisposableEffect(playbackService) {
         onDispose { playbackService?.closePlayback() }
+    }
+
+    // Leaving the app (home, recents, screen off) pauses the short; returning resumes it if it
+    // was playing. Unlike regular videos, Shorts have no background play or picture-in-picture.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, playbackService) {
+        val player = playbackService?.getPlayer()
+        var inBackground = false
+        var resumeOnReturn = false
+        // A short that finishes loading while the app is away must not start playing there.
+        val holdInBackground = object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (inBackground && playWhenReady) {
+                    resumeOnReturn = true
+                    player?.pause()
+                }
+            }
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            player ?: return@LifecycleEventObserver
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    inBackground = true
+                    resumeOnReturn = player.playWhenReady
+                    player.pause()
+                }
+                Lifecycle.Event.ON_START -> {
+                    inBackground = false
+                    if (resumeOnReturn) player.play()
+                    resumeOnReturn = false
+                }
+                else -> Unit
+            }
+        }
+        player?.addListener(holdInBackground)
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            player?.removeListener(holdInBackground)
+        }
     }
 
     fun loadMore() {
@@ -206,9 +251,12 @@ private fun ShortPage(
             }
     ) {
         if (isActive && playbackService != null) {
+            // The whole picture is always shown, never cropped: vertical shorts fill the width,
+            // and the odd square or landscape clip gets black bars like on YouTube.
             VideoSurface(
                 player = playbackService.getPlayer(),
-                fill = true,
+                fill = false,
+                placeholderAspect = 9f / 16f,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -218,7 +266,7 @@ private fun ShortPage(
             AsyncImage(
                 model = item.artworkUrl,
                 contentDescription = item.title,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
             )
         }

@@ -67,7 +67,8 @@ private object SurfaceOwners {
 /**
  * The picture of [player], laid out by this composable and not by the platform: it is sized from the
  * video's real aspect ratio, centered in its box and clipped to it. [fill] crops to cover the box;
- * otherwise the whole picture is shown. Until the first frame's size is known it assumes 16:9.
+ * otherwise the whole picture is shown. Until the first frame's size is known it assumes
+ * [placeholderAspect] (16:9 unless the caller knows better, e.g. 9:16 for Shorts).
  * A TextureView surface is used, so Compose controls drawn above always stay above the picture.
  */
 @OptIn(UnstableApi::class)
@@ -75,7 +76,8 @@ private object SurfaceOwners {
 fun VideoSurface(
     player: Player,
     fill: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    placeholderAspect: Float = 16f / 9f
 ) {
     var size by remember(player) { mutableStateOf(player.videoSize) }
     DisposableEffect(player) {
@@ -99,7 +101,7 @@ fun VideoSurface(
         val density = LocalDensity.current
         val containerWidth = with(density) { maxWidth.toPx() }
         val containerHeight = with(density) { maxHeight.toPx() }
-        val aspect = videoAspect(size).takeIf { it > 0f } ?: (16f / 9f)
+        val aspect = videoAspect(size).takeIf { it > 0f } ?: placeholderAspect
         val frame = fitVideoFrame(containerWidth, containerHeight, aspect, fill)
         Box(
             modifier = Modifier
