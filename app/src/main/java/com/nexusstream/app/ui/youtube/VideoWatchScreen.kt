@@ -77,6 +77,17 @@ import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.nexusstream.app.data.VideoDetails
 import com.nexusstream.app.data.CommentsPage
+import com.nexusstream.app.data.CommentsApi
+import com.nexusstream.app.data.GoogleAccount
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.SolidColor
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import android.widget.Toast
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -186,9 +197,10 @@ fun VideoWatchScreen(
 
     var comments by remember(mediaItem.id) { mutableStateOf<FeedState<CommentsPage>>(FeedState.Loading) }
     var commentsReload by remember { mutableStateOf(0) }
-    LaunchedEffect(mediaItem.id, commentsReload) {
+    var commentSort by remember(mediaItem.id) { mutableStateOf(CommentsApi.Sort.TOP) }
+    LaunchedEffect(mediaItem.id, commentsReload, commentSort) {
         comments = FeedState.Loading
-        comments = YouTubeRepository.comments(mediaItem.watchUrl).toFeedState()
+        comments = YouTubeRepository.comments(mediaItem.watchUrl, commentSort).toFeedState()
     }
     var showComments by remember { mutableStateOf(false) }
 
@@ -719,10 +731,10 @@ fun VideoWatchScreen(
                         message = state.message,
                         onRetry = { commentsReload++ }
                     )
-                    is FeedState.Data -> if (state.value.items.isEmpty()) {
+                    is FeedState.Data -> if (state.value.items.isEmpty() && state.value.createParams == null) {
                         OriginalEmptyState("No comments", "Comments may be turned off for this video.")
                     } else {
-                        CommentsList(state.value)
+                        CommentsList(state.value, commentSort, onSort = { commentSort = it })
                     }
                 }
             }
@@ -761,14 +773,19 @@ private fun LazyListScope.relatedSection(
     }
 }
 
-/** Comments with infinite scroll; each comment can expand its replies. */
+/**
+ * Comments with infinite scroll; each comment can expand its replies. Signed in (and when the
+ * list came from YouTube's own API) there is a box to comment, and like / reply on each comment.
+ */
 @Composable
-private fun CommentsList(page: CommentsPage) {
+private fun CommentsList(page: CommentsPage, sort: CommentsApi.Sort, onSort: (CommentsApi.Sort) -> Unit) {
     var items by remember(page) { mutableStateOf(page.items) }
     var cursor by remember(page) { mutableStateOf<Paged<CommentModel>?>(page.paged) }
     var loadingMore by remember(page) { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val profile by GoogleAccount.userProfile.collectAsState()
 
     fun loadMore() {
         val current = cursor ?: return
@@ -783,18 +800,49 @@ private fun CommentsList(page: CommentsPage) {
         }
     }
 
-    // YouTube's own order ("Top") or the loaded comments by like count.
+    // YouTube's Top / Newest when the comments came from its API; otherwise the loaded
+    // comments re-sorted by like count.
     var mostLiked by remember { mutableStateOf(false) }
     val shown = remember(items, mostLiked) { if (mostLiked) items.sortedByDescending { it.likes } else items }
 
     LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "sort") {
-            OriginalFilterChips(
-                labels = listOf("Top", "Most liked"),
-                selected = if (mostLiked) "Most liked" else "Top",
-                onSelect = { mostLiked = it == "Most liked" },
-                unselectedColor = OriginalColors.Chip
-            )
+            if (page.interactive) {
+                OriginalFilterChips(
+                    labels = listOf("Top", "Newest"),
+                    selected = if (sort == CommentsApi.Sort.NEWEST) "Newest" else "Top",
+                    onSelect = { onSort(if (it == "Newest") CommentsApi.Sort.NEWEST else CommentsApi.Sort.TOP) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            } else {
+                OriginalFilterChips(
+                    labels = listOf("Top", "Most liked"),
+                    selected = if (mostLiked) "Most liked" else "Top",
+                    onSelect = { mostLiked = it == "Most liked" },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+        }
+        val createParams = page.createParams
+        if (createParams != null) {
+            item(key = "compose") {
+                CommentComposer(avatarUrl = profile?.avatarUrl.orEmpty(), placeholder = "Add a comment...") { text ->
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) { runCatching { CommentsApi.post(createParams, text) } }
+                        result.onSuccess {
+                            items = listOf(
+                                CommentModel(
+                                    author = profile?.displayName.orEmpty().ifEmpty { "You" },
+                                    avatarUrl = profile?.avatarUrl.orEmpty(),
+                                    text = text, likes = 0, date = "Just now", pinned = false
+                                )
+                            ) + items
+                        }.onFailure {
+                            Toast.makeText(context, it.message ?: "Couldn't post the comment", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
         }
         items(shown) { comment -> CommentRow(comment) }
         if (loadingMore) {
@@ -806,6 +854,39 @@ private fun CommentsList(page: CommentsPage) {
         }
     }
     OnReachEnd(listState) { loadMore() }
+}
+
+/** Avatar, a text field and a send button. [onSend] gets the trimmed text. */
+@Composable
+private fun CommentComposer(avatarUrl: String, placeholder: String, onSend: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(32.dp).clip(CircleShape).background(OriginalColors.Divider)) {
+            if (avatarUrl.isNotEmpty()) AsyncImage(avatarUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        Spacer(Modifier.width(12.dp))
+        Box(modifier = Modifier.weight(1f).padding(vertical = 6.dp)) {
+            if (text.isEmpty()) Text(placeholder, fontSize = 14.sp, color = OriginalColors.TextSecondary)
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                textStyle = TextStyle(color = OriginalColors.TextPrimary, fontSize = 14.sp),
+                cursorBrush = SolidColor(OriginalColors.TextPrimary),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (text.isNotBlank()) {
+            IconButton(onClick = {
+                onSend(text.trim())
+                text = ""
+            }) {
+                Icon(Icons.AutoMirrored.Rounded.Send, "Send", tint = Color(0xFF3EA6FF))
+            }
+        }
+    }
 }
 
 /** Description text with tappable web links and timestamps (timestamps seek the video). */
@@ -859,7 +940,12 @@ private fun CommentAvatar(comment: CommentModel, size: androidx.compose.ui.unit.
 private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
     var replies by remember(comment) { mutableStateOf<List<CommentModel>?>(null) }
     var loadingReplies by remember(comment) { mutableStateOf(false) }
+    var liked by remember(comment) { mutableStateOf(comment.isLiked) }
+    var replying by remember(comment) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val profile by GoogleAccount.userProfile.collectAsState()
+    val likes = comment.likes + (if (liked && !comment.isLiked) 1 else 0) - (if (!liked && comment.isLiked) 1 else 0)
 
     Column(modifier = Modifier.padding(start = if (isReply) 48.dp else 0.dp)) {
         Row(
@@ -877,13 +963,45 @@ private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
                         comment.date.takeIf { it.isNotBlank() }
                     ).joinToString(" • "),
                     fontSize = 12.sp,
-                    color = OriginalColors.TextSecondary
+                    color = if (comment.authorIsCreator) OriginalColors.TextPrimary else OriginalColors.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(text = comment.text, fontSize = 14.sp, color = OriginalColors.TextPrimary, lineHeight = 19.sp)
-                if (comment.likes > 0) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = "${comment.likes} likes", fontSize = 12.sp, color = OriginalColors.TextSecondary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val action = if (liked) comment.unlikeAction else comment.likeAction
+                    Icon(
+                        if (liked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                        contentDescription = if (liked) "Unlike" else "Like",
+                        tint = OriginalColors.TextSecondary,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clickable(enabled = action != null) {
+                                val target = !liked
+                                liked = target
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { runCatching { CommentsApi.act(action!!) } }.onFailure {
+                                        liked = !target
+                                        Toast.makeText(context, it.message ?: "Couldn't like the comment", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                    )
+                    if (likes > 0) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(YouTubeRepository.formatCount(likes.toLong()), fontSize = 12.sp, color = OriginalColors.TextSecondary)
+                    }
+                    if (comment.isHearted) {
+                        Spacer(Modifier.width(12.dp))
+                        Text("♥", fontSize = 13.sp, color = OriginalColors.Red)
+                    }
+                    if (comment.replyParams != null) {
+                        Spacer(Modifier.width(16.dp))
+                        Text(
+                            "Reply", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextSecondary,
+                            modifier = Modifier.clickable { replying = !replying }
+                        )
+                    }
                 }
                 val loader = comment.loadReplies
                 if (!isReply && loader != null && comment.replyCount > 0 && replies == null) {
@@ -901,6 +1019,25 @@ private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
                             }
                         }
                     )
+                }
+            }
+        }
+        val replyParams = comment.replyParams
+        if (replying && replyParams != null) {
+            Box(Modifier.padding(start = 32.dp)) {
+                CommentComposer(avatarUrl = profile?.avatarUrl.orEmpty(), placeholder = "Add a reply...") { text ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { CommentsApi.reply(replyParams, text) } }
+                            .onSuccess {
+                                replying = false
+                                replies = (replies.orEmpty()) + CommentModel(
+                                    author = profile?.displayName.orEmpty().ifEmpty { "You" },
+                                    avatarUrl = profile?.avatarUrl.orEmpty(),
+                                    text = text, likes = 0, date = "Just now", pinned = false
+                                )
+                            }
+                            .onFailure { Toast.makeText(context, it.message ?: "Couldn't post the reply", Toast.LENGTH_SHORT).show() }
+                    }
                 }
             }
         }

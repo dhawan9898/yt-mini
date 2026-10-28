@@ -285,14 +285,22 @@ object LibraryRepository {
     private val _hidden = MutableStateFlow(Hidden())
     val hidden: StateFlow<Hidden> = _hidden.asStateFlow()
 
+    /** "Not interested": hidden here, and sent to the account so recommendations learn. */
     fun hideVideo(id: String) {
         _hidden.value = _hidden.value.copy(videoIds = _hidden.value.videoIds + id)
         persistStrings("hidden_videos", _hidden.value.videoIds.toList())
+        InnerTube.feedbackFor(id)?.notInterested?.let { token ->
+            remote("Couldn't tell YouTube you're not interested") { AccountApi.feedback(token) }
+        }
     }
 
-    fun hideChannel(name: String) {
+    /** "Don't recommend channel"; [videoId] is the video whose menu it was picked from. */
+    fun hideChannel(name: String, videoId: String? = null) {
         _hidden.value = _hidden.value.copy(channels = _hidden.value.channels + name)
         persistStrings("hidden_channels", _hidden.value.channels.toList())
+        videoId?.let(InnerTube::feedbackFor)?.dontRecommendChannel?.let { token ->
+            remote("Couldn't tell YouTube to stop recommending $name") { AccountApi.feedback(token) }
+        }
     }
 
     /** Undoes every "Not interested" / "Don't recommend channel". */
@@ -706,7 +714,7 @@ object LibraryRepository {
     }
 
     fun recordPlayed(item: MediaItemModel) {
-        if (_historyPaused.value) return
+        if (_historyPaused.value || GoogleAccount.incognito.value) return
         _history.value = (listOf(item) + _history.value.filter { it.id != item.id }).take(MAX_HISTORY)
         persist("history", _history.value)
     }

@@ -75,6 +75,15 @@ object AppSettings {
     private val _stableVolume = MutableStateFlow(true)
     val stableVolume: StateFlow<Boolean> = _stableVolume.asStateFlow()
 
+    /** Restricted mode: asks YouTube to hide potentially mature videos (safety mode). */
+    private val _restrictedMode = MutableStateFlow(false)
+    val restrictedMode: StateFlow<Boolean> = _restrictedMode.asStateFlow()
+
+    fun setRestrictedMode(enabled: Boolean) {
+        _restrictedMode.value = enabled
+        prefs?.edit()?.putBoolean("restricted_mode", enabled)?.apply()
+    }
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -91,6 +100,7 @@ object AppSettings {
         _showDislikeCounts.value = p.getBoolean("dislike_counts", false)
         _ambientMode.value = p.getBoolean("ambient_mode", true)
         _stableVolume.value = p.getBoolean("stable_volume", true)
+        _restrictedMode.value = p.getBoolean("restricted_mode", false)
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -161,6 +171,7 @@ object AppSettings {
         .put("dislikeCounts", _showDislikeCounts.value)
         .put("ambientMode", _ambientMode.value)
         .put("stableVolume", _stableVolume.value)
+        .put("restrictedMode", _restrictedMode.value)
 
     /** Applies settings from a backup; missing or unknown values are left as they are. */
     fun importJson(json: org.json.JSONObject) {
@@ -175,5 +186,6 @@ object AppSettings {
         if (json.has("dislikeCounts")) setShowDislikeCounts(json.optBoolean("dislikeCounts"))
         if (json.has("ambientMode")) setAmbientMode(json.optBoolean("ambientMode"))
         if (json.has("stableVolume")) setStableVolume(json.optBoolean("stableVolume"))
+        if (json.has("restrictedMode")) setRestrictedMode(json.optBoolean("restrictedMode"))
     }
 }

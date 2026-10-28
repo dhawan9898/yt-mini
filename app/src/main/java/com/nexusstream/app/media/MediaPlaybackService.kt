@@ -38,6 +38,7 @@ import androidx.media3.session.MediaSessionService
 import com.nexusstream.app.data.AppSettings
 import com.nexusstream.app.data.AudioTrack
 import com.nexusstream.app.data.InnerTube
+import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.data.ResolvedStream
 import com.nexusstream.app.data.SubtitleOption
 import com.nexusstream.app.data.YouTubeRepository
@@ -127,6 +128,9 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     /** The current video's loudness relative to YouTube's target (dB), for Stable volume. */
     private var currentLoudnessDb: Double? = null
     private var loudnessJob: Job? = null
+    /** Watch-history pings for the current video (signed in), and its playback nonce. */
+    private var currentExtras: InnerTube.PlayerExtras? = null
+    private var currentCpn = ""
     private var sleepJob: Job? = null
     /** Related videos to continue with when the queue runs out (set by the watch page). */
     private var autoplayQueue: List<MediaItemModel> = emptyList()
@@ -227,6 +231,16 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         } catch (e: Exception) {
             Log.w(TAG, "LoudnessEnhancer could not be configured: ${e.message}")
         }
+    }
+
+    /** Sends how long the current video was watched, so the account's history shows progress. */
+    private fun reportWatchtimeOfCurrent() {
+        val extras = currentExtras ?: return
+        if (!::exoPlayer.isInitialized) return
+        val seconds = exoPlayer.currentPosition.coerceAtLeast(0L) / 1000.0
+        val cpn = currentCpn
+        currentExtras = null
+        serviceScope.launch(Dispatchers.IO) { InnerTube.reportWatchtime(extras, cpn, seconds) }
     }
 
     /** Video quality cap when the user hasn't picked one: the Wi-Fi or mobile-data setting. */
@@ -398,14 +412,24 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             retryCount = 0
             usingMuxedFallback = false
             dashDisabled = false
+            reportWatchtimeOfCurrent()
             currentLoudnessDb = null
+            currentExtras = null
             loudnessJob?.cancel()
             if (item.sourceUrl.isNotEmpty()) {
+                // YT Music plays stay out of YouTube watch history, like the official apps.
+                val recordHistory = !musicSession && item.contentType != MediaContentType.MUSIC_TRACK &&
+                    !LibraryRepository.historyPaused.value
                 loudnessJob = serviceScope.launch {
-                    val db = kotlinx.coroutines.withContext(Dispatchers.IO) { InnerTube.loudnessDb(item.id) }
-                    if (_playbackState.value.currentItem?.id == item.id) {
-                        currentLoudnessDb = db
-                        updateStableVolume(AppSettings.stableVolume.value)
+                    val extras = kotlinx.coroutines.withContext(Dispatchers.IO) { InnerTube.playerExtras(item.id) }
+                    if (_playbackState.value.currentItem?.id != item.id) return@launch
+                    currentLoudnessDb = extras?.loudnessDb
+                    updateStableVolume(AppSettings.stableVolume.value)
+                    if (extras != null && recordHistory && com.nexusstream.app.data.GoogleAccount.isSignedIn()) {
+                        currentExtras = extras
+                        currentCpn = InnerTube.newCpn()
+                        val cpn = currentCpn
+                        kotlinx.coroutines.withContext(Dispatchers.IO) { InnerTube.reportPlayback(extras, cpn) }
                     }
                 }
             } else {
@@ -848,6 +872,7 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
     /** Stops playback, clears the queue and removes the notification (the "close video" action). */
     fun closePlayback() {
+        reportWatchtimeOfCurrent()
         loadJob?.cancel()
         sleepJob?.cancel()
         currentResolved = null

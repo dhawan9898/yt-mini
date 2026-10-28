@@ -63,4 +63,53 @@ class AccountApiTest {
         assertEquals("1.2M views", e.item.viewsOrPlays)
         assertEquals("3 years ago", e.item.publishDate)
     }
+
+    @Test
+    fun parsesNotificationMenu() {
+        val json = JSONObject(
+            """
+            {"actions":[{"openPopupAction":{"popup":{"multiPageMenuRenderer":{"sections":[{"multiPageMenuNotificationSectionRenderer":{"items":[
+              {"notificationRenderer":{"notificationId":"n1","shortMessage":{"simpleText":"Channel uploaded: New video"},
+                "sentTimeText":{"simpleText":"3 hours ago"},"thumbnail":{"thumbnails":[{"url":"https://a/1.jpg"}]},
+                "videoThumbnail":{"thumbnails":[{"url":"https://v/1.jpg"}]},
+                "navigationEndpoint":{"watchEndpoint":{"videoId":"vid123"}},"read":false}},
+              {"continuationItemRenderer":{"continuationEndpoint":{"getNotificationMenuEndpoint":{"ctoken":"MORE"}}}}
+            ]}}]}}}}]}
+            """
+        )
+        val page = AccountApi.parseNotifications(json)
+        val n = page.items.single()
+        assertEquals("vid123", n.videoId)
+        assertEquals("Channel uploaded: New video", n.message)
+        assertEquals("3 hours ago", n.time)
+        assertEquals("https://v/1.jpg", n.thumbnailUrl)
+        assertFalse(n.read)
+        assertEquals("MORE", page.continuation)
+    }
+
+    @Test
+    fun parsesChannelSwitcher() {
+        val json = JSONObject(
+            """
+            {"actions":[{"getMultiPageMenuAction":{"menu":{"multiPageMenuRenderer":{"sections":[
+              {"accountSectionListRenderer":{"header":{"googleAccountHeaderRenderer":{"email":{"simpleText":"me@example.com"}}},
+                "contents":[{"accountItemSectionRenderer":{"contents":[
+                  {"accountItem":{"accountName":{"simpleText":"Me"},"channelHandle":{"simpleText":"@me"},"isSelected":true,
+                    "accountPhoto":{"thumbnails":[{"url":"https://p/me.jpg"}]},
+                    "serviceEndpoint":{"selectActiveIdentityEndpoint":{"supportedTokens":[{"accountStateToken":{}}]}}}},
+                  {"accountItem":{"accountName":{"simpleText":"My Brand"},"channelHandle":{"simpleText":"@brand"},"isSelected":false,
+                    "accountPhoto":{"thumbnails":[{"url":"https://p/b.jpg"}]},
+                    "serviceEndpoint":{"selectActiveIdentityEndpoint":{"supportedTokens":[{"pageIdToken":{"pageId":"1234"}}]}}}}
+                ]}}]}}
+            ]}}}}]}
+            """
+        )
+        val list = AccountApi.parseAccounts(json)
+        assertEquals(2, list.size)
+        assertTrue(list[0].selected)
+        assertEquals(GoogleAccount.Identity(0, ""), list[0].identity)
+        assertEquals("My Brand", list[1].name)
+        assertEquals(GoogleAccount.Identity(0, "1234"), list[1].identity)
+        assertEquals("me@example.com", list[1].group)
+    }
 }

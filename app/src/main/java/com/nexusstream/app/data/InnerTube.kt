@@ -3,6 +3,7 @@ package com.nexusstream.app.data
 import androidx.compose.ui.graphics.Color
 import com.nexusstream.app.model.MediaContentType
 import com.nexusstream.app.model.MediaItemModel
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -22,6 +23,53 @@ object InnerTube {
     private const val CLIENT_VERSION = "2.20250101.00.00"
     private val JSON = "application/json".toMediaType()
     private val DURATION = Regex("""\d{1,2}(:\d{2}){1,2}""")
+
+    /** Feed menu feedback tokens for a video, captured while parsing feeds. */
+    class Feedback(val notInterested: String?, val dontRecommendChannel: String?)
+
+    private val feedback = java.util.concurrent.ConcurrentHashMap<String, Feedback>()
+
+    fun feedbackFor(videoId: String): Feedback? = feedback[videoId]
+
+    /**
+     * Finds the "Not interested" and "Don't recommend channel" tokens in a video's menu (old
+     * menuServiceItemRenderer rows and the newer sheet of listItemViewModels).
+     */
+    internal fun captureFeedback(videoId: String, node: JSONObject) {
+        var notInterested: String? = null
+        var channel: String? = null
+        fun label(o: JSONObject): String =
+            text(o.optJSONObject("text")).ifEmpty { o.optJSONObject("title")?.optString("content").orEmpty() }
+        fun token(o: Any?): String? {
+            when (o) {
+                is JSONObject -> {
+                    o.optJSONObject("feedbackEndpoint")?.optString("feedbackToken")?.takeIf { it.isNotEmpty() }?.let { return it }
+                    for (k in o.keys()) token(o.opt(k))?.let { return it }
+                }
+                is JSONArray -> for (i in 0 until o.length()) token(o.opt(i))?.let { return it }
+            }
+            return null
+        }
+        fun walk(o: Any?) {
+            when (o) {
+                is JSONObject -> {
+                    val row = o.optJSONObject("menuServiceItemRenderer") ?: o.optJSONObject("listItemViewModel")
+                    if (row != null) {
+                        val l = label(row).lowercase()
+                        val icon = row.optJSONObject("icon")?.optString("iconType").orEmpty()
+                        val t = token(row)
+                        if (t != null) when {
+                            l.startsWith("not interested") || icon == "NOT_INTERESTED" -> notInterested = t
+                            l.startsWith("don't recommend") || l.startsWith("don\u2019t recommend") || icon == "REMOVE" -> channel = t
+                        }
+                    } else o.keys().forEach { walk(o.opt(it)) }
+                }
+                is JSONArray -> for (i in 0 until o.length()) walk(o.opt(i))
+            }
+        }
+        walk(node)
+        if (notInterested != null || channel != null) feedback[videoId] = Feedback(notInterested, channel)
+    }
 
     /** Page of videos plus the token for the next page (null at the end). */
     class Page(val items: List<MediaItemModel>, val continuation: String?)
@@ -72,19 +120,60 @@ object InnerTube {
         return parse(postEndpoint(NEXT_ENDPOINT, extra))
     }
 
-    /**
-     * How loud a video is relative to YouTube's playback target, in dB (positive = louder), from
-     * the player response. Stable volume uses it to bring every video to the same level.
-     */
-    fun loudnessDb(videoId: String): Double? = runCatching {
+    /** Extras from the web player response: loudness (Stable volume) and the watch-history pings. */
+    class PlayerExtras(val loudnessDb: Double?, val playbackUrl: String?, val watchtimeUrl: String?)
+
+    fun playerExtras(videoId: String): PlayerExtras? = runCatching {
         val res = web("player", JSONObject().put("videoId", videoId))
-        val audio = res.optJSONObject("playerConfig")?.optJSONObject("audioConfig") ?: return null
-        when {
+        val audio = res.optJSONObject("playerConfig")?.optJSONObject("audioConfig")
+        val loudness = when {
+            audio == null -> null
             audio.has("loudnessDb") -> audio.optDouble("loudnessDb")
             audio.has("perceptualLoudnessDb") -> audio.optDouble("perceptualLoudnessDb") + 18.0
             else -> null
         }?.takeIf { !it.isNaN() }
+        val tracking = res.optJSONObject("playbackTracking")
+        PlayerExtras(
+            loudnessDb = loudness,
+            playbackUrl = tracking?.optJSONObject("videostatsPlaybackUrl")?.optString("baseUrl")?.takeIf { it.isNotEmpty() },
+            watchtimeUrl = tracking?.optJSONObject("videostatsWatchtimeUrl")?.optString("baseUrl")?.takeIf { it.isNotEmpty() }
+        )
     }.getOrNull()
+
+    /**
+     * Reports a play to the account's watch history (what the website does when a video starts),
+     * then the watched time when it ends. [cpn] ties the two pings together.
+     */
+    fun reportPlayback(extras: PlayerExtras, cpn: String) {
+        val url = extras.playbackUrl ?: return
+        stats(url, mapOf("cpn" to cpn, "fmt" to "251", "rtn" to "0", "rt" to "0"))
+    }
+
+    fun reportWatchtime(extras: PlayerExtras, cpn: String, seconds: Double) {
+        val url = extras.watchtimeUrl ?: return
+        val t = "%.3f".format(java.util.Locale.US, seconds)
+        stats(url, mapOf("cpn" to cpn, "st" to "0", "et" to t, "cmt" to t, "final" to "1"))
+    }
+
+    private fun stats(baseUrl: String, params: Map<String, String>) {
+        if (!GoogleAccount.isSignedIn()) return
+        val url = (baseUrl.replace("https://s.youtube.com", "https://www.youtube.com").toHttpUrlOrNull() ?: return).newBuilder()
+            .setQueryParameter("ver", "2")
+            .setQueryParameter("c", "web")
+            .setQueryParameter("cbrver", CLIENT_VERSION)
+            .setQueryParameter("cver", CLIENT_VERSION)
+            .apply { params.forEach { (k, v) -> setQueryParameter(k, v) } }
+            .build()
+        val builder = Request.Builder().url(url).get().header("User-Agent", NewPipeDownloader.USER_AGENT)
+        GoogleAccount.cookieHeaderFor(ORIGIN)?.let { builder.header("Cookie", it) }
+        runCatching { NewPipeDownloader.instance.client.newCall(builder.build()).execute().close() }
+    }
+
+    /** A random client playback nonce, as the web player makes one per playback. */
+    fun newCpn(): String {
+        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        return (1..16).map { chars[kotlin.random.Random.nextInt(chars.length)] }.joinToString("")
+    }
 
     private fun browse(extra: JSONObject): Page = parse(browseRaw(extra))
 
@@ -137,11 +226,22 @@ object InnerTube {
         clientVersion: String
     ): JSONObject {
         val body = JSONObject().apply {
+            val identity = GoogleAccount.identity.value
             put("context", JSONObject().put("client", JSONObject()
                 .put("clientName", clientName)
                 .put("clientVersion", clientVersion)
                 .put("hl", "en")
-                .put("gl", AppSettings.contentCountry.value.ifBlank { "US" })))
+                .put("gl", AppSettings.contentCountry.value.ifBlank { "US" }))
+                .apply {
+                    // A Brand account / other channel picked in the account switcher.
+                    if (GoogleAccount.isSignedIn() && identity.pageId.isNotEmpty()) {
+                        put("user", JSONObject().put("onBehalfOfUser", identity.pageId))
+                    }
+                    // Restricted mode.
+                    if (AppSettings.restrictedMode.value) {
+                        put("user", (optJSONObject("user") ?: JSONObject()).put("enableSafetyMode", true))
+                    }
+                })
             extra.keys().forEach { put(it, extra.get(it)) }
         }
         val builder = Request.Builder()
@@ -156,7 +256,7 @@ object InnerTube {
         GoogleAccount.cookieHeaderFor(origin)?.let { cookies ->
             builder.header("Cookie", cookies)
             sapisidHash(cookies, origin = origin)?.let { builder.header("Authorization", it) }
-            builder.header("X-Goog-AuthUser", "0")
+            builder.header("X-Goog-AuthUser", GoogleAccount.identity.value.authUser.toString())
             builder.header("X-Youtube-Bootstrap-Logged-In", "true")
         }
         NewPipeDownloader.instance.client.newCall(builder.build()).execute().use { response ->
@@ -184,10 +284,10 @@ object InnerTube {
         fun walk(node: Any?) {
             when (node) {
                 is JSONObject -> {
-                    node.optJSONObject("videoRenderer")?.let { video(it)?.let(items::add) }
+                    node.optJSONObject("videoRenderer")?.let { v -> video(v)?.also { captureFeedback(it.id, v) }?.let(items::add) }
                     node.optJSONObject("gridVideoRenderer")?.let { video(it)?.let(items::add) }
                     node.optJSONObject("compactVideoRenderer")?.let { video(it)?.let(items::add) }
-                    node.optJSONObject("lockupViewModel")?.let { lockup(it)?.let(items::add) }
+                    node.optJSONObject("lockupViewModel")?.let { l -> lockup(l)?.also { captureFeedback(it.id, l) }?.let(items::add) }
                     node.optJSONObject("playlistPanelVideoRenderer")?.let { playlistPanelVideo(it)?.let(items::add) }
                     node.optJSONObject("continuationItemRenderer")?.let {
                         continuation = it.optJSONObject("continuationEndpoint")

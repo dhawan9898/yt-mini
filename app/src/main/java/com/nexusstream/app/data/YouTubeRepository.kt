@@ -136,7 +136,14 @@ class Storyboard(
 }
 
 /** Comments plus the video's total count (negative when unknown). [paged] loads further pages. */
-class CommentsPage(val totalCount: Int, val paged: Paged<CommentModel>) {
+class CommentsPage(
+    val totalCount: Int,
+    val paged: Paged<CommentModel>,
+    /** Set when the signed-in account can post a top-level comment. */
+    val createParams: String? = null,
+    /** True when the list came from YouTube's own API (sorting, likes and replies work). */
+    val interactive: Boolean = false
+) {
     val items: List<CommentModel> get() = paged.items
 }
 
@@ -149,7 +156,17 @@ data class CommentModel(
     val date: String,
     val pinned: Boolean,
     val replyCount: Int = 0,
-    val loadReplies: (suspend () -> Result<List<CommentModel>>)? = null
+    val loadReplies: (suspend () -> Result<List<CommentModel>>)? = null,
+    val id: String = "",
+    val isLiked: Boolean = false,
+    /** The creator hearted the comment. */
+    val isHearted: Boolean = false,
+    /** Toolbar actions for the signed-in account (null when signed out). */
+    val likeAction: String? = null,
+    val unlikeAction: String? = null,
+    val replyParams: String? = null,
+    val authorIsCreator: Boolean = false,
+    val authorChannelId: String = ""
 )
 
 /** One selectable video rendition (video-only stream). */
@@ -982,8 +999,33 @@ object YouTubeRepository {
             .also { check(it.isNotEmpty()) { "This album has no playable tracks" } }
     }
 
-    /** Top-level comments for a video (paged), with the total count when YouTube reports it. */
-    suspend fun comments(watchUrl: String): Result<CommentsPage> = io {
+    /**
+     * Top-level comments for a video (paged), with the total count when YouTube reports it.
+     * YouTube's own comments API comes first (Top / Newest, post, reply, like); NewPipe's
+     * read-only comments stand in if it fails.
+     */
+    suspend fun comments(watchUrl: String, sort: CommentsApi.Sort = CommentsApi.Sort.TOP): Result<CommentsPage> = io {
+        val videoId = Regex("""[?&]v=([\w-]{11})""").find(watchUrl)?.groupValues?.get(1)
+        if (videoId != null) {
+            runCatching {
+                val first = CommentsApi.load(videoId, sort)
+                // The header's sort tokens are what the website uses; prefer them for Newest.
+                val page = if (sort == CommentsApi.Sort.NEWEST) {
+                    first.sortTokens[CommentsApi.Sort.NEWEST]?.let { CommentsApi.more(it, videoId) } ?: first
+                } else first
+                check(page.comments.isNotEmpty() || page.totalCount == 0) { "no comments parsed" }
+                fun paged(r: CommentsApi.Result): Paged<CommentModel> = Paged(
+                    r.comments,
+                    r.continuation?.let { token -> suspend { io { paged(CommentsApi.more(token, videoId)) } } }
+                )
+                CommentsPage(
+                    totalCount = first.totalCount.takeIf { it >= 0 } ?: page.totalCount,
+                    paged = paged(page),
+                    createParams = if (GoogleAccount.isSignedIn()) first.createParams ?: CommentsApi.createParams(videoId) else null,
+                    interactive = true
+                )
+            }.onSuccess { return@io it }
+        }
         val info = CommentsInfo.getInfo(youtube, watchUrl)
         val paged = pagedOf(
             info.relatedItems.map { toComment(it, watchUrl, withReplies = true) },

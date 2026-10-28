@@ -43,6 +43,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import com.nexusstream.app.LaunchRequests
+import com.nexusstream.app.VideoLaunch
+import com.nexusstream.app.data.AccountApi
+import com.nexusstream.app.data.GoogleAccount
+import com.nexusstream.app.ui.components.FeedState
+import com.nexusstream.app.ui.components.OnReachEnd
+import com.nexusstream.app.ui.components.OriginalError
+import com.nexusstream.app.ui.components.OriginalLoading
+import com.nexusstream.app.ui.components.toFeedState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.data.NotifyLevel
 import com.nexusstream.app.model.MediaItemModel
@@ -83,7 +100,20 @@ fun NotificationsScreen(
             }
         }
     ) {
-        if (inbox.isEmpty()) {
+        val signedIn by GoogleAccount.signedIn.collectAsState()
+        var tab by remember { mutableStateOf("YouTube") }
+        Column(modifier = Modifier.fillMaxSize()) {
+        if (signedIn) {
+            OriginalFilterChips(
+                labels = listOf("YouTube", "Upload alerts"),
+                selected = tab,
+                onSelect = { tab = it },
+                unselectedColor = OriginalColors.Chip
+            )
+        }
+        if (signedIn && tab == "YouTube") {
+            AccountNotificationsList(onSelectVideo)
+        } else if (inbox.isEmpty()) {
             OriginalEmptyState(
                 title = "No notifications",
                 message = "New uploads from channels you subscribe to will appear here."
@@ -104,6 +134,80 @@ fun NotificationsScreen(
                                 item = video,
                                 onClick = { onSelectVideo(video, listOf(video)) },
                                 onChannelClick = video.channelUrl.takeIf { it.isNotBlank() }?.let { { nav.openChannelOf(video) } }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+}
+
+/** YouTube's own bell notifications for the signed-in account (uploads, replies, mentions). */
+@Composable
+private fun AccountNotificationsList(onSelectVideo: (MediaItemModel, List<MediaItemModel>) -> Unit) {
+    var state by remember { mutableStateOf<FeedState<AccountApi.NotificationsPage>>(FeedState.Loading) }
+    var reload by remember { mutableStateOf(0) }
+    var items by remember { mutableStateOf<List<AccountApi.AccountNotification>>(emptyList()) }
+    var next by remember { mutableStateOf<String?>(null) }
+    var loadingMore by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    LaunchedEffect(reload) {
+        state = FeedState.Loading
+        state = withContext(Dispatchers.IO) { runCatching { AccountApi.notifications() } }.toFeedState()
+        (state as? FeedState.Data)?.value?.let { items = it.items; next = it.continuation }
+    }
+    when (val s = state) {
+        is FeedState.Loading -> OriginalLoading()
+        is FeedState.Error -> OriginalError(s.message, onRetry = { reload++ })
+        is FeedState.Data -> if (items.isEmpty()) {
+            OriginalEmptyState("No notifications", "Your YouTube notifications will appear here.")
+        } else {
+            OnReachEnd(listState) {
+                val token = next ?: return@OnReachEnd
+                if (loadingMore) return@OnReachEnd
+                loadingMore = true
+                scope.launch {
+                    withContext(Dispatchers.IO) { runCatching { AccountApi.notifications(token) } }
+                        .onSuccess { page -> items = items + page.items; next = page.continuation?.takeIf { it != token } }
+                        .onFailure { next = null }
+                    loadingMore = false
+                }
+            }
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                items(items, key = { "yt_${it.id}_${it.videoId}" }) { n ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = n.videoId.isNotEmpty()) {
+                                val item = LaunchRequests.minimalItem(VideoLaunch(n.videoId)).copy(
+                                    title = n.message, artworkUrl = n.thumbnailUrl.ifEmpty { "https://i.ytimg.com/vi/${n.videoId}/hqdefault.jpg" }
+                                )
+                                onSelectVideo(item, listOf(item))
+                            }
+                            .padding(horizontal = 8.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(top = 18.dp).size(6.dp).clip(CircleShape)
+                                .background(if (!n.read) NewDotBlue else Color.Transparent)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Box(Modifier.size(44.dp).clip(CircleShape).background(OriginalColors.Divider)) {
+                            if (n.avatarUrl.isNotEmpty()) AsyncImage(n.avatarUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(n.message, fontSize = 14.sp, color = OriginalColors.TextPrimary, maxLines = 3)
+                            Text(n.time, fontSize = 12.sp, color = OriginalColors.TextSecondary)
+                        }
+                        if (n.thumbnailUrl.isNotEmpty()) {
+                            Spacer(Modifier.width(10.dp))
+                            AsyncImage(
+                                n.thumbnailUrl, null, contentScale = ContentScale.Crop,
+                                modifier = Modifier.width(96.dp).height(54.dp).clip(RoundedCornerShape(6.dp))
                             )
                         }
                     }

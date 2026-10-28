@@ -34,6 +34,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nexusstream.app.data.GoogleAccount
+import com.nexusstream.app.data.AccountApi
+import com.nexusstream.app.data.GoogleUserProfile
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import com.nexusstream.app.data.AppSettings
 import com.nexusstream.app.data.ContentRegions
 import com.nexusstream.app.data.CrashReporter
@@ -88,6 +97,9 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     val downloads by LibraryRepository.downloads.collectAsState()
     val pending by DownloadRepository.pending.collectAsState()
 
+    val incognito by GoogleAccount.incognito.collectAsState()
+    val restrictedMode by AppSettings.restrictedMode.collectAsState()
+    var showAccounts by remember { mutableStateOf(false) }
     var confirmClearHistory by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<String?>(null) }
     var selfTestReport by remember { mutableStateOf<List<String>?>(null) }
@@ -293,6 +305,19 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     ActionRow("Sign in with Google", "Choose an account from your phone") { nav.open(Route.SignIn) }
                 }
             }
+            if (googleSignedIn) {
+                item(key = "switch_account") {
+                    ActionRow("Switch account", "Brand accounts and other Google accounts signed in on this device") { showAccounts = true }
+                }
+            }
+            if (googleSignedIn || incognito) {
+                item(key = "incognito") {
+                    SwitchRow("Turn on Incognito", "Browse signed out; nothing is saved to your account or watch history", incognito) { GoogleAccount.setIncognito(it) }
+                }
+            }
+            item(key = "restricted") {
+                SwitchRow("Restricted mode", "Hides videos that may be mature", restrictedMode) { AppSettings.setRestrictedMode(it) }
+            }
 
             // ---- About ----
             item(key = "h_about") { SettingsHeader("About") }
@@ -430,6 +455,8 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
         )
     }
 
+    if (showAccounts) AccountSwitcherDialog(onDismiss = { showAccounts = false })
+
     if (confirmClearHistory) {
         ConfirmDialog(
             title = "Clear watch history?",
@@ -496,4 +523,69 @@ private fun ActionRow(title: String, subtitle: String?, onClick: () -> Unit) {
             Text(subtitle, fontSize = 12.sp, color = OriginalColors.TextSecondary)
         }
     }
+}
+
+/** YouTube's channel switcher: every channel (Brand accounts included) the signed-in Google accounts own. */
+@Composable
+private fun AccountSwitcherDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var accounts by remember { mutableStateOf<List<AccountApi.SwitchableAccount>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { runCatching { AccountApi.accounts() } }
+            .onSuccess { accounts = it }
+            .onFailure { error = it.message ?: "Couldn't load your accounts" }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Accounts") },
+        text = {
+            val list = accounts
+            when {
+                error != null -> Text(error.orEmpty(), color = OriginalColors.TextSecondary)
+                list == null -> Text("Loading...", color = OriginalColors.TextSecondary)
+                list.isEmpty() -> Text("No other channels on this account", color = OriginalColors.TextSecondary)
+                else -> LazyColumn {
+                    items(list) { account ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    GoogleAccount.setIdentity(account.identity)
+                                    val old = GoogleAccount.userProfile.value
+                                    GoogleAccount.setProfile(
+                                        GoogleUserProfile(
+                                            email = account.group.ifBlank { old?.email.orEmpty() },
+                                            displayName = account.name,
+                                            avatarUrl = account.photoUrl,
+                                            id = account.identity.pageId.ifBlank { old?.id.orEmpty() }
+                                        )
+                                    )
+                                    LibraryRepository.syncAccount(force = true)
+                                    Toast.makeText(context, "Switched to ${account.name}", Toast.LENGTH_SHORT).show()
+                                    onDismiss()
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AsyncImage(
+                                model = account.photoUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(36.dp).clip(CircleShape)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(account.name, fontSize = 15.sp, color = OriginalColors.TextPrimary, fontWeight = if (account.selected) FontWeight.Bold else FontWeight.Normal)
+                                val sub = listOf(account.handle, account.group).filter { it.isNotBlank() }.joinToString(" • ")
+                                if (sub.isNotEmpty()) Text(sub, fontSize = 12.sp, color = OriginalColors.TextSecondary)
+                            }
+                            if (account.selected) Text("✓", color = OriginalColors.TextPrimary)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Close") } }
+    )
 }

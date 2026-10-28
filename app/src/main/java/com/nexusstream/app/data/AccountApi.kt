@@ -42,6 +42,115 @@ object AccountApi {
 
     enum class Rating { LIKE, DISLIKE, NONE }
 
+    /** Sends feed feedback ("Not interested", "Don't recommend channel") from a menu token. */
+    fun feedback(token: String) {
+        requireSignedIn()
+        val res = InnerTube.web("feedback", JSONObject().put("feedbackTokens", JSONArray().put(token)).put("isFeedbackTokenUnencrypted", false).put("shouldMerge", false))
+        val ok = res.optJSONArray("feedbackResponses")?.optJSONObject(0)?.optBoolean("isProcessed", true) ?: true
+        check(ok) { "YouTube didn't take the feedback" }
+    }
+
+    // ---- notifications inbox ----
+
+    /** One row of YouTube's bell menu. [videoId] is empty for notifications that aren't videos. */
+    data class AccountNotification(
+        val id: String,
+        val message: String,
+        val time: String,
+        val avatarUrl: String,
+        val thumbnailUrl: String,
+        val videoId: String,
+        val read: Boolean
+    )
+
+    class NotificationsPage(val items: List<AccountNotification>, val continuation: String?)
+
+    fun notifications(continuation: String? = null): NotificationsPage {
+        requireSignedIn()
+        val body = if (continuation != null) JSONObject().put("ctoken", continuation)
+        else JSONObject().put("notificationsMenuRequestType", "NOTIFICATIONS_MENU_REQUEST_TYPE_INBOX")
+        return parseNotifications(InnerTube.web("notification/get_notification_menu", body))
+    }
+
+    /** How many notifications the bell would badge. */
+    fun unseenNotifications(): Int = runCatching {
+        InnerTube.web("notification/get_unseen_count", JSONObject()).optInt("unseenCount", 0)
+    }.getOrDefault(0)
+
+    internal fun parseNotifications(root: JSONObject): NotificationsPage {
+        val items = ArrayList<AccountNotification>()
+        var next: String? = null
+        walk(root) { node ->
+            node.optJSONObject("continuationItemRenderer")?.let { c ->
+                (c.optJSONObject("continuationEndpoint")?.optJSONObject("getNotificationMenuEndpoint")?.optString("ctoken")
+                    ?: c.optJSONObject("continuationEndpoint")?.optJSONObject("continuationCommand")?.optString("token"))
+                    ?.takeIf { it.isNotEmpty() }?.let { next = it }
+            }
+            val n = node.optJSONObject("notificationRenderer") ?: return@walk true
+            val videoId = n.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId").orEmpty()
+            items += AccountNotification(
+                id = n.optString("notificationId"),
+                message = InnerTube.text(n.optJSONObject("shortMessage")),
+                time = InnerTube.text(n.optJSONObject("sentTimeText")),
+                avatarUrl = InnerTube.lastThumbnail(n.optJSONObject("thumbnail")),
+                thumbnailUrl = InnerTube.lastThumbnail(n.optJSONObject("videoThumbnail")),
+                videoId = videoId,
+                read = n.optBoolean("read")
+            )
+            false
+        }
+        return NotificationsPage(items, next)
+    }
+
+    // ---- account switcher ----
+
+    /** One account or channel the signed-in Google session can act as. */
+    data class SwitchableAccount(
+        val name: String,
+        val handle: String,
+        val photoUrl: String,
+        val selected: Boolean,
+        val identity: GoogleAccount.Identity,
+        /** The Google account (email) this channel belongs to. */
+        val group: String
+    )
+
+    fun accounts(): List<SwitchableAccount> {
+        requireSignedIn()
+        return parseAccounts(InnerTube.web("account/accounts_list", JSONObject().put("requestType", "ACCOUNTS_LIST_REQUEST_TYPE_CHANNEL_SWITCHER")))
+    }
+
+    internal fun parseAccounts(root: JSONObject): List<SwitchableAccount> {
+        val out = ArrayList<SwitchableAccount>()
+        var sectionIndex = -1
+        walk(root) { node ->
+            val section = node.optJSONObject("accountSectionListRenderer") ?: return@walk true
+            sectionIndex++
+            val group = section.optJSONObject("header")?.optJSONObject("googleAccountHeaderRenderer")?.let { InnerTube.text(it.optJSONObject("email")) }.orEmpty()
+            val authUser = sectionIndex
+            walk(section) { inner ->
+                val item = inner.optJSONObject("accountItem") ?: return@walk true
+                var pageId = ""
+                item.optJSONObject("serviceEndpoint")?.optJSONObject("selectActiveIdentityEndpoint")?.optJSONArray("supportedTokens")?.let { tokens ->
+                    for (i in 0 until tokens.length()) {
+                        tokens.optJSONObject(i)?.optJSONObject("pageIdToken")?.optString("pageId")?.takeIf { it.isNotEmpty() }?.let { pageId = it }
+                    }
+                }
+                out += SwitchableAccount(
+                    name = InnerTube.text(item.optJSONObject("accountName")),
+                    handle = InnerTube.text(item.optJSONObject("channelHandle")).ifEmpty { InnerTube.text(item.optJSONObject("accountByline")) },
+                    photoUrl = InnerTube.lastThumbnail(item.optJSONObject("accountPhoto")),
+                    selected = item.optBoolean("isSelected"),
+                    identity = GoogleAccount.Identity(authUser, pageId),
+                    group = group
+                )
+                false
+            }
+            false
+        }
+        return out
+    }
+
     // ---- channels ----
 
     /** Resolves a channel URL (`/@handle`, `/c/name`, `/user/name`, `/channel/UC…`) to its UC id. */

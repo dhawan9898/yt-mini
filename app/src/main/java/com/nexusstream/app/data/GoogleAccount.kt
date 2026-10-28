@@ -37,23 +37,56 @@ object GoogleAccount {
     )
 
     private const val KEY_COOKIES = "backup_cookies"
+    private const val KEY_AUTH_USER = "auth_user"
+    private const val KEY_PAGE_ID = "page_id"
     private const val COOKIE_EXPIRES = "Fri, 31 Dec 2038 23:59:59 GMT"
 
     fun isSignedIn(): Boolean = _signedIn.value
+
+    /**
+     * Incognito: a temporary signed-out session. Requests carry no account cookies, nothing is
+     * written to the account or to watch history; turning it off (or restarting) signs back in.
+     */
+    private val _incognito = MutableStateFlow(false)
+    val incognito: StateFlow<Boolean> = _incognito.asStateFlow()
+
+    fun setIncognito(on: Boolean) {
+        if (_incognito.value == on) return
+        _incognito.value = on
+        _signedIn.value = !on && hasAuthCookie()
+        YouTubeRepository.clearFeedCaches()
+    }
+
+    /** The account / channel requests act as (account switcher): Google account index and Brand page id. */
+    data class Identity(val authUser: Int = 0, val pageId: String = "")
+
+    private val _identity = MutableStateFlow(Identity())
+    val identity: StateFlow<Identity> = _identity.asStateFlow()
+
+    fun setIdentity(identity: Identity) {
+        _identity.value = identity
+        prefs?.edit()?.putInt(KEY_AUTH_USER, identity.authUser)?.putString(KEY_PAGE_ID, identity.pageId)?.apply()
+        YouTubeRepository.clearFeedCaches()
+    }
+
+    fun setProfile(profile: GoogleUserProfile?) {
+        _userProfile.value = profile
+    }
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences("nexus_google_auth", Context.MODE_PRIVATE)
         CookieManager.getInstance().setAcceptCookie(true)
         if (!hasAuthCookie()) restoreCookies()
-        _signedIn.value = hasAuthCookie()
-        if (_signedIn.value) backupCookies()
+        _signedIn.value = hasAuthCookie() && !_incognito.value
+        if (hasAuthCookie()) backupCookies()
+        prefs?.let { _identity.value = Identity(it.getInt(KEY_AUTH_USER, 0), it.getString(KEY_PAGE_ID, "").orEmpty()) }
     }
 
     /** Re-reads the cookie jar; call after the sign-in WebView navigates. */
     fun refresh() {
         CookieManager.getInstance().flush()
-        val now = hasAuthCookie()
-        if (now) backupCookies()
+        val now = hasAuthCookie() && !_incognito.value
+        if (hasAuthCookie()) backupCookies()
         if (now != _signedIn.value) {
             _signedIn.value = now
             YouTubeRepository.clearFeedCaches()
@@ -127,6 +160,7 @@ object GoogleAccount {
         manager.flush()
         _userProfile.value = null
         _signedIn.value = false
+        _identity.value = Identity()
         prefs?.edit()?.clear()?.apply()
         YouTubeRepository.clearFeedCaches()
     }

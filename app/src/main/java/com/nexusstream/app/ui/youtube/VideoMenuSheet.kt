@@ -143,7 +143,7 @@ fun VideoMenuSheet(
                 onDismiss()
             }
             MenuRow(Icons.Outlined.Block, "Don't recommend channel") {
-                LibraryRepository.hideChannel(item.artistOrChannel)
+                LibraryRepository.hideChannel(item.artistOrChannel, item.id)
                 onDismiss()
             }
         }
