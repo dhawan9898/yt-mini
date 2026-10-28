@@ -47,7 +47,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,10 +67,10 @@ import com.nexusstream.app.media.PlaybackState
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.LocalNav
 import com.nexusstream.app.ui.LocalPlaybackService
+import com.nexusstream.app.ui.Route
 import com.nexusstream.app.ui.components.OriginalColors
 import com.nexusstream.app.ui.components.PlayerOptionsSheet
 import com.nexusstream.app.ui.youtube.AddToPlaylistSheet
-import kotlinx.coroutines.launch
 
 /**
  * The YT Music song menu (⋮ on a song): Start radio, Play next, Add to queue, like / dislike,
@@ -90,7 +89,6 @@ fun SongMenuSheet(
     val context = LocalContext.current
     val service = LocalPlaybackService.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
     val liked by LibraryRepository.liked.collectAsState()
     val disliked by LibraryRepository.disliked.collectAsState()
     val isLiked = liked.any { it.id == item.id }
@@ -167,12 +165,8 @@ fun SongMenuSheet(
             }
             if (albumId.isNotEmpty() && nav != null) {
                 MenuRow(Icons.Outlined.Album, "Go to album") {
-                    scope.launch {
-                        YouTubeRepository.albumPlaylistUrl(albumId)
-                            .onSuccess { url -> nav.openMusicPlaylist(url, albumName.ifEmpty { "Album" }) }
-                            .onFailure { toast("Couldn't open the album") }
-                        onDismiss()
-                    }
+                    nav.open(Route.MusicBrowse(albumId, albumName.ifEmpty { "Album" }))
+                    onDismiss()
                 }
             }
             if (artistUrl.isNotEmpty() && nav != null) {

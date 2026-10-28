@@ -13,8 +13,8 @@ import org.json.JSONObject
  */
 object YTMusicApi {
     private const val ORIGIN = "https://music.youtube.com"
-    private const val NEXT = "$ORIGIN/youtubei/v1/next?prettyPrint=false"
-    private const val BROWSE = "$ORIGIN/youtubei/v1/browse?prettyPrint=false"
+    internal const val NEXT = "$ORIGIN/youtubei/v1/next?prettyPrint=false"
+    internal const val BROWSE = "$ORIGIN/youtubei/v1/browse?prettyPrint=false"
     private const val CLIENT_NAME = "WEB_REMIX"
     private const val CLIENT_NAME_ID = "67"
     private const val CLIENT_VERSION = "1.20250101.01.00"
@@ -47,15 +47,22 @@ object YTMusicApi {
 
     enum class CardKind { SONG, ALBUM, PLAYLIST, ARTIST }
 
-    /** One tile on the RELATED tab. [track] is set for songs / videos, [url] for everything else. */
+    /**
+     * One tile or row of a YT Music shelf. [track] is set for songs / videos, [url] for everything
+     * else; [browseId] opens the item's own YT Music page (album "MPREb…", artist "UC…", playlist "VL…").
+     */
     data class Card(
         val kind: CardKind,
         val title: String,
         val subtitle: String,
         val thumbnailUrl: String,
         val url: String = "",
-        val track: MediaItemModel? = null
+        val track: MediaItemModel? = null,
+        val browseId: String = ""
     )
+
+    /** A tile of the Moods & genres / Explore button grid; opens [browseId] with [params]. */
+    data class NavButton(val title: String, val browseId: String, val params: String, val color: Long)
 
     /**
      * A RELATED shelf ("You might also like", "Similar artists"...) or the "About the artist" text.
@@ -65,7 +72,17 @@ object YTMusicApi {
         val title: String,
         val cards: List<Card>,
         val description: String = "",
-        val isSongList: Boolean = false
+        val isSongList: Boolean = false,
+        /** Small line above the title ("Start radio from a song", the user's name...). */
+        val strapline: String = "",
+        val buttons: List<NavButton> = emptyList(),
+        /** "More" / "Show all" target. */
+        val moreBrowseId: String = "",
+        val moreParams: String = "",
+        /** Song rows stacked per column (Quick picks uses 4). */
+        val rowsPerColumn: Int = 1,
+        /** Tiles laid out as a wrapping grid instead of a row (library pages). */
+        val isGrid: Boolean = false
     )
 
     /** Starts a YT Music radio from [videoId], the same request the app makes when a song starts. */
@@ -82,7 +99,7 @@ object YTMusicApi {
 
     fun related(browseId: String): List<Section> = parseRelated(post(BROWSE, JSONObject().put("browseId", browseId)))
 
-    private fun post(endpoint: String, extra: JSONObject): JSONObject =
+    internal fun post(endpoint: String, extra: JSONObject): JSONObject =
         InnerTube.post(endpoint, extra, ORIGIN, CLIENT_NAME, CLIENT_NAME_ID, CLIENT_VERSION)
 
     internal fun parseWatch(root: JSONObject): WatchInfo {
@@ -216,23 +233,73 @@ object YTMusicApi {
         return PlainLyrics(text, InnerTube.text(shelf.optJSONObject("footer")).trim())
     }
 
-    internal fun parseRelated(root: JSONObject): List<Section> {
-        val contents = sectionContents(root) ?: return emptyList()
+    internal fun parseRelated(root: JSONObject): List<Section> =
+        sectionContents(root)?.let(::parseShelves).orEmpty()
+
+    /**
+     * The shelves of a YT Music section list: carousels, song shelves, tile grids, button grids
+     * (Moods & genres) and description text. Shared by Related, Home, Explore, artist, album and
+     * library pages.
+     */
+    internal fun parseShelves(contents: JSONArray): List<Section> {
         val sections = ArrayList<Section>()
         for (i in 0 until contents.length()) {
             val node = contents.optJSONObject(i) ?: continue
-            node.optJSONObject("musicCarouselShelfRenderer")?.let { shelf ->
-                val title = InnerTube.text(shelf.optJSONObject("header")
-                    ?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")?.optJSONObject("title"))
+            (node.optJSONObject("musicCarouselShelfRenderer") ?: node.optJSONObject("musicImmersiveCarouselShelfRenderer"))?.let { shelf ->
+                val header = shelf.optJSONObject("header")?.let {
+                    it.optJSONObject("musicCarouselShelfBasicHeaderRenderer") ?: it.optJSONObject("musicImmersiveCarouselShelfHeaderRenderer")
+                }
+                val title = InnerTube.text(header?.optJSONObject("title"))
+                val more = header?.optJSONObject("moreContentButton")?.optJSONObject("buttonRenderer")
+                    ?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
                 val items = shelf.optJSONArray("contents") ?: JSONArray()
                 var rows = 0
+                val buttons = ArrayList<NavButton>()
                 val cards = (0 until items.length()).mapNotNull { j ->
                     val item = items.optJSONObject(j) ?: return@mapNotNull null
+                    item.optJSONObject("musicNavigationButtonRenderer")?.let { navButton(it)?.let(buttons::add); return@mapNotNull null }
                     item.optJSONObject("musicResponsiveListItemRenderer")?.let { rows++; listItem(it) }
                         ?: item.optJSONObject("musicTwoRowItemRenderer")?.let(::twoRowItem)
                 }
-                if (cards.isNotEmpty()) sections += Section(title, cards, isSongList = rows > 0)
+                if (cards.isNotEmpty() || buttons.isNotEmpty()) sections += Section(
+                    title = title,
+                    cards = cards,
+                    isSongList = rows > 0,
+                    strapline = InnerTube.text(header?.optJSONObject("strapline")),
+                    buttons = buttons,
+                    moreBrowseId = more?.optString("browseId").orEmpty(),
+                    moreParams = more?.optString("params").orEmpty(),
+                    rowsPerColumn = if (rows > 0) shelf.optInt("numItemsPerColumn", 1).coerceIn(1, 4) else 1
+                )
             }
+            (node.optJSONObject("musicShelfRenderer") ?: node.optJSONObject("musicPlaylistShelfRenderer"))?.let { shelf ->
+                val items = shelf.optJSONArray("contents") ?: JSONArray()
+                val cards = (0 until items.length()).mapNotNull { j ->
+                    items.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer")?.let(::listItem)
+                }
+                val more = shelf.optJSONObject("bottomEndpoint")?.optJSONObject("browseEndpoint")
+                    ?: shelf.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)
+                        ?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+                if (cards.isNotEmpty()) sections += Section(
+                    title = InnerTube.text(shelf.optJSONObject("title")),
+                    cards = cards,
+                    isSongList = true,
+                    moreBrowseId = more?.optString("browseId").orEmpty(),
+                    moreParams = more?.optString("params").orEmpty()
+                )
+            }
+            node.optJSONObject("gridRenderer")?.let { grid ->
+                val items = grid.optJSONArray("items") ?: JSONArray()
+                val buttons = ArrayList<NavButton>()
+                val cards = (0 until items.length()).mapNotNull { j ->
+                    val item = items.optJSONObject(j) ?: return@mapNotNull null
+                    item.optJSONObject("musicNavigationButtonRenderer")?.let { navButton(it)?.let(buttons::add); return@mapNotNull null }
+                    item.optJSONObject("musicTwoRowItemRenderer")?.let(::twoRowItem)
+                }
+                val title = InnerTube.text(grid.optJSONObject("header")?.optJSONObject("gridHeaderRenderer")?.optJSONObject("title"))
+                if (cards.isNotEmpty() || buttons.isNotEmpty()) sections += Section(title, cards, buttons = buttons, isGrid = true)
+            }
+            node.optJSONObject("itemSectionRenderer")?.optJSONArray("contents")?.let { sections += parseShelves(it) }
             node.optJSONObject("musicDescriptionShelfRenderer")?.let { shelf ->
                 val text = InnerTube.text(shelf.optJSONObject("description")).trim()
                 if (text.isNotEmpty()) {
@@ -244,26 +311,48 @@ object YTMusicApi {
         return sections
     }
 
+    private fun navButton(b: JSONObject): NavButton? {
+        val title = InnerTube.text(b.optJSONObject("buttonText")).ifEmpty { return null }
+        val browse = b.optJSONObject("clickCommand")?.optJSONObject("browseEndpoint") ?: return null
+        val color = b.optJSONObject("solid")?.optLong("leftStripeColor") ?: 0L
+        return NavButton(title, browse.optString("browseId"), browse.optString("params"), color)
+    }
+
     /** A song row (title / artist columns), as used by "You might also like". */
     private fun listItem(r: JSONObject): Card? {
         val columns = r.optJSONArray("flexColumns") ?: return null
         fun column(i: Int) = columns.optJSONObject(i)
             ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")?.optJSONObject("text")
         val titleRuns = column(0)
+        val title = InnerTube.text(titleRuns)
+        val thumbnail = InnerTube.lastThumbnail(r.optJSONObject("thumbnail")
+            ?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail"))
+        // Second column is "Artist" or "Artist • Album" (or "Song • Artist • Album" in search).
+        val byline = (1 until columns.length()).joinToString(" • ") { InnerTube.text(column(it)) }.trim(' ', '•')
         val videoId = r.optJSONObject("playlistItemData")?.optString("videoId")?.takeIf { it.length == 11 }
             ?: titleRuns?.optJSONArray("runs")?.optJSONObject(0)?.optJSONObject("navigationEndpoint")
                 ?.optJSONObject("watchEndpoint")?.optString("videoId")?.takeIf { it.length == 11 }
-            ?: return null
-        val title = InnerTube.text(titleRuns)
-        // Second column is "Artist" or "Artist • Album"; the artist is what the app shows.
-        val byline = InnerTube.text(column(1))
-        val artist = byline.substringBefore(" • ").trim()
-        val thumbnail = InnerTube.lastThumbnail(r.optJSONObject("thumbnail")
-            ?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail"))
+        if (videoId == null) {
+            // An artist, album or playlist row (library and search lists).
+            val browse = r.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint") ?: return null
+            return browseCard(browse, title, byline, thumbnail, "")
+        }
+        val runs = JSONArray()
+        for (c in 1 until columns.length()) column(c)?.optJSONArray("runs")?.let { for (k in 0 until it.length()) runs.put(it.opt(k)) }
+        val info = trackInfo(JSONObject().put("longBylineText", JSONObject().put("runs", runs)).put("menu", r.optJSONObject("menu") ?: JSONObject()))
+        val skip = setOf("Song", "Video", "Episode", "Podcast")
+        val artist = info.artists.filter { it.name !in skip }.joinToString(", ") { it.name }
+            .ifEmpty { byline.split(" • ").firstOrNull { it.isNotBlank() && it !in skip }.orEmpty().trim() }
         val fixed = r.optJSONArray("fixedColumns")?.optJSONObject(0)
             ?.optJSONObject("musicResponsiveListItemFixedColumnRenderer")?.optJSONObject("text")
         val seconds = InnerTube.parseDuration(InnerTube.text(fixed))
-        return Card(CardKind.SONG, title, byline, thumbnail, track = track(videoId, title, artist, thumbnail, seconds))
+        val item = track(videoId, title, artist, thumbnail, seconds).copy(
+            channelUrl = info.artists.firstOrNull { it.id.isNotEmpty() }?.let { artistUrl(it.id) }.orEmpty(),
+            albumId = info.albumId,
+            albumName = info.albumName,
+            isExplicit = r.optJSONArray("badges")?.toString()?.contains("MUSIC_EXPLICIT_BADGE") == true
+        )
+        return Card(CardKind.SONG, title, byline, thumbnail, track = item)
     }
 
     /** A square / round tile: album, playlist, artist or music video. */
@@ -278,33 +367,48 @@ object YTMusicApi {
             val artist = subtitle.split(" • ").firstOrNull { it.isNotBlank() && it != "Video" && it != "Song" }.orEmpty()
             return Card(CardKind.SONG, title, subtitle, thumbnail, track = track(id, title, artist, thumbnail, 0))
         }
+        nav?.optJSONObject("watchPlaylistEndpoint")?.optString("playlistId")?.takeIf { it.isNotEmpty() }?.let { id ->
+            // Mixes ("My Supermix", "Discover mix") play from their radio playlist.
+            return Card(CardKind.PLAYLIST, title, subtitle, thumbnail, url = playlistUrl(id), browseId = "VL$id")
+        }
         val browse = nav?.optJSONObject("browseEndpoint") ?: return null
-        val browseId = browse.optString("browseId")
-        val pageType = browse.optJSONObject("browseEndpointContextSupportedConfigs")
-            ?.optJSONObject("browseEndpointContextMusicConfig")?.optString("pageType").orEmpty()
-        // Albums open through their playable playlist ("OLAK5uy_..."), which the playlist page understands.
+        // Albums also carry their playable playlist ("OLAK5uy_...").
         val playPlaylistId = r.optJSONObject("thumbnailOverlay")
             ?.optJSONObject("musicItemThumbnailOverlayRenderer")?.optJSONObject("content")
             ?.optJSONObject("musicPlayButtonRenderer")?.optJSONObject("playNavigationEndpoint")
-            ?.optJSONObject("watchPlaylistEndpoint")?.optString("playlistId").orEmpty()
+            ?.let { it.optJSONObject("watchPlaylistEndpoint") ?: it.optJSONObject("watchEndpoint") }
+            ?.optString("playlistId").orEmpty()
+        return browseCard(browse, title, subtitle, thumbnail, playPlaylistId)
+    }
+
+    /** A card that opens a YT Music page: artist, album, playlist or podcast. */
+    private fun browseCard(browse: JSONObject, title: String, subtitle: String, thumbnail: String, playPlaylistId: String): Card? {
+        val browseId = browse.optString("browseId").ifEmpty { return null }
+        val pageType = browse.optJSONObject("browseEndpointContextSupportedConfigs")
+            ?.optJSONObject("browseEndpointContextMusicConfig")?.optString("pageType").orEmpty()
         return when {
             pageType == "MUSIC_PAGE_TYPE_ARTIST" || pageType == "MUSIC_PAGE_TYPE_USER_CHANNEL" || browseId.startsWith("UC") ->
-                Card(CardKind.ARTIST, title, subtitle, thumbnail, url = "https://www.youtube.com/channel/$browseId")
-            pageType == "MUSIC_PAGE_TYPE_ALBUM" || browseId.startsWith("MPRE") ->
-                playPlaylistId.takeIf { it.isNotEmpty() }?.let {
-                    Card(CardKind.ALBUM, title, subtitle, thumbnail, url = playlistUrl(it))
-                }
+                Card(CardKind.ARTIST, title, subtitle, thumbnail, url = artistUrl(browseId), browseId = browseId)
+            pageType == "MUSIC_PAGE_TYPE_ALBUM" || pageType == "MUSIC_PAGE_TYPE_AUDIOBOOK" || browseId.startsWith("MPRE") ->
+                Card(CardKind.ALBUM, title, subtitle, thumbnail, url = musicPageUrl(browseId, playPlaylistId), browseId = browseId)
             browseId.startsWith("VL") || pageType == "MUSIC_PAGE_TYPE_PLAYLIST" -> {
                 val id = browseId.removePrefix("VL").ifEmpty { playPlaylistId }
-                id.takeIf { it.isNotEmpty() }?.let { Card(CardKind.PLAYLIST, title, subtitle, thumbnail, url = playlistUrl(it)) }
+                Card(CardKind.PLAYLIST, title, subtitle, thumbnail, url = playlistUrl(id), browseId = "VL$id")
             }
+            // Podcast shows ("MPSP...") and other music pages open as browse pages.
+            browseId.startsWith("MP") || browseId.startsWith("FE") ->
+                Card(CardKind.PLAYLIST, title, subtitle, thumbnail, url = musicPageUrl(browseId, ""), browseId = browseId)
             else -> null
         }
     }
 
-    private fun playlistUrl(id: String) = "https://www.youtube.com/playlist?list=$id"
+    /** music.youtube.com page link; albums also carry their playable playlist, for the YouTube page fallback. */
+    internal fun musicPageUrl(browseId: String, playlistId: String): String =
+        "https://music.youtube.com/browse/$browseId" + if (playlistId.isNotEmpty()) "?list=$playlistId" else ""
 
-    private fun sectionContents(root: JSONObject): JSONArray? =
+    internal fun playlistUrl(id: String) = "https://www.youtube.com/playlist?list=$id"
+
+    internal fun sectionContents(root: JSONObject): JSONArray? =
         root.optJSONObject("contents")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
 
     private fun tabBrowseId(tabs: JSONArray?, prefix: String): String? {
@@ -328,7 +432,7 @@ object YTMusicApi {
         sourceUrl = "https://www.youtube.com/watch?v=${item.id}"
     )
 
-    private fun track(id: String, title: String, artist: String, thumbnail: String, seconds: Long) = MediaItemModel(
+    internal fun track(id: String, title: String, artist: String, thumbnail: String, seconds: Long) = MediaItemModel(
         id = id,
         title = title,
         artistOrChannel = artist,

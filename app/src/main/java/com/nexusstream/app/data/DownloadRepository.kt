@@ -100,6 +100,23 @@ object DownloadRepository {
         enqueue(context, item.id)
     }
 
+    /**
+     * Downloads every song of an album or playlist as audio (best bitrate), skipping songs that are
+     * already downloaded or downloading. Returns how many downloads were started.
+     */
+    suspend fun startAudioAll(context: Context, items: List<MediaItemModel>, preferredKbps: Int = Int.MAX_VALUE): Int {
+        val have = LibraryRepository.downloads.value.map { it.id }.toSet() + _pending.value.map { it.item.id }
+        var started = 0
+        for (item in items.distinctBy { it.id }) {
+            if (item.id in have) continue
+            val audio = YouTubeRepository.downloadOptions(item.watchUrl).getOrNull()?.filter { !it.isVideo } ?: continue
+            val option = audio.firstOrNull { (it.label.substringBefore(' ').toIntOrNull() ?: 0) <= preferredKbps } ?: audio.lastOrNull() ?: continue
+            start(context, item, option)
+            started++
+        }
+        return started
+    }
+
     /** Stops a running download but keeps what has been downloaded so far. */
     fun pause(id: String) {
         val pending = _pending.value.firstOrNull { it.item.id == id } ?: return

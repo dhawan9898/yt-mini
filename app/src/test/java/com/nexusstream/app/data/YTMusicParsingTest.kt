@@ -125,9 +125,13 @@ class YTMusicParsingTest {
 
         val tiles = sections[1].cards
         assertEquals(false, sections[1].isSongList)
-        assertEquals(listOf(YTMusicApi.CardKind.PLAYLIST, YTMusicApi.CardKind.ALBUM), tiles.map { it.kind })
+        // Albums open their YT Music album page; the playable playlist rides along for the fallback.
+        assertEquals(listOf(YTMusicApi.CardKind.PLAYLIST, YTMusicApi.CardKind.ALBUM, YTMusicApi.CardKind.ALBUM), tiles.map { it.kind })
         assertEquals("https://www.youtube.com/playlist?list=PL123", tiles[0].url)
-        assertEquals("https://www.youtube.com/playlist?list=OLAK5uy_e", tiles[1].url)
+        assertEquals("VLPL123", tiles[0].browseId)
+        assertEquals("https://music.youtube.com/browse/MPREb_e?list=OLAK5uy_e", tiles[1].url)
+        assertEquals("MPREb_e", tiles[1].browseId)
+        assertEquals("https://music.youtube.com/browse/MPREb_f", tiles[2].url)
 
         val artist = sections[2].cards.single()
         assertEquals(YTMusicApi.CardKind.ARTIST, artist.kind)

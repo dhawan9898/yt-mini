@@ -78,6 +78,7 @@ import com.nexusstream.app.ui.youtube.PlaylistsScreen
 import com.nexusstream.app.ui.youtube.SettingsScreen
 import com.nexusstream.app.ui.youtube.GoogleSignInScreen
 import com.nexusstream.app.ui.youtube.WatchLaterScreen
+import com.nexusstream.app.ui.ytmusic.MusicBrowseScreen
 import com.nexusstream.app.ui.components.MiniPlayerHooks
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.key
@@ -142,8 +143,14 @@ fun NexusApp() {
             openChannel = { url, name, avatar -> push(Route.Channel(url, name, avatar)) },
             openPlaylist = { url, title -> push(Route.Playlist(url, title)) },
             openAllSubscriptions = { push(Route.AllSubscriptions) },
-            openMusicChannel = { url, name, avatar -> push(Route.Channel(url, name, avatar, music = true)) },
-            openMusicPlaylist = { url, title -> push(Route.Playlist(url, title, music = true)) },
+            openMusicChannel = { url, name, avatar ->
+                val fallback = Route.Channel(url, name, avatar, music = true)
+                push(musicRouteFor(url, name)?.copy(fallback = fallback) ?: fallback)
+            },
+            openMusicPlaylist = { url, title ->
+                val fallback = playlistFallbackFor(url, title)
+                push(musicRouteFor(url, title)?.copy(fallback = fallback) ?: fallback ?: Route.Playlist(url, title, music = true))
+            },
             open = { route -> push(route) },
             back = { if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) }
         )
@@ -386,6 +393,13 @@ fun NexusApp() {
                                     is Route.NotificationSettings -> NotificationSettingsScreen(nav, miniPlayer)
                                     is Route.Settings -> SettingsScreen(nav, miniPlayer)
                                     is Route.SignIn -> GoogleSignInScreen(nav)
+                                    is Route.MusicBrowse -> MusicBrowseScreen(route, nav, playTrack, miniPlayer) { fallback ->
+                                        when (fallback) {
+                                            is Route.Channel -> ChannelScreen(fallback, nav, playTrack, miniPlayer)
+                                            is Route.Playlist -> PlaylistScreen(fallback, nav, playTrack, miniPlayer)
+                                            else -> Unit
+                                        }
+                                    }
                                 }
                             }
                         }

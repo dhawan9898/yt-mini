@@ -520,6 +520,33 @@ object YouTubeRepository {
         musicWatch(item.id).trackInfo ?: error("YT Music has no details for this song")
     }
 
+    // ---- YT Music pages (home, explore, artist, album, library) ----
+
+    private val musicPageCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, YTMusicPages.Page>>()
+
+    fun cachedMusicPage(browseId: String, params: String = ""): YTMusicPages.Page? =
+        musicPageCache["$browseId|$params"]?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.second
+
+    suspend fun musicPage(browseId: String, params: String = "", refresh: Boolean = false): Result<YTMusicPages.Page> = io {
+        if (!refresh) cachedMusicPage(browseId, params)?.let { return@io it }
+        YTMusicPages.browse(browseId, params).also {
+            check(it.sections.isNotEmpty() || it.header != null) { "Nothing to show here yet" }
+            musicPageCache["$browseId|$params"] = System.currentTimeMillis() to it
+        }
+    }
+
+    /** YT Music's own search, one result tab at a time. */
+    suspend fun musicSearch(query: String, filter: YTMusicPages.SearchFilter): Result<YTMusicPages.Page> = io {
+        YTMusicPages.search(query, filter).also { check(it.sections.isNotEmpty()) { "No results" } }
+    }
+
+    suspend fun musicPageMore(continuation: String): Result<YTMusicPages.Page> = io { YTMusicPages.more(continuation) }
+
+    /** The tracks of an album, mix or radio playlist, ready to play. */
+    suspend fun musicPlaylistTracks(playlistId: String): Result<List<MediaItemModel>> = io {
+        YTMusicPages.watchPlaylist(playlistId).also { check(it.isNotEmpty()) { "This list has no playable songs" } }
+    }
+
     /** "View song credits". */
     suspend fun songCredits(creditsBrowseId: String): Result<List<YTMusicApi.CreditSection>> = io {
         YTMusicApi.credits(creditsBrowseId).also { check(it.isNotEmpty()) { "No credits for this song" } }

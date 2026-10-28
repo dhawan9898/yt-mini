@@ -48,6 +48,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.key
+import androidx.compose.material.icons.rounded.NewReleases
+import androidx.compose.material.icons.automirrored.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.SentimentSatisfied
+import androidx.compose.material.icons.rounded.Podcasts
+import androidx.compose.material.icons.rounded.History
+import com.nexusstream.app.data.GoogleAccount
+import com.nexusstream.app.data.YTMusicPages
+import com.nexusstream.app.ui.Route
 import com.nexusstream.app.ui.youtube.PlaylistResultRow
 import com.nexusstream.app.ui.youtube.ChannelResultRow
 import com.nexusstream.app.ui.YouTubeNav
@@ -107,31 +116,29 @@ fun YTMusicHomeScreen(
     var selectedMood by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf(0) }
     var reloadKey by remember { mutableStateOf(0) }
-    var shelves by remember {
-        mutableStateOf<FeedState<List<MusicShelf>>>(
-            YouTubeRepository.cachedMusicShelves("")?.let { FeedState.Data(it) } ?: FeedState.Loading
-        )
-    }
+    var libraryTab by remember { mutableStateOf("") }
+    val signedIn by GoogleAccount.signedIn.collectAsState()
+    var searchFilter by remember { mutableStateOf(YTMusicPages.SearchFilter.SONGS) }
+    var musicSearch by remember { mutableStateOf<FeedState<YTMusicPages.Page>>(FeedState.Loading) }
     var searchType by remember { mutableStateOf(SearchType.SONGS) }
     var searchState by remember { mutableStateOf<FeedState<List<SearchResult>>>(FeedState.Loading) }
 
-    // Live shelves, refetched when the mood changes or on retry.
-    LaunchedEffect(selectedMood, reloadKey) {
-        val cached = if (reloadKey == 0) YouTubeRepository.cachedMusicShelves(selectedMood) else null
-        if (cached != null) {
-            shelves = FeedState.Data(cached)
-        } else {
-            shelves = FeedState.Loading
-            shelves = YouTubeRepository.musicShelves(selectedMood, refresh = reloadKey > 0).toFeedState()
-        }
-    }
-    // Live search (songs, albums, artists, playlists), debounced.
-    LaunchedEffect(searchQuery, searchType, reloadKey) {
+    // YT Music's own search; the YouTube-backed search stands in if it fails.
+    LaunchedEffect(searchQuery, searchFilter, reloadKey) {
         val query = searchQuery.trim()
         if (query.isEmpty()) return@LaunchedEffect
-        searchState = FeedState.Loading
+        musicSearch = FeedState.Loading
         delay(450)
-        searchState = YouTubeRepository.search(query, searchType).map { it.items }.toFeedState()
+        musicSearch = YouTubeRepository.musicSearch(query, searchFilter).toFeedState()
+        if (musicSearch is FeedState.Error) {
+            searchType = when (searchFilter) {
+                YTMusicPages.SearchFilter.ALBUMS -> SearchType.ALBUMS
+                YTMusicPages.SearchFilter.ARTISTS, YTMusicPages.SearchFilter.PROFILES -> SearchType.ARTISTS
+                YTMusicPages.SearchFilter.COMMUNITY_PLAYLISTS, YTMusicPages.SearchFilter.FEATURED_PLAYLISTS -> SearchType.MUSIC_PLAYLISTS
+                else -> SearchType.SONGS
+            }
+            searchState = YouTubeRepository.search(query, searchType).map { it.items }.toFeedState()
+        }
     }
     val history by LibraryRepository.history.collectAsState()
     val savedItems by LibraryRepository.saved.collectAsState()
@@ -154,7 +161,6 @@ fun YTMusicHomeScreen(
         }
     }
 
-    val moods = remember { listOf("Energize", "Relax", "Workout", "Focus", "Commute") }
     val navEntries = remember {
         listOf(
             BottomNavEntry("Home", Icons.Rounded.Home),
@@ -175,146 +181,118 @@ fun YTMusicHomeScreen(
             onToggleSearch = {
                 isSearchActive = !isSearchActive
                 if (!isSearchActive) searchQuery = ""
-            }
+            },
+            onProfile = { nav.open(if (signedIn) Route.Settings else Route.SignIn) }
         )
-
-        if (!isSearchActive && selectedTab == 0) {
-            OriginalFilterChips(
-                labels = moods,
-                selected = selectedMood,
-                // Tapping the active mood again clears it, like the original.
-                onSelect = { selectedMood = if (selectedMood == it) "" else it },
-                unselectedColor = OriginalColors.MusicChip
-            )
-        }
 
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            if (selectedTab == 1) {
-                // Explore: tap a genre to search it.
-                val genres = remember { listOf("Pop", "Hip-Hop", "Rock", "Electronic", "Indie", "Jazz", "Classical", "Bollywood", "K-Pop", "Lo-fi") }
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    item {
-                        Text(
-                            text = "Moods & genres",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OriginalColors.TextPrimary
-                        )
-                    }
-                    items(genres, key = { "genre_$it" }) { genre ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(OriginalColors.MusicChip)
-                                .clickable {
-                                    selectedTab = 0
-                                    isSearchActive = true
-                                    searchQuery = genre
-                                }
-                                .padding(horizontal = 16.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(text = genre, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextPrimary)
-                        }
-                    }
-                }
-            } else if (selectedTab == 2) {
-                val library = remember(downloadedItems, likedItems, savedItems) {
-                    (downloadedItems + likedItems + savedItems).distinctBy { it.id }
-                }
-                if (library.isEmpty()) {
-                    OriginalEmptyState(
-                        title = "Your library",
-                        message = "Songs you like and download will show up here."
-                    )
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(vertical = 8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(library, key = { "lib_${it.id}" }) { track ->
-                            YTMusicSearchResultRow(item = track, onClick = { playOrOpen(track, library) })
-                        }
-                    }
-                }
-            } else if (isSearchActive && searchQuery.isNotBlank()) {
+            if (isSearchActive && searchQuery.isNotBlank()) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     OriginalFilterChips(
-                        labels = SearchType.music.map { it.label },
-                        selected = searchType.label,
-                        onSelect = { label -> searchType = SearchType.music.first { it.label == label } },
+                        labels = YTMusicPages.SearchFilter.entries.map { it.label },
+                        selected = searchFilter.label,
+                        onSelect = { label -> searchFilter = YTMusicPages.SearchFilter.entries.first { it.label == label } },
                         unselectedColor = OriginalColors.MusicChip
                     )
-                    when (val state = searchState) {
+                    when (val ytm = musicSearch) {
                         is FeedState.Loading -> OriginalLoading()
-                        is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
-                        is FeedState.Data -> {
-                            val tracks = remember(state.value) {
-                                state.value.filterIsInstance<SearchResult.Video>().map { it.item }
-                            }
+                        is FeedState.Data -> LazyColumn(
+                            contentPadding = PaddingValues(vertical = 8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            musicSections(
+                                sections = ytm.value.sections,
+                                keyPrefix = "search",
+                                onCard = { card, queue -> openMusicCard(card, queue, nav, onSelectTrack) },
+                                onButton = { b -> nav.open(Route.MusicBrowse(b.browseId, b.title, b.params)) }
+                            )
+                        }
+                        is FeedState.Error -> LegacyMusicSearch(searchState, nav, onSelectTrack, onRetry = { reloadKey++ })
+                    }
+                }
+            } else if (selectedTab == 1) {
+                MusicPageList(
+                    browseId = YTMusicPages.EXPLORE,
+                    nav = nav,
+                    onPlay = onSelectTrack,
+                    reloadKey = reloadKey,
+                    leading = {
+                        item(key = "explore-buttons") {
+                            ExploreButtons(nav, signedIn)
+                        }
+                    }
+                )
+            } else if (selectedTab == 2) {
+                val tabs = remember(signedIn) {
+                    (if (signedIn) YTMusicPages.LibraryTab.entries.map { it.label } + listOf("History", "Recap") else emptyList()) +
+                        listOf("Downloads", "On this device")
+                }
+                val current = libraryTab.takeIf { it in tabs } ?: tabs.first()
+                Column(modifier = Modifier.fillMaxSize()) {
+                    OriginalFilterChips(
+                        labels = tabs,
+                        selected = current,
+                        onSelect = { libraryTab = it },
+                        unselectedColor = OriginalColors.MusicChip
+                    )
+                    val accountTab = YTMusicPages.LibraryTab.entries.firstOrNull { it.label == current }
+                    val accountBrowse = accountTab?.browseId ?: when (current) {
+                        "History" -> YTMusicPages.HISTORY
+                        "Recap" -> YTMusicPages.RECAP
+                        else -> null
+                    }
+                    if (accountBrowse != null) {
+                        key(accountBrowse) {
+                            MusicPageList(browseId = accountBrowse, nav = nav, onPlay = onSelectTrack, reloadKey = reloadKey)
+                        }
+                    } else {
+                        val library = remember(current, downloadedItems, likedItems, savedItems) {
+                            if (current == "Downloads") downloadedItems.filter { it.contentType == MediaContentType.MUSIC_TRACK }
+                            else (downloadedItems + likedItems + savedItems).distinctBy { it.id }
+                        }
+                        if (library.isEmpty()) {
+                            OriginalEmptyState(
+                                title = if (current == "Downloads") "No downloads" else "Your library",
+                                message = if (signedIn) "Songs you like and download will show up here."
+                                else "Sign in to see your YouTube Music library. Songs you like and download show up here."
+                            )
+                        } else {
                             LazyColumn(
                                 contentPadding = PaddingValues(vertical = 8.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(
-                                    state.value,
-                                    key = { result ->
-                                        when (result) {
-                                            is SearchResult.Video -> "ytm_v_${result.item.id}"
-                                            is SearchResult.Channel -> "ytm_c_${result.channel.url}"
-                                            is SearchResult.Playlist -> "ytm_p_${result.playlist.url}"
-                                        }
-                                    }
-                                ) { result ->
-                                    when (result) {
-                                        is SearchResult.Video -> YTMusicSearchResultRow(
-                                            item = result.item,
-                                            onClick = { onSelectTrack(result.item, tracks) }
-                                        )
-                                        is SearchResult.Channel -> ChannelResultRow(result.channel) {
-                                            nav.openMusicChannel(result.channel.url, result.channel.name, result.channel.avatarUrl)
-                                        }
-                                        is SearchResult.Playlist -> PlaylistResultRow(result.playlist) {
-                                            nav.openMusicPlaylist(result.playlist.url, result.playlist.title)
-                                        }
-                                    }
+                                items(library, key = { "lib_${it.id}" }) { track ->
+                                    YTMusicSearchResultRow(item = track, onClick = { playOrOpen(track, library) })
                                 }
                             }
                         }
                     }
                 }
             } else {
-                when (val state = shelves) {
-                    is FeedState.Loading -> OriginalLoading()
-                    is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
-                    is FeedState.Data -> LazyColumn(
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(28.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        val rows = if (selectedMood.isBlank() && listenAgain.items.isNotEmpty()) {
-                            listOf(listenAgain) + state.value
-                        } else {
-                            state.value
+                // The real YT Music home (Quick picks, mixes, new releases, mood chips); the
+                // history-and-search shelves stand in if it can't be loaded.
+                MusicPageList(
+                    browseId = YTMusicPages.HOME,
+                    nav = nav,
+                    onPlay = onSelectTrack,
+                    showChips = true,
+                    reloadKey = reloadKey,
+                    leading = {
+                        if (!signedIn && listenAgain.items.isNotEmpty()) {
+                            item(key = "listen-again") {
+                                YTMusicShelfCarousel(shelf = listenAgain, onSelectTrack = { playOrOpen(it, listenAgain.items) })
+                                Spacer(Modifier.height(20.dp))
+                            }
                         }
-                        items(rows, key = { it.title }) { shelf ->
-                            YTMusicShelfCarousel(
-                                shelf = shelf,
-                                onSelectTrack = { track -> playOrOpen(track, shelf.items) }
-                            )
-                        }
+                    },
+                    errorContent = { _, _ ->
+                        LegacyMusicHome(selectedMood, { selectedMood = it }, listenAgain, playOrOpen)
                     }
-                }
+                )
             }
         }
 
@@ -340,12 +318,116 @@ fun YTMusicHomeScreen(
     }
 }
 
+/** Explore's top buttons, as in the app: New releases, Charts, Moods & genres, Podcasts. */
+@Composable
+private fun ExploreButtons(nav: YouTubeNav, signedIn: Boolean) {
+    val entries = listOf(
+        Triple("New releases", Icons.Rounded.NewReleases, YTMusicPages.NEW_RELEASES),
+        Triple("Charts", Icons.AutoMirrored.Rounded.TrendingUp, YTMusicPages.CHARTS),
+        Triple("Moods & genres", Icons.Rounded.SentimentSatisfied, YTMusicPages.MOODS),
+        Triple("Podcasts", Icons.Rounded.Podcasts, YTMusicPages.PODCASTS)
+    ) + if (signedIn) listOf(Triple("Your Recap", Icons.Rounded.History, YTMusicPages.RECAP)) else emptyList()
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        entries.forEach { (label, icon, browseId) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(OriginalColors.MusicChip)
+                    .clickable { nav.open(Route.MusicBrowse(browseId, label)) }
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(icon, null, tint = OriginalColors.TextPrimary)
+                Spacer(Modifier.width(16.dp))
+                Text(label, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = OriginalColors.TextPrimary)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+/** The pre-browse home: mood chips over shelves built from searches and listening history. */
+@Composable
+private fun LegacyMusicHome(
+    selectedMood: String,
+    onMood: (String) -> Unit,
+    listenAgain: MusicShelf,
+    playOrOpen: (MediaItemModel, List<MediaItemModel>) -> Unit
+) {
+    var reload by remember { mutableStateOf(0) }
+    var shelves by remember {
+        mutableStateOf<FeedState<List<MusicShelf>>>(
+            YouTubeRepository.cachedMusicShelves(selectedMood)?.let { FeedState.Data(it) } ?: FeedState.Loading
+        )
+    }
+    LaunchedEffect(selectedMood, reload) {
+        shelves = FeedState.Loading
+        shelves = YouTubeRepository.musicShelves(selectedMood, refresh = reload > 0).toFeedState()
+    }
+    val moods = remember { listOf("Energize", "Relax", "Workout", "Focus", "Commute") }
+    Column(modifier = Modifier.fillMaxSize()) {
+        OriginalFilterChips(
+            labels = moods,
+            selected = selectedMood,
+            onSelect = { onMood(if (selectedMood == it) "" else it) },
+            unselectedColor = OriginalColors.MusicChip
+        )
+        when (val state = shelves) {
+            is FeedState.Loading -> OriginalLoading()
+            is FeedState.Error -> OriginalError(state.message, onRetry = { reload++ })
+            is FeedState.Data -> LazyColumn(
+                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                val rows = if (selectedMood.isBlank() && listenAgain.items.isNotEmpty()) listOf(listenAgain) + state.value else state.value
+                items(rows, key = { it.title }) { shelf ->
+                    YTMusicShelfCarousel(shelf = shelf, onSelectTrack = { track -> playOrOpen(track, shelf.items) })
+                }
+            }
+        }
+    }
+}
+
+/** Search results from the YouTube-backed search, used when YT Music's own search fails. */
+@Composable
+private fun LegacyMusicSearch(
+    searchState: FeedState<List<SearchResult>>,
+    nav: YouTubeNav,
+    onSelectTrack: (MediaItemModel, List<MediaItemModel>) -> Unit,
+    onRetry: () -> Unit
+) {
+    when (val state = searchState) {
+        is FeedState.Loading -> OriginalLoading()
+        is FeedState.Error -> OriginalError(state.message, onRetry = onRetry)
+        is FeedState.Data -> {
+            val tracks = remember(state.value) { state.value.filterIsInstance<SearchResult.Video>().map { it.item } }
+            LazyColumn(contentPadding = PaddingValues(vertical = 8.dp), modifier = Modifier.fillMaxSize()) {
+                items(state.value) { result ->
+                    when (result) {
+                        is SearchResult.Video -> YTMusicSearchResultRow(item = result.item, onClick = { onSelectTrack(result.item, tracks) })
+                        is SearchResult.Channel -> ChannelResultRow(result.channel) {
+                            nav.openMusicChannel(result.channel.url, result.channel.name, result.channel.avatarUrl)
+                        }
+                        is SearchResult.Playlist -> PlaylistResultRow(result.playlist) {
+                            nav.openMusicPlaylist(result.playlist.url, result.playlist.title)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun YTMusicHeader(
     isSearchActive: Boolean,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    onToggleSearch: () -> Unit
+    onToggleSearch: () -> Unit,
+    onProfile: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -417,7 +499,7 @@ private fun YTMusicHeader(
                 IconButton(onClick = onToggleSearch) {
                     Icon(imageVector = Icons.Rounded.Search, contentDescription = "Search", tint = OriginalColors.TextPrimary)
                 }
-                IconButton(onClick = { /* Profile */ }) {
+                IconButton(onClick = onProfile) {
                     Icon(imageVector = Icons.Rounded.AccountCircle, contentDescription = "Profile", tint = OriginalColors.TextPrimary)
                 }
             }
