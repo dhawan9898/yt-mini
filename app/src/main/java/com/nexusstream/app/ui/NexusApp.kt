@@ -121,7 +121,7 @@ enum class AppScreen {
 
 /**
  * Root NexusStream App Shell:
- * - Fluid Glass dual-mode switcher (YouTube Video vs YT Music).
+ * - Tap the YouTube Premium / Music logo at the top to switch between YouTube and YT Music.
  * - Complete removal of Shorts and Games from feeds.
  * - Unlocked Premium features: Background playback, PiP, Ad-free, Lossless audio.
  */
@@ -332,16 +332,6 @@ fun NexusApp() {
         )
         Box(modifier = Modifier.fillMaxSize().background(shellBackground)) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Top Dual-Engine Mode Switcher Bar
-                if (currentScreen == AppScreen.HOME && backStack.isEmpty()) {
-                    DualEngineModeSwitcherBar(
-                        currentMode = currentMode,
-                        onModeSelect = { mode ->
-                            currentMode = mode
-                        }
-                    )
-                }
-
                 // Screen Switcher
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     AnimatedContent(
@@ -385,7 +375,8 @@ fun NexusApp() {
                                     onTogglePlayPause = { activeService?.togglePlayPause() },
                                     onClosePlayer = closePlayer,
                                     nav = nav,
-                                    playbackService = activeService
+                                    playbackService = activeService,
+                                    onSwitchApp = { currentMode = AppMode.YT_MUSIC }
                                 )
                             }
                             mode == AppMode.YT_MUSIC -> {
@@ -400,7 +391,8 @@ fun NexusApp() {
                                     onExpandPlayer = { currentScreen = AppScreen.PLAYER },
                                     onTogglePlayPause = { activeService?.togglePlayPause() },
                                     onClosePlayer = closePlayer,
-                                    nav = nav
+                                    nav = nav,
+                                    onSwitchApp = { currentMode = AppMode.YOUTUBE_VIDEO }
                                 )
                             }
                         }
@@ -468,107 +460,5 @@ fun NexusApp() {
             )
         }
     }
-    }
-}
-
-/**
- * Top mode pill: "YouTube" <-> "YT Music". Flat dark track with a white sliding thumb.
- */
-@Composable
-private fun DualEngineModeSwitcherBar(
-    currentMode: AppMode,
-    onModeSelect: (AppMode) -> Unit
-) {
-    val isMusic = currentMode == AppMode.YT_MUSIC
-    val thumbFraction by animateFloatAsState(
-        targetValue = if (isMusic) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
-        label = "PillThumb"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(top = 8.dp, bottom = 2.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .width(220.dp)
-                .height(36.dp)
-                .clip(CircleShape)
-                .background(OriginalColors.Chip)
-                .padding(3.dp)
-        ) {
-            val tabWidth = maxWidth / 2
-
-            Box(
-                modifier = Modifier
-                    .width(tabWidth)
-                    .fillMaxHeight()
-                    .offset(x = tabWidth * thumbFraction)
-                    .clip(CircleShape)
-                    .background(OriginalColors.TextPrimary)
-            )
-
-            Row(modifier = Modifier.fillMaxSize()) {
-                PillTab(
-                    label = "YouTube",
-                    icon = Icons.Rounded.PlayArrow,
-                    selected = !isMusic,
-                    onClick = { onModeSelect(AppMode.YOUTUBE_VIDEO) },
-                    modifier = Modifier.weight(1f)
-                )
-                PillTab(
-                    label = "YT Music",
-                    icon = Icons.Rounded.MusicNote,
-                    selected = isMusic,
-                    onClick = { onModeSelect(AppMode.YT_MUSIC) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PillTab(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val contentColor by animateColorAsState(
-        targetValue = if (selected) OriginalColors.OnInverse else OriginalColors.TextPrimary.copy(alpha = 0.7f),
-        label = "PillTabColor"
-    )
-    Row(
-        modifier = modifier
-            .fillMaxHeight()
-            .clip(CircleShape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Tab,
-                onClick = onClick
-            ),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = contentColor,
-            modifier = Modifier.size(16.dp)
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = label,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = contentColor
-        )
     }
 }

@@ -110,4 +110,11 @@ class LiveAndDeviceTest {
         assertEquals("abc", VideoUpload.parseVideoId(JSONObject("""{"contents":{"videoId":"abc"}}""")))
         assertNull(VideoUpload.parseVideoId(JSONObject("{}")))
     }
+
+    @Test
+    fun shortsMixSpreadsChannelShorts() {
+        val mixed = YouTubeRepository.mixIn((1..10).map { "r$it" }, listOf("a", "b", "c"), every = 5)
+        assertEquals(listOf("r1", "r2", "r3", "r4", "r5", "a", "r6", "r7", "r8", "r9", "r10", "b", "c"), mixed)
+        assertEquals(listOf("r1"), YouTubeRepository.mixIn(listOf("r1"), emptyList(), every = 5))
+    }
 }

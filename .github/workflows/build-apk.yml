@@ -91,10 +91,12 @@ jobs:
             - Search filters, channel tabs (Videos, Shorts, Live, Releases, Playlists, Posts), Home topic chips and Explore.
             - YT Music artists, albums, library, timed lyrics and smart downloads.
             - Android Auto, home screen widgets, app shortcuts, voice search and tablet side navigation.
-            - Link with TV code, video uploads, Your clips, Your movies and Time watched.
+            - Link with TV code, Your clips, Your movies and Time watched.
+            - Shorts: recommended Shorts, the next few load ahead, and your place is kept until the app is closed.
+            - Tap the Premium logo at the top to switch to YT Music (and the Music logo to switch back).
 
             ### What's inside
-            - **YouTube and YouTube Music in one app**, with a pill to switch between them.
+            - **YouTube and YouTube Music in one app**: tap the logo at the top to switch.
             - Home, search, channels, playlists, Shorts, subscriptions, live streams and comments.
             - Playlists, Watch later, liked videos, history, offline downloads and a local backup.
             - Notifications for new uploads, reminders, picture-in-picture and Google Cast.

@@ -110,7 +110,9 @@ fun YTMusicHomeScreen(
     onTogglePlayPause: () -> Unit,
     onClosePlayer: () -> Unit,
     nav: YouTubeNav,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** The Music logo at the top switches back to YouTube. */
+    onSwitchApp: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -186,7 +188,8 @@ fun YTMusicHomeScreen(
                 isSearchActive = !isSearchActive
                 if (!isSearchActive) searchQuery = ""
             },
-            onProfile = { nav.open(if (signedIn) Route.Settings else Route.SignIn) }
+            onProfile = { nav.open(if (signedIn) Route.Settings else Route.SignIn) },
+            onLogo = onSwitchApp
         )
 
         Box(
@@ -432,7 +435,8 @@ private fun YTMusicHeader(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onToggleSearch: () -> Unit,
-    onProfile: () -> Unit = {}
+    onProfile: () -> Unit = {},
+    onLogo: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -473,7 +477,13 @@ private fun YTMusicHeader(
             }
         } else {
             // YT Music logo: red ring with a white play triangle + wordmark.
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClickLabel = "Switch to YouTube", onClick = onLogo)
+                    .padding(4.dp)
+            ) {
                 Box(
                     modifier = Modifier
                         .size(28.dp)

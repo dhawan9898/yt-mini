@@ -489,8 +489,9 @@ object YouTubeRepository {
     fun cachedShorts(): Paged<MediaItemModel>? = shortsCache.get()
 
     /**
-     * A feed of short vertical videos, built from "#shorts" search and user seed channels.
-     * Features full vertical pagination so users can continuously swipe through Shorts.
+     * The Shorts feed: YouTube's own Shorts sequence (recommended Shorts, personal when signed in)
+     * started from a popular short, with a few Shorts from your channels mixed in now and then.
+     * When the sequence ends or fails, "#shorts" search pages continue it.
      */
     suspend fun shortsFeed(
         seedChannels: List<String> = emptyList(),
@@ -498,31 +499,62 @@ object YouTubeRepository {
     ): Result<Paged<MediaItemModel>> = io {
         if (!refresh) shortsCache.get()?.let { return@io it }
 
-        // 1. Fetch trending search shorts paged for "#shorts"
-        val primaryPaged = runCatching { fetchShortsSearchPaged("#shorts") }.getOrNull()
-
-        // 2. In parallel, fetch channel shorts if seed channels are available
-        val validChannels = seedChannels.filter { it.isNotBlank() }.distinct().take(4)
-        val channelShortsList = if (validChannels.isNotEmpty()) {
-            coroutineScope {
-                validChannels.map { url ->
-                    async { runCatching { channelShorts(url) }.getOrDefault(emptyList()) }
-                }.awaitAll().flatten()
+        coroutineScope {
+            val search = async { runCatching { fetchShortsSearchPaged("#shorts") }.getOrNull() }
+            // Only a couple of your channels, one short each: the feed is recommendations first.
+            val channels = seedChannels.filter { it.isNotBlank() }.distinct().shuffled().take(3)
+            val fromChannels = channels.map { url ->
+                async { runCatching { channelShorts(url).shuffled().take(1) }.getOrDefault(emptyList()) }
             }
-        } else emptyList()
+            val searchPaged = search.await()
+            val searchItems = searchPaged?.items.orEmpty().shuffled()
+            val seed = searchItems.firstOrNull()
+            val sequence = seed?.let { runCatching { YouTubeWeb.reelSequence(it.id, null) }.getOrNull() }
+            val recommended = sequence?.first.orEmpty().map(::bareShort)
+            val mine = fromChannels.awaitAll().flatten()
 
-        val initialItems = (channelShortsList + (primaryPaged?.items.orEmpty())).distinctBy { it.id }
+            val base = (listOfNotNull(seed) + recommended.ifEmpty { searchItems.drop(1) }).distinctBy { it.id }
+            val initial = mixIn(base, mine, every = 5)
+            check(initial.isNotEmpty()) { "No Shorts available right now" }
 
-        val pagedResult = if (initialItems.isNotEmpty() && primaryPaged != null) {
-            Paged(initialItems, primaryPaged.loadMore)
-        } else {
-            fetchShortsSearchPaged("trending shorts")
+            val fallback = searchPaged?.loadMore
+            val token = sequence?.second
+            val paged = if (token != null) {
+                Paged(initial, reelPages(token, fallback))
+            } else {
+                withReelSequence(Paged(initial, fallback))
+            }
+            shortsCache.set(paged)
+            paged
         }
+    }
 
-        check(pagedResult.items.isNotEmpty()) { "No Shorts available right now" }
-        val withSequence = withReelSequence(pagedResult)
-        shortsCache.set(withSequence)
-        withSequence
+    private fun bareShort(id: String): MediaItemModel =
+        InnerTube.build(id, "", "", "https://i.ytimg.com/vi/$id/oar2.jpg", "", 0, "", "", "", false).copy(isShort = true)
+
+    /** [extra] spread through [base], one after every [every] items. */
+    internal fun <T> mixIn(base: List<T>, extra: List<T>, every: Int): List<T> {
+        if (extra.isEmpty()) return base
+        val out = ArrayList<T>(base.size + extra.size)
+        var next = 0
+        base.forEachIndexed { i, item ->
+            out += item
+            if ((i + 1) % every == 0 && next < extra.size) out += extra[next++]
+        }
+        while (next < extra.size) out += extra[next++]
+        return out
+    }
+
+    /** Following pages of the Shorts sequence from [token], then [fallback] when it runs out. */
+    private fun reelPages(token: String, fallback: (suspend () -> Result<Paged<MediaItemModel>>)?): suspend () -> Result<Paged<MediaItemModel>> = {
+        io {
+            val (ids, more) = runCatching { YouTubeWeb.reelSequence(null, token) }.getOrDefault(emptyList<String>() to null)
+            if (ids.isEmpty()) {
+                fallback?.invoke()?.getOrThrow() ?: Paged(emptyList(), null)
+            } else {
+                Paged(ids.map(::bareShort), if (more != null) reelPages(more, fallback) else fallback)
+            }
+        }
     }
 
     /**
@@ -866,8 +898,35 @@ object YouTubeRepository {
             .also { shelfCache[mood] = Cached(System.currentTimeMillis(), it) }
     }
 
+    /** Streams resolved ahead of time (the next Shorts), each used once and only while fresh. */
+    private class Prefetch(val atMs: Long, val stream: kotlinx.coroutines.Deferred<ResolvedStream>)
+    private val prefetched = java.util.concurrent.ConcurrentHashMap<String, Prefetch>()
+    private val prefetchScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private const val PREFETCH_TTL_MS = 30 * 60_000L
+
+    /**
+     * Starts resolving [watchUrl] in the background so playing it later starts at once. Does
+     * nothing when it is already resolved or on the way.
+     */
+    fun prefetchStream(watchUrl: String) {
+        if (!initialized || watchUrl.isBlank()) return
+        val now = System.currentTimeMillis()
+        prefetched.entries.removeIf { now - it.value.atMs > PREFETCH_TTL_MS }
+        if (prefetched.size > 12) return
+        prefetched.computeIfAbsent(watchUrl) {
+            Prefetch(now, prefetchScope.async { fetchStream(watchUrl) })
+        }
+    }
+
     /** Resolves fresh direct stream URLs for a watch URL. Call right before playback. */
     suspend fun resolveStream(watchUrl: String): Result<ResolvedStream> = io {
+        prefetched.remove(watchUrl)
+            ?.takeIf { System.currentTimeMillis() - it.atMs < PREFETCH_TTL_MS }
+            ?.let { runCatching { it.stream.await() }.getOrNull() }
+            ?: fetchStream(watchUrl)
+    }
+
+    private fun fetchStream(watchUrl: String): ResolvedStream {
         val info = try {
             streamInfo(watchUrl)
         } catch (e: org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) {
@@ -927,7 +986,7 @@ object YouTubeRepository {
                 )
             }
             .filter { it.codecs.isNotEmpty() }
-        ResolvedStream(
+        return ResolvedStream(
             audioOptions = audio, videoOptions = video, subtitles = subtitleOptions(info), muxedUrl = muxed,
             dashVideo = dashVideo, dashAudio = dashAudio, durationSec = info.duration
         )

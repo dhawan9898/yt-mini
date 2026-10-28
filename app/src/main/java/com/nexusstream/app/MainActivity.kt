@@ -94,6 +94,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         PipController.enter = null
         PipController.canAutoEnter = false
+        // Closing the app ends the Shorts session; a rotation or theme change keeps it.
+        if (isFinishing) com.nexusstream.app.ui.youtube.ShortsSession.clear()
         super.onDestroy()
     }
 

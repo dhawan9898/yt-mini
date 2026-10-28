@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.youtube
 
+import kotlinx.coroutines.flow.first
+import androidx.compose.ui.unit.Dp
 import android.content.Intent
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -83,19 +85,42 @@ import kotlinx.coroutines.launch
  * player, looping); swiping to the next one starts it. Leaving the tab stops playback, and leaving
  * the app pauses it (Shorts never play in the background); coming back resumes it.
  */
+/**
+ * Where you are in Shorts for this run of the app: the feed loaded so far, the short on screen
+ * and how far into it. Going to another tab or page and back continues from here; it starts
+ * fresh only when the app is closed and opened again (or on pull to retry).
+ */
+internal object ShortsSession {
+    var items: List<MediaItemModel>? = null
+    var cursor: Paged<MediaItemModel>? = null
+    var page = 0
+    var videoId: String? = null
+    var positionMs = 0L
+
+    fun clear() {
+        items = null
+        cursor = null
+        page = 0
+        videoId = null
+        positionMs = 0L
+    }
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 fun ShortsScreen(
     playbackService: MediaPlaybackService?,
     onOpenChannel: (MediaItemModel) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Space the floating navigation bar takes at the bottom; the video runs underneath it. */
+    bottomInset: Dp = 0.dp
 ) {
     var feed by remember {
         mutableStateOf<FeedState<List<MediaItemModel>>>(
-            YouTubeRepository.cachedShorts()?.let { FeedState.Data(it.items) } ?: FeedState.Loading
+            (ShortsSession.items ?: YouTubeRepository.cachedShorts()?.items)?.let { FeedState.Data(it) } ?: FeedState.Loading
         )
     }
-    var cursor by remember { mutableStateOf(YouTubeRepository.cachedShorts()) }
+    var cursor by remember { mutableStateOf(ShortsSession.cursor ?: YouTubeRepository.cachedShorts()) }
     var loadingMore by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
@@ -111,14 +136,23 @@ fun ShortsScreen(
             onSuccess = {
                 cursor = it
                 feed = FeedState.Data(it.items)
+                ShortsSession.clear()
+                ShortsSession.items = it.items
+                ShortsSession.cursor = it
             },
             onFailure = { feed = FeedState.Error(it.message ?: "Something went wrong") }
         )
     }
 
-    // Leaving the Shorts tab stops whatever short is playing.
+    // Leaving the Shorts tab stops whatever short is playing, remembering how far into it you were.
     DisposableEffect(playbackService) {
-        onDispose { playbackService?.closePlayback() }
+        onDispose {
+            val state = playbackService?.playbackState?.value
+            if (state?.currentItem?.id != null && state.currentItem.id == ShortsSession.videoId) {
+                ShortsSession.positionMs = playbackService.getPlayer().currentPosition
+            }
+            playbackService?.closePlayback()
+        }
     }
 
     // Leaving the app (home, recents, screen off) pauses the short; returning resumes it if it
@@ -168,8 +202,11 @@ fun ShortsScreen(
         scope.launch {
             current.next().onSuccess { next ->
                 val existing = (feed as? FeedState.Data)?.value.orEmpty()
-                feed = FeedState.Data((existing + next.items).distinctBy { it.id })
+                val all = (existing + next.items).distinctBy { it.id }
+                feed = FeedState.Data(all)
                 cursor = next
+                ShortsSession.items = all
+                ShortsSession.cursor = next
             }
             loadingMore = false
         }
@@ -184,7 +221,7 @@ fun ShortsScreen(
                 if (items.isEmpty()) {
                     OriginalError("No Shorts found right now.", onRetry = { reloadKey++ })
                 } else {
-                    ShortsPager(items, playbackService, onOpenChannel, onNearEnd = { loadMore() })
+                    ShortsPager(items, playbackService, onOpenChannel, bottomInset, onNearEnd = { loadMore() })
                 }
             }
         }
@@ -197,18 +234,37 @@ private fun ShortsPager(
     items: List<MediaItemModel>,
     playbackService: MediaPlaybackService?,
     onOpenChannel: (MediaItemModel) -> Unit,
+    bottomInset: Dp,
     onNearEnd: () -> Unit
 ) {
-    val pagerState = rememberPagerState(pageCount = { items.size })
+    val pagerState = rememberPagerState(initialPage = ShortsSession.page.coerceIn(0, (items.size - 1).coerceAtLeast(0)), pageCount = { items.size })
     val playback = playbackService?.playbackState?.collectAsState()?.value
 
-    // Play the page that settled on screen, looping.
+    // Play the page that settled on screen, looping. Coming back to the short you left continues
+    // it where it was.
     LaunchedEffect(pagerState.settledPage, playbackService) {
         val service = playbackService ?: return@LaunchedEffect
         val item = items.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
+        val resumeAt = if (item.id == ShortsSession.videoId) ShortsSession.positionMs else 0L
+        ShortsSession.page = pagerState.settledPage
+        ShortsSession.videoId = item.id
+        ShortsSession.positionMs = 0L
         service.playQueue(listOf(item), 0, startInVideoMode = true)
         service.setLoopOne(true)
         service.setAutoplayQueue(emptyList())
+        if (resumeAt > 1000) {
+            service.playbackState.first { it.currentItem?.id == item.id && !it.isResolving && it.durationMs > 0 }
+            service.getPlayer().seekTo(resumeAt)
+        }
+    }
+    // Load the next few shorts ahead (streams, titles and covers), so swiping doesn't wait.
+    val context = LocalContext.current
+    LaunchedEffect(pagerState.settledPage, items.size) {
+        val ahead = items.drop(pagerState.settledPage + 1).take(PRELOAD_AHEAD)
+        ahead.forEach { next ->
+            YouTubeRepository.prefetchStream(next.sourceUrl.ifBlank { next.watchUrl })
+            coil.Coil.imageLoader(context).enqueue(coil.request.ImageRequest.Builder(context).data(next.artworkUrl).build())
+        }
     }
     LaunchedEffect(pagerState.currentPage) {
         if (pagerState.currentPage >= items.size - 3) onNearEnd()
@@ -225,10 +281,14 @@ private fun ShortsPager(
             playing = isActive && playback?.currentItem?.id == item.id && playback.isPlaying && !playback.isBuffering,
             buffering = isActive && playback?.currentItem?.id == item.id && playback.isBuffering,
             playbackService = playbackService,
-            onOpenChannel = onOpenChannel
+            onOpenChannel = onOpenChannel,
+            bottomInset = bottomInset
         )
     }
 }
+
+/** How many shorts after the one on screen are loaded ahead. */
+private const val PRELOAD_AHEAD = 4
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -239,7 +299,8 @@ private fun ShortPage(
     playing: Boolean,
     buffering: Boolean,
     playbackService: MediaPlaybackService?,
-    onOpenChannel: (MediaItemModel) -> Unit
+    onOpenChannel: (MediaItemModel) -> Unit,
+    bottomInset: Dp
 ) {
     val context = LocalContext.current
     // Shorts from the Shorts player's sequence arrive with only an id; their overlay fills in the rest.
@@ -301,7 +362,7 @@ private fun ShortPage(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(220.dp)
+                .height(220.dp + bottomInset)
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
         )
 
@@ -309,8 +370,7 @@ private fun ShortPage(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(start = 16.dp, end = 8.dp, bottom = 16.dp),
+                .padding(start = 16.dp, end = 8.dp, bottom = 16.dp + bottomInset),
             verticalAlignment = Alignment.Bottom
         ) {
             Column(modifier = Modifier.weight(1f)) {

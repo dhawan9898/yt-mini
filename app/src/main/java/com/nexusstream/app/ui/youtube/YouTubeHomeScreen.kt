@@ -140,7 +140,9 @@ fun YouTubeHomeScreen(
     onClosePlayer: () -> Unit,
     nav: YouTubeNav,
     playbackService: MediaPlaybackService?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** The Premium logo at the top switches to YT Music, as in the YouTube app. */
+    onSwitchApp: () -> Unit = {}
 ) {
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedTab by remember { mutableStateOf(0) }
@@ -248,7 +250,8 @@ fun YouTubeHomeScreen(
             YouTubeHeader(
                 unreadCount = inbox.count { it.publishedAtMs > inboxSeenAt },
                 onNotifications = { nav.open(Route.Notifications) },
-                onSearch = nav.openSearch
+                onSearch = nav.openSearch,
+                onLogo = onSwitchApp
             )
         }
 
@@ -300,7 +303,7 @@ fun YouTubeHomeScreen(
                 1 -> ShortsScreen(
                     playbackService = playbackService,
                     onOpenChannel = { nav.openChannelOf(it) },
-                    modifier = Modifier.padding(bottom = navSpace)
+                    bottomInset = navSpace
                 )
                 2 -> SubscriptionsTab(nav = nav, onSelectVideo = onSelectVideo)
                 3 -> YouTab(nav = nav, onSelectVideo = onSelectVideo)
@@ -416,7 +419,7 @@ private fun personalChannels(): List<String> {
 }
 
 @Composable
-private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearch: () -> Unit) {
+private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearch: () -> Unit, onLogo: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -425,7 +428,13 @@ private fun YouTubeHeader(unreadCount: Int, onNotifications: () -> Unit, onSearc
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClickLabel = "Switch to YouTube Music", onClick = onLogo)
+                .padding(4.dp)
+        ) {
             Box(
                 modifier = Modifier
                     .width(34.dp)
@@ -664,7 +673,6 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
         item(key = "row_watch_later") { LibraryRow(Icons.Outlined.WatchLater, "Watch later", saved.size) { nav.open(Route.WatchLater) } }
         item(key = "row_liked") { LibraryRow(Icons.Outlined.ThumbUp, "Liked videos", liked.size) { nav.open(Route.Liked) } }
         if (com.nexusstream.app.data.GoogleAccount.isSignedIn()) {
-            item(key = "row_upload") { LibraryRow(Icons.Outlined.FileUpload, "Upload a video", null) { nav.open(Route.Upload) } }
             item(key = "row_clips") {
                 LibraryRow(Icons.Outlined.ContentCut, "Your clips", null) {
                     nav.open(Route.AccountFeed("FEclips", "Your clips", "Clips you make on YouTube show up here."))
