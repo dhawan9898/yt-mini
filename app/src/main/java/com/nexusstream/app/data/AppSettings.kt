@@ -39,9 +39,13 @@ object AppSettings {
     private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
-    /** Preferred video height (e.g. 720); 0 = automatic (up to 720p). */
+    /** Highest video quality on Wi-Fi (e.g. 1080); 0 = Auto (adapts to the connection). */
     private val _defaultVideoHeight = MutableStateFlow(0)
     val defaultVideoHeight: StateFlow<Int> = _defaultVideoHeight.asStateFlow()
+
+    /** Highest video quality on mobile data; 0 = Auto. */
+    private val _mobileVideoHeight = MutableStateFlow(0)
+    val mobileVideoHeight: StateFlow<Int> = _mobileVideoHeight.asStateFlow()
 
     /** Caps video at 480p and audio at 96 kbps. */
     private val _dataSaver = MutableStateFlow(false)
@@ -78,6 +82,7 @@ object AppSettings {
         _themeMode.value = runCatching { ThemeMode.valueOf(p.getString("theme", "SYSTEM") ?: "SYSTEM") }
             .getOrDefault(ThemeMode.SYSTEM)
         _defaultVideoHeight.value = p.getInt("default_height", 0)
+        _mobileVideoHeight.value = p.getInt("mobile_height", 0)
         _dataSaver.value = p.getBoolean("data_saver", false)
         _autoplay.value = p.getBoolean("autoplay", true)
         _captionsByDefault.value = p.getBoolean("captions_default", false)
@@ -96,6 +101,11 @@ object AppSettings {
     fun setDefaultVideoHeight(height: Int) {
         _defaultVideoHeight.value = height
         prefs?.edit()?.putInt("default_height", height)?.apply()
+    }
+
+    fun setMobileVideoHeight(height: Int) {
+        _mobileVideoHeight.value = height
+        prefs?.edit()?.putInt("mobile_height", height)?.apply()
     }
 
     fun setDataSaver(enabled: Boolean) {
@@ -142,6 +152,7 @@ object AppSettings {
     fun exportJson(): org.json.JSONObject = org.json.JSONObject()
         .put("theme", _themeMode.value.name)
         .put("defaultHeight", _defaultVideoHeight.value)
+        .put("mobileHeight", _mobileVideoHeight.value)
         .put("dataSaver", _dataSaver.value)
         .put("autoplay", _autoplay.value)
         .put("captions", _captionsByDefault.value)
@@ -155,6 +166,7 @@ object AppSettings {
     fun importJson(json: org.json.JSONObject) {
         runCatching { ThemeMode.valueOf(json.optString("theme")) }.getOrNull()?.let { setThemeMode(it) }
         if (json.has("defaultHeight")) setDefaultVideoHeight(json.optInt("defaultHeight"))
+        if (json.has("mobileHeight")) setMobileVideoHeight(json.optInt("mobileHeight"))
         if (json.has("dataSaver")) setDataSaver(json.optBoolean("dataSaver"))
         if (json.has("autoplay")) setAutoplay(json.optBoolean("autoplay"))
         if (json.has("captions")) setCaptionsByDefault(json.optBoolean("captions"))

@@ -26,6 +26,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.dash.manifest.DashManifestParser
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
@@ -35,6 +37,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.nexusstream.app.data.AppSettings
 import com.nexusstream.app.data.AudioTrack
+import com.nexusstream.app.data.InnerTube
 import com.nexusstream.app.data.ResolvedStream
 import com.nexusstream.app.data.SubtitleOption
 import com.nexusstream.app.data.YouTubeRepository
@@ -117,6 +120,13 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
     private var subtitleChosenByUser = false
     /** True once playback switched to the single combined stream because the merged ones failed. */
     private var usingMuxedFallback = false
+    /** The current item plays from a generated DASH manifest (quality adapts to the network). */
+    private var dashActive = false
+    /** DASH failed for the current item: play the separate streams merged instead. */
+    private var dashDisabled = false
+    /** The current video's loudness relative to YouTube's target (dB), for Stable volume. */
+    private var currentLoudnessDb: Double? = null
+    private var loudnessJob: Job? = null
     private var sleepJob: Job? = null
     /** Related videos to continue with when the queue runs out (set by the watch page). */
     private var autoplayQueue: List<MediaItemModel> = emptyList()
@@ -178,9 +188,6 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         AppSettings.init(this)
         // Settings -> defaults for playback (changes apply to the next video, not the current one).
         serviceScope.launch {
-            AppSettings.defaultVideoHeight.collect { preferredVideoHeight = it.takeIf { h -> h > 0 } }
-        }
-        serviceScope.launch {
             AppSettings.autoplay.collect { enabled ->
                 _playbackState.value = _playbackState.value.copy(autoplayNext = enabled)
             }
@@ -199,19 +206,36 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         startPositionTrackingLoop()
     }
 
+    /**
+     * Stable volume: brings the video to YouTube's playback level using its measured loudness.
+     * Loud videos are turned down with the player volume; quiet ones are boosted (at most 6 dB)
+     * with a LoudnessEnhancer. Unknown loudness leaves the level as it is.
+     */
     private fun updateStableVolume(enabled: Boolean) {
         if (!::exoPlayer.isInitialized) return
+        val gainDb = if (enabled) currentLoudnessDb?.let { (-it).coerceIn(-12.0, 6.0) } ?: 0.0 else 0.0
+        exoPlayer.volume = if (gainDb < 0) Math.pow(10.0, gainDb / 20).toFloat() else 1f
         val sessionId = exoPlayer.audioSessionId
         if (sessionId == C.AUDIO_SESSION_ID_UNSET) return
         try {
             if (loudnessEnhancer == null) {
                 loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId)
             }
-            loudnessEnhancer?.setTargetGain(if (enabled) 600 else 0) // +6 dB normalization
-            loudnessEnhancer?.enabled = enabled
+            val boost = gainDb > 0.05
+            loudnessEnhancer?.setTargetGain(if (boost) (gainDb * 100).toInt() else 0)
+            loudnessEnhancer?.enabled = boost
         } catch (e: Exception) {
             Log.w(TAG, "LoudnessEnhancer could not be configured: ${e.message}")
         }
+    }
+
+    /** Video quality cap when the user hasn't picked one: the Wi-Fi or mobile-data setting. */
+    private fun networkDefaultHeight(): Int? {
+        val metered = runCatching {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).isActiveNetworkMetered
+        }.getOrDefault(false)
+        val height = if (metered) AppSettings.mobileVideoHeight.value else AppSettings.defaultVideoHeight.value
+        return height.takeIf { it > 0 }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -373,7 +397,22 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         if (!isRetry) {
             retryCount = 0
             usingMuxedFallback = false
+            dashDisabled = false
+            currentLoudnessDb = null
+            loudnessJob?.cancel()
+            if (item.sourceUrl.isNotEmpty()) {
+                loudnessJob = serviceScope.launch {
+                    val db = kotlinx.coroutines.withContext(Dispatchers.IO) { InnerTube.loudnessDb(item.id) }
+                    if (_playbackState.value.currentItem?.id == item.id) {
+                        currentLoudnessDb = db
+                        updateStableVolume(AppSettings.stableVolume.value)
+                    }
+                }
+            } else {
+                updateStableVolume(AppSettings.stableVolume.value)
+            }
         }
+        dashActive = false
         currentMode = if (startInVideoMode) PlaybackMode.VIDEO else PlaybackMode.AUDIO_ONLY
         applyPlaybackModeTracks(currentMode)
 
@@ -465,21 +504,12 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
 
         // Data saver caps video at 480p and audio at 96 kbps unless the user pinned a lower quality.
         val saver = AppSettings.dataSaver.value
-        val heightCap = if (saver) minOf(preferredVideoHeight ?: 480, 480) else preferredVideoHeight
+        val wanted = preferredVideoHeight ?: networkDefaultHeight()
+        val heightCap = if (saver) minOf(wanted ?: 480, 480) else wanted
         val audioCap = if (saver && preferredAudioKbps == null) 96 else preferredAudioKbps
         val audio = resolved.pickAudio(audioCap, preferredAudioTrackId) ?: return
         val video = resolved.pickVideo(heightCap)
 
-        val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
-        val audioSource = factory.createMediaSource(
-            MediaItem.Builder()
-                .setMediaId(item.id)
-                .setUri(audio.url)
-                .setMediaMetadata(metadata)
-                .build()
-        )
-        // Always merge video when available; the video renderer stays disabled (and
-        // downloads nothing) in audio-only mode, so toggling modes is instant.
         val subtitleTag = if (subtitleChosenByUser) preferredSubtitleTag else defaultSubtitleTag(resolved)
         val subtitle = subtitleTag?.let { tag -> resolved.subtitles.firstOrNull { it.languageTag == tag } }
         val subtitleSource = subtitle?.let { sub ->
@@ -491,6 +521,52 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
             SingleSampleMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
                 .createMediaSource(config, C.TIME_UNSET)
         }
+
+        // Adaptive playback: every video quality in one DASH manifest, switched with the network.
+        val dashAudio = resolved.dashAudio.filter { it.audioTrackId == audio.trackId }.ifEmpty { resolved.dashAudio }
+        val dashSource = if (!dashDisabled && !usingMuxedFallback && dashAudio.isNotEmpty()) {
+            runCatching {
+                val xml = DashManifest.build(resolved.dashVideo, dashAudio, resolved.durationSec)
+                val manifest = DashManifestParser().parse(Uri.parse(item.sourceUrl), xml.byteInputStream())
+                DashMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory())
+                    .createMediaSource(manifest, MediaItem.Builder().setMediaId(item.id).setMediaMetadata(metadata).build())
+            }.onFailure { Log.w(TAG, "DASH manifest failed: ${it.message}") }.getOrNull()
+        }  else null
+        if (dashSource != null) {
+            dashActive = true
+            applyDashConstraints(resolved, heightCap, audioCap)
+            val source: MediaSource = if (subtitleSource != null) MergingMediaSource(dashSource, subtitleSource) else dashSource
+            exoPlayer.setMediaSource(source, positionMs)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = playWhenReady
+            val heights = resolved.dashVideo.map { it.qualityHeight }.distinct().sortedDescending()
+            _playbackState.value = _playbackState.value.copy(
+                availableVideoHeights = heights,
+                availableAudioKbps = resolved.kbpsFor(audio.trackId),
+                availableAudioTracks = resolved.audioTracks,
+                selectedAudioTrackId = audio.trackId,
+                availableSubtitles = resolved.subtitles,
+                selectedSubtitleTag = subtitle?.languageTag,
+                selectedVideoHeight = preferredVideoHeight,
+                selectedAudioKbps = preferredAudioKbps ?: audio.kbps,
+                videoQualityAuto = preferredVideoHeight == null,
+                audioQualityAuto = preferredAudioKbps == null
+            )
+            return
+        }
+        dashActive = false
+        clearDashConstraints()
+
+        val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory())
+        val audioSource = factory.createMediaSource(
+            MediaItem.Builder()
+                .setMediaId(item.id)
+                .setUri(audio.url)
+                .setMediaMetadata(metadata)
+                .build()
+        )
+        // Always merge video when available; the video renderer stays disabled (and
+        // downloads nothing) in audio-only mode, so toggling modes is instant.
         val sources = listOfNotNull(
             video?.let { factory.createMediaSource(MediaItem.fromUri(it.url)) },
             audioSource,
@@ -524,15 +600,82 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
         return (matching.firstOrNull { !it.autoGenerated } ?: matching.firstOrNull())?.languageTag
     }
 
-    /** Pins the video quality (null = auto, capped at 720p). Keeps position and play state. */
+    /**
+     * DASH quality limits as track-selection constraints, so a change applies without reloading:
+     * a pinned height allows only that quality; Auto adapts up to [heightCap] (none = no cap).
+     * Heights are the shorter side, so vertical videos are capped by their width.
+     */
+    private fun applyDashConstraints(resolved: ResolvedStream, heightCap: Int?, audioKbpsCap: Int?) {
+        val portrait = resolved.dashVideo.any { it.width in 1 until it.height }
+        val pinned = preferredVideoHeight
+        val builder = exoPlayer.trackSelectionParameters.buildUpon()
+            .clearVideoSizeConstraints()
+            .setMinVideoSize(0, 0)
+        val cap = pinned ?: heightCap
+        if (cap != null) {
+            if (portrait) builder.setMaxVideoSize(cap, Int.MAX_VALUE) else builder.setMaxVideoSize(Int.MAX_VALUE, cap)
+        }
+        if (pinned != null) {
+            if (portrait) builder.setMinVideoSize(pinned, 0) else builder.setMinVideoSize(0, pinned)
+        }
+        builder.setMaxAudioBitrate(audioKbpsCap?.let { it * 1000 + 999 } ?: Int.MAX_VALUE)
+        exoPlayer.trackSelectionParameters = builder.build()
+    }
+
+    private fun clearDashConstraints() {
+        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
+            .clearVideoSizeConstraints()
+            .setMinVideoSize(0, 0)
+            .setMaxAudioBitrate(Int.MAX_VALUE)
+            .build()
+    }
+
+    /** Shows the quality DASH is actually playing while on Auto. */
+    override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+        if (!dashActive) return
+        val playing = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }?.let { group ->
+            (0 until group.length).firstOrNull { group.isTrackSelected(it) }?.let { group.getTrackFormat(it) }
+        }
+        if (playing != null && preferredVideoHeight == null) {
+            val h = if (playing.width > 0 && playing.height > 0) minOf(playing.width, playing.height) else playing.height
+            _playbackState.value = _playbackState.value.copy(selectedVideoHeight = h)
+        }
+    }
+
+    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+        if (!dashActive || preferredVideoHeight != null || videoSize.height <= 0) return
+        val h = if (videoSize.width > 0) minOf(videoSize.width, videoSize.height) else videoSize.height
+        _playbackState.value = _playbackState.value.copy(selectedVideoHeight = h)
+    }
+
+    /** Pins the video quality (null = Auto, which adapts to the network). Keeps position and play state. */
     fun setVideoQuality(height: Int?) {
         preferredVideoHeight = height
+        val resolved = currentResolved
+        if (dashActive && resolved != null) {
+            val saver = AppSettings.dataSaver.value
+            val wanted = height ?: networkDefaultHeight()
+            applyDashConstraints(resolved, if (saver) minOf(wanted ?: 480, 480) else wanted, if (saver && preferredAudioKbps == null) 96 else preferredAudioKbps)
+            _playbackState.value = _playbackState.value.copy(videoQualityAuto = height == null, selectedVideoHeight = height ?: _playbackState.value.selectedVideoHeight)
+            return
+        }
         reapplyQuality()
     }
 
     /** Pins the audio quality (null = best available). Keeps position and play state. */
     fun setAudioQuality(kbps: Int?) {
         preferredAudioKbps = kbps
+        val resolved = currentResolved
+        if (dashActive && resolved != null) {
+            val saver = AppSettings.dataSaver.value
+            val wanted = preferredVideoHeight ?: networkDefaultHeight()
+            applyDashConstraints(resolved, if (saver) minOf(wanted ?: 480, 480) else wanted, if (saver && kbps == null) 96 else kbps)
+            _playbackState.value = _playbackState.value.copy(
+                audioQualityAuto = kbps == null,
+                selectedAudioKbps = kbps ?: resolved.kbpsFor(_playbackState.value.selectedAudioTrackId).firstOrNull()
+            )
+            return
+        }
         reapplyQuality()
     }
 
@@ -880,6 +1023,21 @@ class MediaPlaybackService : MediaSessionService(), Player.Listener {
                 exoPlayer.play()
             }
             return
+        }
+
+        // The DASH manifest will not play on this device / video: retry with the merged streams.
+        if (dashActive && !dashDisabled) {
+            Log.w(TAG, "DASH playback failed (${error.errorCodeName}); using the merged streams.")
+            dashDisabled = true
+            dashActive = false
+            val current = _playbackState.value.currentItem
+            val resolved = currentResolved
+            if (current != null && resolved != null) {
+                val metadata = MediaMetadata.Builder().setTitle(current.title).setArtist(current.artistOrChannel)
+                    .setDisplayTitle(current.title).build()
+                applyResolved(current, resolved, metadata, exoPlayer.currentPosition, playWhenReady = true)
+                return
+            }
         }
 
         // The merged video + audio streams will not play: fall back to one combined file (usually 360p).

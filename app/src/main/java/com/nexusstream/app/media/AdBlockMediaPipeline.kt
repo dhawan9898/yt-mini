@@ -11,6 +11,11 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.database.StandaloneDatabaseProvider
+import java.io.File
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import com.nexusstream.app.data.NewPipeDownloader
@@ -160,6 +165,18 @@ class AdBlockMediaPipeline(
     }
 
     /**
+     * [createDataSourceFactory] behind the playback cache: recently played video and audio replay
+     * from disk instead of streaming again. Stream URLs change every time they are fetched, so
+     * entries are keyed by the video id, format (itag) and encoding time in the URL.
+     */
+    fun createStreamingDataSourceFactory(): DataSource.Factory =
+        CacheDataSource.Factory()
+            .setCache(PlaybackCache.get(context))
+            .setUpstreamDataSourceFactory(createDataSourceFactory())
+            .setCacheKeyFactory { spec -> PlaybackCache.keyFor(spec.uri) }
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+    /**
      * Builds a MediaSourceFactory with the injected Ad-Block pipeline.
      */
     fun createMediaSourceFactory(): MediaSource.Factory {
@@ -171,3 +188,34 @@ class AdBlockMediaPipeline(
  * Exception raised when an ad request is blocked by the interceptor.
  */
 class AdBlockedException(message: String) : IOException(message)
+
+/** One on-disk cache for the whole process (a cache directory can only be opened once). */
+@OptIn(UnstableApi::class)
+object PlaybackCache {
+    private const val MAX_BYTES = 512L * 1024 * 1024
+    @Volatile private var cache: SimpleCache? = null
+
+    fun get(context: Context): SimpleCache = cache ?: synchronized(this) {
+        cache ?: SimpleCache(
+            File(context.applicationContext.cacheDir, "playback"),
+            LeastRecentlyUsedCacheEvictor(MAX_BYTES),
+            StandaloneDatabaseProvider(context.applicationContext)
+        ).also { cache = it }
+    }
+
+    /** "id/itag/lmt" for googlevideo stream URLs (stable across fetches), the URL otherwise. */
+    fun keyFor(uri: Uri): String {
+        if (uri.host?.endsWith("googlevideo.com") != true) return uri.toString()
+        val id = uri.getQueryParameter("id") ?: return uri.toString()
+        val itag = uri.getQueryParameter("itag").orEmpty()
+        val lmt = uri.getQueryParameter("lmt").orEmpty()
+        return "yt:$id:$itag:$lmt"
+    }
+
+    fun sizeBytes(): Long = cache?.cacheSpace ?: 0L
+
+    fun clear() {
+        val c = cache ?: return
+        c.keys.toList().forEach { runCatching { c.removeResource(it) } }
+    }
+}

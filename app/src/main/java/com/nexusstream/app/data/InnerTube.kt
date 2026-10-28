@@ -72,6 +72,20 @@ object InnerTube {
         return parse(postEndpoint(NEXT_ENDPOINT, extra))
     }
 
+    /**
+     * How loud a video is relative to YouTube's playback target, in dB (positive = louder), from
+     * the player response. Stable volume uses it to bring every video to the same level.
+     */
+    fun loudnessDb(videoId: String): Double? = runCatching {
+        val res = web("player", JSONObject().put("videoId", videoId))
+        val audio = res.optJSONObject("playerConfig")?.optJSONObject("audioConfig") ?: return null
+        when {
+            audio.has("loudnessDb") -> audio.optDouble("loudnessDb")
+            audio.has("perceptualLoudnessDb") -> audio.optDouble("perceptualLoudnessDb") + 18.0
+            else -> null
+        }?.takeIf { !it.isNaN() }
+    }.getOrNull()
+
     private fun browse(extra: JSONObject): Page = parse(browseRaw(extra))
 
     /** Names of the cookies we hold (never their values), for the self-test report. */

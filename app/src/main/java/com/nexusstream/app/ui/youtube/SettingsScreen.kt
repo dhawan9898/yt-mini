@@ -55,7 +55,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val LinkBlue = Color(0xFF3EA6FF)
-private val QUALITY_OPTIONS = listOf("Auto" to 0, "1080p" to 1080, "720p" to 720, "480p" to 480, "360p" to 360)
+private val QUALITY_OPTIONS = listOf(
+    "Auto" to 0, "2160p" to 2160, "1440p" to 1440, "1080p" to 1080, "720p" to 720, "480p" to 480, "360p" to 360
+)
 
 private fun themeLabel(mode: ThemeMode) = when (mode) {
     ThemeMode.SYSTEM -> "System"
@@ -72,6 +74,8 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     val googleSignedIn by GoogleAccount.signedIn.collectAsState()
     val theme by AppSettings.themeMode.collectAsState()
     val defaultHeight by AppSettings.defaultVideoHeight.collectAsState()
+    val mobileHeight by AppSettings.mobileVideoHeight.collectAsState()
+    val stableVolume by AppSettings.stableVolume.collectAsState()
     val dataSaver by AppSettings.dataSaver.collectAsState()
     val autoplay by AppSettings.autoplay.collectAsState()
     val captions by AppSettings.captionsByDefault.collectAsState()
@@ -141,12 +145,21 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
 
             // ---- Playback ----
             item(key = "h_playback") { SettingsHeader("Playback") }
-            item(key = "quality_label") { SettingsHint("Preferred video quality (never above what the video offers)") }
+            item(key = "quality_label") { SettingsHint("Video quality on Wi-Fi (Auto adapts to the connection; a quality is the most it will use)") }
             item(key = "quality") {
                 OriginalFilterChips(
                     labels = QUALITY_OPTIONS.map { it.first },
                     selected = QUALITY_OPTIONS.firstOrNull { it.second == defaultHeight }?.first ?: "Auto",
                     onSelect = { label -> AppSettings.setDefaultVideoHeight(QUALITY_OPTIONS.first { it.first == label }.second) },
+                    unselectedColor = OriginalColors.Chip
+                )
+            }
+            item(key = "mobile_quality_label") { SettingsHint("Video quality on mobile data") }
+            item(key = "mobile_quality") {
+                OriginalFilterChips(
+                    labels = QUALITY_OPTIONS.map { it.first },
+                    selected = QUALITY_OPTIONS.firstOrNull { it.second == mobileHeight }?.first ?: "Auto",
+                    onSelect = { label -> AppSettings.setMobileVideoHeight(QUALITY_OPTIONS.first { it.first == label }.second) },
                     unselectedColor = OriginalColors.Chip
                 )
             }
@@ -157,6 +170,9 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 SwitchRow("Captions by default", "Show captions in your device language when available", captions) {
                     AppSettings.setCaptionsByDefault(it)
                 }
+            }
+            item(key = "stable_volume") {
+                SwitchRow("Stable volume", "Evens out loudness between videos and songs", stableVolume) { AppSettings.setStableVolume(it) }
             }
             item(key = "saver") {
                 SwitchRow("Data saver", "Limit video to 480p and audio to 96 kbps", dataSaver) { AppSettings.setDataSaver(it) }
@@ -227,6 +243,16 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 ActionRow("Reset hidden videos and channels", "Undo Not interested and Don't recommend channel") {
                     LibraryRepository.resetHidden()
                     Toast.makeText(context, "Hidden items restored", Toast.LENGTH_SHORT).show()
+                }
+            }
+            item(key = "clear_playback_cache") {
+                var cacheBytes by remember { mutableStateOf(com.nexusstream.app.media.PlaybackCache.sizeBytes()) }
+                ActionRow("Clear playback cache", "${formatBytes(cacheBytes)} of recently played video and music") {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { com.nexusstream.app.media.PlaybackCache.clear() }
+                        cacheBytes = com.nexusstream.app.media.PlaybackCache.sizeBytes()
+                        Toast.makeText(context, "Playback cache cleared", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             item(key = "clear_images") {

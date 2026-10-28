@@ -31,7 +31,6 @@ import com.nexusstream.app.data.DownloadOption
 import com.nexusstream.app.data.DownloadRepository
 import com.nexusstream.app.data.DownloadState
 import com.nexusstream.app.data.LibraryRepository
-import com.nexusstream.app.data.ResolvedStream
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.data.watchUrl
 import com.nexusstream.app.media.MediaPlaybackService
@@ -91,7 +90,7 @@ fun PlayerOptionsSheet(
                     item { SectionTitle("Video quality") }
                     item {
                         OptionRow(
-                            label = "Auto (up to ${ResolvedStream.DEFAULT_MAX_HEIGHT}p)",
+                            label = state.selectedVideoHeight?.takeIf { state.videoQualityAuto }?.let { "Auto (${it}p)" } ?: "Auto",
                             selected = state.videoQualityAuto,
                             onClick = { service.setVideoQuality(null) }
                         )

@@ -156,6 +156,31 @@ data class CommentModel(
 data class VideoOption(val height: Int, val url: String)
 
 /**
+ * One video-only or audio-only stream with the byte ranges of its init segment and index
+ * (`sidx` / WebM cues), which is what a DASH manifest needs to play it adaptively.
+ */
+data class DashTrack(
+    val itag: Int,
+    val mimeType: String,
+    val codecs: String,
+    val bitrate: Int,
+    val url: String,
+    val initStart: Int,
+    val initEnd: Int,
+    val indexStart: Int,
+    val indexEnd: Int,
+    val width: Int = 0,
+    val height: Int = 0,
+    val fps: Int = 0,
+    val audioTrackId: String? = null,
+    val language: String = ""
+) {
+    val isAudio: Boolean get() = mimeType.startsWith("audio")
+    /** The "1080p" number: the shorter side, so vertical videos are labelled like YouTube does. */
+    val qualityHeight: Int get() = if (width > 0 && height > 0) minOf(width, height) else height
+}
+
+/**
  * One selectable audio rendition. [trackId] / [trackName] identify the language track
  * (null for single-track videos); [isOriginal] is false for auto-dubbed and descriptive tracks.
  */
@@ -211,7 +236,11 @@ data class ResolvedStream(
     /** Set for live streams: the HLS playlist to play (the option lists are then empty). */
     val hlsUrl: String? = null,
     /** A single combined video + audio file (usually 360p): used when the merged streams will not play. */
-    val muxedUrl: String? = null
+    val muxedUrl: String? = null,
+    /** Streams for adaptive (DASH) playback; empty when YouTube gave no index ranges. */
+    val dashVideo: List<DashTrack> = emptyList(),
+    val dashAudio: List<DashTrack> = emptyList(),
+    val durationSec: Long = 0
 ) {
     /** Highest rendition not above [maxHeight]; null selects the default (720p cap, saves data). */
     fun pickVideo(maxHeight: Int?): VideoOption? {
@@ -789,7 +818,31 @@ object YouTubeRepository {
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
             .maxByOrNull { it.height }
             ?.content
-        ResolvedStream(audioOptions = audio, videoOptions = video, subtitles = subtitleOptions(info), muxedUrl = muxed)
+        val dashVideo = info.videoOnlyStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && hasIndex(it.initEnd, it.indexEnd) }
+            .mapNotNull { v ->
+                DashTrack(
+                    itag = v.itag, mimeType = v.format?.mimeType ?: return@mapNotNull null, codecs = v.codec.orEmpty(),
+                    bitrate = v.bitrate, url = v.content, initStart = v.initStart, initEnd = v.initEnd,
+                    indexStart = v.indexStart, indexEnd = v.indexEnd, width = v.width, height = v.height, fps = v.fps
+                )
+            }
+            .filter { it.codecs.isNotEmpty() && it.height > 0 }
+        val dashAudio = info.audioStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && hasIndex(it.initEnd, it.indexEnd) }
+            .mapNotNull { a ->
+                DashTrack(
+                    itag = a.itag, mimeType = a.format?.mimeType ?: return@mapNotNull null, codecs = a.codec.orEmpty(),
+                    bitrate = a.bitrate.takeIf { it > 0 } ?: (a.averageBitrate * 1000), url = a.content,
+                    initStart = a.initStart, initEnd = a.initEnd, indexStart = a.indexStart, indexEnd = a.indexEnd,
+                    audioTrackId = a.audioTrackId, language = a.audioLocale?.toLanguageTag().orEmpty()
+                )
+            }
+            .filter { it.codecs.isNotEmpty() }
+        ResolvedStream(
+            audioOptions = audio, videoOptions = video, subtitles = subtitleOptions(info), muxedUrl = muxed,
+            dashVideo = dashVideo, dashAudio = dashAudio, durationSec = info.duration
+        )
     }
 
     /**
@@ -1191,6 +1244,8 @@ object YouTubeRepository {
         s.audioTrackName?.takeIf { it.isNotBlank() }
             ?: s.audioLocale?.displayLanguage?.takeIf { it.isNotBlank() }
             ?: "Audio"
+
+    private fun hasIndex(initEnd: Int, indexEnd: Int) = initEnd > 0 && indexEnd > initEnd
 
     private fun audioScore(s: AudioStream): Int {
         // Prefer m4a (broadest codec support), then the highest bitrate.
