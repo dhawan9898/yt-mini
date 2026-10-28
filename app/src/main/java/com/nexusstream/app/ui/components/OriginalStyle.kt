@@ -29,16 +29,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.IconButton
-import kotlin.math.roundToInt
 import kotlin.math.abs
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
