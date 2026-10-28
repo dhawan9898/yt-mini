@@ -47,7 +47,9 @@ private fun speedLabel(speed: Float) = if (speed == 1f) "Normal" else "${speed}x
 /**
  * Everything adjustable for the current item: video and audio quality, audio language, captions,
  * playback speed, sleep timer, loop, autoplay, and download quality.
- * With a null [service] (e.g. opened from a feed menu) only the Download section is shown.
+ * With a null [service] (e.g. opened from a feed menu or a Download button) only the Download
+ * section is shown. The YouTube player hides [showAudioQuality] and [showDownload], like the
+ * original app's settings sheet (download has its own button there).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,7 +58,9 @@ fun PlayerOptionsSheet(
     state: PlaybackState,
     service: MediaPlaybackService?,
     showVideoQuality: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    showAudioQuality: Boolean = true,
+    showDownload: Boolean = true
 ) {
     val context = LocalContext.current
     val downloadStates by DownloadRepository.states.collectAsState()
@@ -65,8 +69,8 @@ fun PlayerOptionsSheet(
     val downloadState = downloadStates[item.id]
 
     // Offline copies have no stream to resolve, so there is nothing to list for them.
-    val downloadOptions by produceState<FeedState<List<DownloadOption>>>(FeedState.Loading, item.id) {
-        value = if (item.sourceUrl.isEmpty() && isDownloaded) {
+    val downloadOptions by produceState<FeedState<List<DownloadOption>>>(FeedState.Loading, item.id, showDownload) {
+        value = if (!showDownload || (item.sourceUrl.isEmpty() && isDownloaded)) {
             FeedState.Data(emptyList())
         } else {
             YouTubeRepository.downloadOptions(item.watchUrl).toFeedState()
@@ -120,7 +124,7 @@ fun PlayerOptionsSheet(
                     }
                 }
 
-                if (state.availableAudioKbps.isNotEmpty()) {
+                if (showAudioQuality && state.availableAudioKbps.isNotEmpty()) {
                     item { SectionTitle("Audio quality") }
                     item {
                         OptionRow(
@@ -138,7 +142,7 @@ fun PlayerOptionsSheet(
                             )
                         }
                     }
-                } else if (state.isResolving) {
+                } else if (state.isResolving && state.availableVideoHeights.isEmpty()) {
                     item { SectionTitle("Quality") }
                     item { Hint("Loading available qualities...") }
                 }
@@ -217,8 +221,8 @@ fun PlayerOptionsSheet(
                 }
             }
 
-            item { SectionTitle("Download") }
-            when {
+            if (showDownload) item { SectionTitle("Download") }
+            if (showDownload) when {
                 isDownloaded -> item {
                     OptionRow(
                         label = "Downloaded - tap to remove",

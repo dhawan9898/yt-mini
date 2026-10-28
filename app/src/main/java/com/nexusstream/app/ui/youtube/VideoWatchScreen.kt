@@ -210,6 +210,7 @@ fun VideoWatchScreen(
 
     var isFullscreen by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
+    var showDownloadSheet by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
     val inPip by PipController.isInPip.collectAsState()
 
@@ -489,7 +490,7 @@ fun VideoWatchScreen(
                         Icon(Icons.Outlined.Share, "Share", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
                     }
                     IconButton(onClick = {
-                        if (downloadState !is DownloadState.Downloading) showOptions = true
+                        if (downloadState !is DownloadState.Downloading) showDownloadSheet = true
                     }) {
                         when {
                             downloadState is DownloadState.Downloading -> CircularProgressIndicator(
@@ -629,7 +630,20 @@ fun VideoWatchScreen(
             state = playbackState,
             service = playbackService,
             showVideoQuality = true,
-            onDismiss = { showOptions = false }
+            onDismiss = { showOptions = false },
+            showAudioQuality = false,
+            showDownload = false
+        )
+    }
+
+    if (showDownloadSheet) {
+        // The Download button opens only the download choices, not the player settings.
+        PlayerOptionsSheet(
+            item = mediaItem,
+            state = playbackState,
+            service = null,
+            showVideoQuality = false,
+            onDismiss = { showDownloadSheet = false }
         )
     }
 
