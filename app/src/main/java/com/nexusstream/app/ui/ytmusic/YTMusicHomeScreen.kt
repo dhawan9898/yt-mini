@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.ytmusic
 
+import androidx.compose.animation.core.tween
+import com.nexusstream.app.ui.theme.ThemeState
 import com.nexusstream.app.ui.theme.GlassMotion
 import com.nexusstream.app.ui.theme.GlassWeight
 import com.nexusstream.app.ui.theme.LocalChromePadding
@@ -131,7 +133,9 @@ fun YTMusicHomeScreen(
     nav: YouTubeNav,
     modifier: Modifier = Modifier,
     /** The Music logo at the top switches back to YouTube. */
-    onSwitchApp: () -> Unit = {}
+    onSwitchApp: () -> Unit = {},
+    /** The player sheet covers this screen: no mini player of its own until it is minimised. */
+    playerOpen: Boolean = false
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -206,11 +210,24 @@ fun YTMusicHomeScreen(
             .weight(1f)
             .fillMaxHeight()
     ) {
+        // YT Music's ambient glow at the top of the page, tinted by what is playing. It sits
+        // under the glass header, which picks it up as a soft wash of colour.
+        val ambientTarget = currentPlayingItem?.dominantColor
+            ?.takeIf { it != Color.Unspecified && it.alpha > 0f }
+            ?: Color(0xFF5B6B8C)
+        val ambient by androidx.compose.animation.animateColorAsState(ambientTarget, tween(900), label = "MusicAmbient")
+        val ambientAlpha = if (ThemeState.palette.isDark) 0.42f else 0.22f
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .glassBackdrop(backdrop)
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(360.dp)
+                    .background(Brush.verticalGradient(listOf(ambient.copy(alpha = ambientAlpha), Color.Transparent)))
+            )
             CompositionLocalProvider(LocalChromePadding provides PaddingValues(top = headerHeight, bottom = bottomSpace)) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (isSearchActive && searchQuery.isNotBlank()) {
@@ -351,7 +368,7 @@ fun YTMusicHomeScreen(
         // Bottom overlay: the mini player and the navigation bar float over the shelves.
         Column(modifier = Modifier.align(Alignment.BottomCenter)) {
             AnimatedVisibility(
-                visible = currentPlayingItem != null,
+                visible = currentPlayingItem != null && !playerOpen,
                 enter = slideInVertically(GlassMotion.smooth()) { it / 2 } + fadeIn(GlassMotion.smooth()),
                 exit = slideOutVertically(GlassMotion.smooth()) { it / 2 } + fadeOut(GlassMotion.smooth())
             ) {

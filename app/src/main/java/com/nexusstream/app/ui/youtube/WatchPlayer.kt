@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.components.rememberSmoothPosition
 import com.nexusstream.app.ui.theme.frostedGlass
 import android.content.Context
 import android.content.ContextWrapper
@@ -154,7 +155,12 @@ fun WatchPlayerViewport(
     /** End screen tiles and info cards of this video. */
     extras: InnerTube.PlayerExtras? = null,
     onOpenEndScreen: (WatchExtras.EndScreenElement) -> Unit = {},
-    onOpenCard: (WatchExtras.InfoCard) -> Unit = {}
+    onOpenCard: (WatchExtras.InfoCard) -> Unit = {},
+    /**
+     * Follows a vertical swipe live: the distance dragged so far (px, down is positive), then once
+     * more with released = true when the finger lifts, so the caller can move the page with it.
+     */
+    onSwipeDrag: ((total: Float, released: Boolean) -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
     val ambientMode by AppSettings.ambientMode.collectAsState()
@@ -173,6 +179,7 @@ fun WatchPlayerViewport(
     var fillScreen by remember { mutableStateOf(false) }
     val currentSwipeUp by rememberUpdatedState(onSwipeUp)
     val currentSwipeDown by rememberUpdatedState(onSwipeDown)
+    val currentSwipeDrag by rememberUpdatedState(onSwipeDrag)
 
     // Ambient mode samples the picture itself every couple of seconds, like YouTube's glow.
     val sampled by FrameGrabber.ambient.collectAsState()
@@ -321,8 +328,12 @@ fun WatchPlayerViewport(
                         val threshold = 60.dp.toPx()
                         detectVerticalSwipeAndPinch(
                             onDragStart = { total = 0f },
-                            onDrag = { dy -> total += dy },
+                            onDrag = { dy ->
+                                total += dy
+                                currentSwipeDrag?.invoke(total, false)
+                            },
                             onDragEnd = {
+                                currentSwipeDrag?.invoke(total, true)
                                 if (total < -threshold) currentSwipeUp() else if (total > threshold) currentSwipeDown()
                             },
                             onPinch = { zoom ->
@@ -662,8 +673,10 @@ private fun WatchControls(
             if (dragFraction != null && heatmap.isNotEmpty()) {
                 HeatmapGraph(heatmap, state.durationMs, Modifier.fillMaxWidth().height(28.dp))
             }
+            // Glides between the player's position updates; the scrubbed spot while dragging.
+            val smoothPosition = rememberSmoothPosition(state.currentPositionMs, state.isPlaying && !state.isBuffering && dragFraction == null)
             YouTubeSeekBar(
-                fraction = fraction,
+                fraction = { dragFraction ?: (smoothPosition.value.toFloat() / duration).coerceIn(0f, 1f) },
                 chapterStarts = remember(chapters, duration) {
                     chapters.map { it.startMs.toFloat() / duration }.filter { it > 0f && it < 1f }
                 },
@@ -757,7 +770,8 @@ fun FullscreenWatchLayout(
     chapters: List<Chapter> = emptyList(),
     extras: InnerTube.PlayerExtras? = null,
     onOpenEndScreen: (WatchExtras.EndScreenElement) -> Unit = {},
-    onOpenCard: (WatchExtras.InfoCard) -> Unit = {}
+    onOpenCard: (WatchExtras.InfoCard) -> Unit = {},
+    onSwipeDrag: ((total: Float, released: Boolean) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val liked by LibraryRepository.liked.collectAsState()
@@ -786,6 +800,7 @@ fun FullscreenWatchLayout(
             extras = extras,
             onOpenEndScreen = onOpenEndScreen,
             onOpenCard = onOpenCard,
+            onSwipeDrag = onSwipeDrag,
             bottomBar = {
                 Row(
                     modifier = Modifier
@@ -874,7 +889,7 @@ private fun PlayerCircleButton(size: androidx.compose.ui.unit.Dp, onClick: () ->
 /** YouTube's seek bar: thin track, grey buffered part, red progress and a dot that grows on touch. */
 @Composable
 private fun YouTubeSeekBar(
-    fraction: Float,
+    fraction: () -> Float,
     bufferedFraction: Float,
     onScrub: (Float) -> Unit,
     onScrubEnd: () -> Unit,
@@ -891,6 +906,12 @@ private fun YouTubeSeekBar(
         targetValue = if (scrubbing) 16.dp else 12.dp,
         animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
         label = "thumb"
+    )
+    // The track swells under the finger with a spring.
+    val track by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (scrubbing) 6.dp else 3.dp,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 520f),
+        label = "track"
     )
     androidx.compose.foundation.Canvas(
         modifier = modifier
@@ -924,7 +945,8 @@ private fun YouTubeSeekBar(
             }
     ) {
         val cy = size.height / 2f
-        val trackHeight = (if (scrubbing) 4.dp else 3.dp).toPx()
+        val trackHeight = track.toPx()
+        val played = fraction()
         val radius = androidx.compose.ui.geometry.CornerRadius(trackHeight / 2f)
         val top = androidx.compose.ui.geometry.Offset(0f, cy - trackHeight / 2f)
         // Each layer (track, buffered, played) is drawn segment by segment, leaving a gap at every chapter start.
@@ -946,8 +968,8 @@ private fun YouTubeSeekBar(
         }
         layer(Color.White.copy(alpha = 0.3f), 1f)
         layer(Color.White.copy(alpha = 0.5f), bufferedFraction)
-        layer(OriginalColors.Red, fraction)
-        drawCircle(OriginalColors.Red, thumb.toPx() / 2f, androidx.compose.ui.geometry.Offset(size.width * fraction, cy))
+        layer(OriginalColors.Red, played)
+        drawCircle(OriginalColors.Red, thumb.toPx() / 2f, androidx.compose.ui.geometry.Offset(size.width * played, cy))
     }
 }
 

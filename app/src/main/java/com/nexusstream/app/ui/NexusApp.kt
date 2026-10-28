@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -313,8 +314,10 @@ fun NexusApp() {
         currentScreen = if (playbackState?.playbackMode == PlaybackMode.VIDEO) AppScreen.WATCH else AppScreen.PLAYER
     }
 
+    val playerOpen = currentScreen != AppScreen.HOME
     val miniPlayer = MiniPlayerHooks(
-        item = currentItem,
+        // Hidden while the player sheet covers the pages; it slides back in on minimise.
+        item = currentItem.takeIf { !playerOpen },
         isPlaying = playbackState?.isPlaying == true,
         onExpand = expandPlayer,
         onTogglePlay = { activeService?.togglePlayPause() },
@@ -379,53 +382,19 @@ fun NexusApp() {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Screen Switcher
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    // Home stays composed under the pages and the player, so scroll positions,
+                    // tabs and loaded feeds are still there when the player is minimised.
                     AnimatedContent(
-                        targetState = Pair(currentMode, currentScreen),
+                        targetState = currentMode,
                         transitionSpec = {
-                            val from = initialState.second
-                            val to = targetState.second
-                            when {
-                                // The player rises from the mini player like an iOS sheet...
-                                from == AppScreen.HOME && to != AppScreen.HOME ->
-                                    (slideInVertically(GlassMotion.smooth()) { it / 3 } + fadeIn(tween(200)) + scaleIn(GlassMotion.smooth(), initialScale = 0.96f)) togetherWith
-                                        (fadeOut(tween(220)) + scaleOut(GlassMotion.smooth(), targetScale = 0.97f))
-                                // ...and sinks back into it.
-                                from != AppScreen.HOME && to == AppScreen.HOME ->
-                                    (fadeIn(tween(240)) + scaleIn(GlassMotion.smooth(), initialScale = 0.97f)) togetherWith
-                                        (slideOutVertically(GlassMotion.smooth()) { it / 3 } + fadeOut(tween(180)))
-                                // YouTube <-> YT Music: a soft cross-dissolve with a little depth.
-                                else -> (fadeIn(tween(260)) + scaleIn(GlassMotion.smooth(), initialScale = 0.985f)) togetherWith
-                                    fadeOut(tween(180))
-                            }
+                            // YouTube <-> YT Music: a soft cross-dissolve with a little depth.
+                            (fadeIn(tween(260)) + scaleIn(GlassMotion.smooth(), initialScale = 0.985f)) togetherWith
+                                fadeOut(tween(180))
                         },
-                        label = "AppScreenMorph"
-                    ) { (mode, screen) ->
-                        when {
-                            screen == AppScreen.WATCH -> {
-                                if (activeService != null) {
-                                    VideoWatchScreen(
-                                        playbackService = activeService,
-                                        onCollapse = { currentScreen = AppScreen.HOME },
-                                        onSelectVideo = { item ->
-                                            activeService.playMediaItem(item, startInVideoMode = true)
-                                        },
-                                        onOpenChannel = { item -> nav.openChannelOf(item) },
-                                        onClose = closePlayer
-                                    )
-                                }
-                            }
-                            screen == AppScreen.PLAYER -> {
-                                if (activeService != null) {
-                                    MusicPlayerScreen(
-                                        playbackService = activeService,
-                                        onCollapse = { currentScreen = AppScreen.HOME },
-                                        onOpenPlaylist = nav.openMusicPlaylist,
-                                        onOpenArtist = nav.openMusicChannel
-                                    )
-                                }
-                            }
-                            mode == AppMode.YOUTUBE_VIDEO -> {
-                                // Home stays composed underneath the pages so its tab and scroll state survive.
+                        label = "AppModeMorph"
+                    ) { mode ->
+                        when (mode) {
+                            AppMode.YOUTUBE_VIDEO -> {
                                 YouTubeHomeScreen(
                                     currentPlayingItem = currentItem,
                                     isPlaying = playbackState?.isPlaying == true,
@@ -435,10 +404,11 @@ fun NexusApp() {
                                     onClosePlayer = closePlayer,
                                     nav = nav,
                                     playbackService = activeService,
-                                    onSwitchApp = { currentMode = AppMode.YT_MUSIC }
+                                    onSwitchApp = { currentMode = AppMode.YT_MUSIC },
+                                    playerOpen = playerOpen
                                 )
                             }
-                            mode == AppMode.YT_MUSIC -> {
+                            AppMode.YT_MUSIC -> {
                                 YTMusicHomeScreen(
                                     currentPlayingItem = currentItem,
                                     isPlaying = playbackState?.isPlaying == true,
@@ -451,14 +421,15 @@ fun NexusApp() {
                                     onTogglePlayPause = { activeService?.togglePlayPause() },
                                     onClosePlayer = closePlayer,
                                     nav = nav,
-                                    onSwitchApp = { currentMode = AppMode.YOUTUBE_VIDEO }
+                                    onSwitchApp = { currentMode = AppMode.YOUTUBE_VIDEO },
+                                    playerOpen = playerOpen
                                 )
                             }
                         }
                     }
 
                     // Pages (search, channel, album...) stack above either home screen.
-                    if (currentScreen == AppScreen.HOME) {
+                    run {
                         backStack.forEachIndexed { index, route ->
                             key(index, route) {
                                 PageTransition(
@@ -496,6 +467,47 @@ fun NexusApp() {
                                             else -> Unit
                                         }
                                     }
+                                }
+                                }
+                            }
+                        }
+                    }
+
+                    // The player is a sheet over everything: it rises from the mini player with a
+                    // spring and sinks back into it, following the finger when dragged down.
+                    var lastPlayerScreen by remember { mutableStateOf(AppScreen.WATCH) }
+                    if (currentScreen != AppScreen.HOME) lastPlayerScreen = currentScreen
+                    AnimatedVisibility(
+                        visible = currentScreen != AppScreen.HOME && activeService != null,
+                        enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 360f)) { it } +
+                            fadeIn(tween(160)),
+                        exit = slideOutVertically(spring(dampingRatio = 1f, stiffness = 420f)) { it } +
+                            fadeOut(tween(240, delayMillis = 120)),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (activeService != null) {
+                            when (lastPlayerScreen) {
+                                AppScreen.PLAYER -> {
+                                if (activeService != null) {
+                                    MusicPlayerScreen(
+                                        playbackService = activeService,
+                                        onCollapse = { currentScreen = AppScreen.HOME },
+                                        onOpenPlaylist = nav.openMusicPlaylist,
+                                        onOpenArtist = nav.openMusicChannel
+                                    )
+                                }
+                                }
+                                else -> {
+                                if (activeService != null) {
+                                    VideoWatchScreen(
+                                        playbackService = activeService,
+                                        onCollapse = { currentScreen = AppScreen.HOME },
+                                        onSelectVideo = { item ->
+                                            activeService.playMediaItem(item, startInVideoMode = true)
+                                        },
+                                        onOpenChannel = { item -> nav.openChannelOf(item) },
+                                        onClose = closePlayer
+                                    )
                                 }
                                 }
                             }

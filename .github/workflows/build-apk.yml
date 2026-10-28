@@ -92,7 +92,10 @@ jobs:
             - Liquid glass design: the header, navigation bar, mini player, sheets and player controls are translucent glass that blurs what scrolls underneath (Android 12 and newer; older versions get a frosted tint).
             - A quiet, minimalist palette in light and dark, with colour left to thumbnails and artwork.
             - Smoother motion everywhere: pages slide in and follow the back gesture, the player rises from the mini player, and buttons and cards respond to touch with soft springs.
-            - Now playing shows the song's artwork blurred behind the controls.
+            - Now playing shows the song's artwork blurred behind the controls, with frosted glass pills, tabs and panels, and a live seek bar that ripples while the song plays and swells under your finger.
+            - YT Music gets the same glass header, nav bar and mini player, over an ambient glow tinted by what is playing.
+            - The player is a sheet over the app: drag it down and it follows your finger and shrinks into the mini player, or springs back if you let go early. Fullscreen grows out of the page and shrinks back the same way.
+            - Smoother and lighter: home and open pages keep their place while you watch, seek bars and lyrics glide between position updates, and thumbnails stay cached longer (512 MB).
 
             ### New since 1.0
             - Account sync both ways: likes, Watch later, playlists and subscriptions follow your Google account, with a channel / Brand account switcher.

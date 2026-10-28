@@ -1213,7 +1213,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
                 try {
                     if (::exoPlayer.isInitialized && exoPlayer.isPlaying) {
                         // Every 10 s, so the place is kept even if the app is killed mid-video.
-                        if (++ticks % 50 == 0) saveCurrentPosition()
+                        if (++ticks % 25 == 0) saveCurrentPosition()
                         val currentPos = exoPlayer.currentPosition.coerceAtLeast(0L)
                         val bufferedPos = exoPlayer.bufferedPosition.coerceAtLeast(0L)
                         val playerDur = exoPlayer.duration
@@ -1232,7 +1232,9 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
                 } catch (e: Exception) {
                     Log.w(TAG, "Position tracking loop error: ${e.message}")
                 }
-                delay(200)
+                // Seek bars and lyrics glide between these updates on their own, so a slower tick
+                // only means the screens around them recompose less often.
+                delay(400)
             }
         }
     }

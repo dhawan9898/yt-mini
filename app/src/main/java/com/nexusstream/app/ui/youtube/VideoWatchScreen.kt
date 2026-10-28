@@ -1,5 +1,12 @@
 package com.nexusstream.app.ui.youtube
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import com.nexusstream.app.data.WatchExtras
 import com.nexusstream.app.data.SubtitleOption
 import com.nexusstream.app.LaunchRequests
@@ -294,7 +301,45 @@ fun VideoWatchScreen(
         return
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // Drag the video down and the page follows the finger, shrinking toward the mini player;
+    // let go early and it springs back. Dragging up stretches a little before fullscreen.
+    val dragScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val swipeThreshold = with(density) { 60.dp.toPx() }
+    val pageDrag = remember { Animatable(0f) }
+    val fullscreenDrag = remember { Animatable(0f) }
+    LaunchedEffect(showFullscreen) { fullscreenDrag.snapTo(0f) }
+    val followPage: (Float, Boolean) -> Unit = { total, released ->
+        dragScope.launch {
+            if (!released) pageDrag.snapTo(if (total >= 0f) total else total * 0.25f)
+            else if (total < swipeThreshold) pageDrag.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 420f))
+        }
+    }
+    val followFullscreen: (Float, Boolean) -> Unit = { total, released ->
+        dragScope.launch {
+            if (!released) fullscreenDrag.snapTo(total.coerceAtLeast(0f))
+            else if (total < swipeThreshold) fullscreenDrag.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 420f))
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val d = pageDrag.value
+                val progress = (d / size.height).coerceIn(0f, 1f)
+                translationY = d
+                val scale = 1f - 0.12f * progress
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                if (d > 0f) {
+                    shape = RoundedCornerShape((28 * progress.coerceAtMost(0.4f) / 0.4f).dp)
+                    clip = true
+                }
+                alpha = 1f - 0.35f * progress
+            }
+    ) {
     Row(
         modifier = Modifier
             .fillMaxSize()
@@ -321,6 +366,7 @@ fun VideoWatchScreen(
                     onToggleFullscreen = { isFullscreen = true },
                     onSwipeUp = { isFullscreen = true },
                     onSwipeDown = onCollapse,
+                    onSwipeDrag = followPage,
                     onOpenSettings = { showOptions = true },
                     storyboard = details?.storyboard,
                     heatmap = heatmap,
@@ -722,8 +768,26 @@ fun VideoWatchScreen(
     }
     }
 
-    if (showFullscreen) {
+    // Fullscreen grows out of the page with a spring, and shrinks back when dragged down.
+    AnimatedVisibility(
+        visible = showFullscreen,
+        enter = fadeIn(tween(180)) + scaleIn(spring(dampingRatio = 0.78f, stiffness = 360f), initialScale = 0.86f),
+        exit = fadeOut(tween(220)) + scaleOut(spring(dampingRatio = 1f, stiffness = 420f), targetScale = 0.86f)
+    ) {
         FullscreenWatchLayout(
+            modifier = Modifier.graphicsLayer {
+                val d = fullscreenDrag.value
+                val progress = (d / size.height).coerceIn(0f, 1f)
+                translationY = d * 0.6f
+                val scale = 1f - 0.18f * progress
+                scaleX = scale
+                scaleY = scale
+                if (d > 0f) {
+                    shape = RoundedCornerShape(24.dp)
+                    clip = true
+                }
+            },
+            onSwipeDrag = followFullscreen,
             playbackService = playbackService,
             state = playbackState,
             item = mediaItem,

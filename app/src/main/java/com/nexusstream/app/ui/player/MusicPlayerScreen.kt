@@ -1,5 +1,14 @@
 package com.nexusstream.app.ui.player
 
+import com.nexusstream.app.ui.theme.bouncyClickable
+import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.rounded.ThumbDown
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import com.nexusstream.app.ui.components.LiquidSeekBar
+import com.nexusstream.app.ui.components.rememberSmoothPosition
 import com.nexusstream.app.ui.theme.frostedGlass
 import com.nexusstream.app.ui.theme.GlassMotion
 import androidx.compose.animation.core.animateDpAsState
@@ -143,7 +152,7 @@ fun MusicPlayerScreen(
     var dragY by remember { mutableFloatStateOf(0f) }
     val animatedDragY by animateFloatAsState(
         targetValue = dragY,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 420f),
         label = "PlayerDrag"
     )
     var isDragging by remember { mutableStateOf(false) }
@@ -157,14 +166,23 @@ fun MusicPlayerScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .offset { IntOffset(0, (if (isDragging) dragY else animatedDragY).roundToInt()) }
+            .graphicsLayer {
+                // Follows the finger down, shrinking a little like an iOS card being dismissed.
+                val d = if (isDragging) dragY else animatedDragY
+                val progress = (d / size.height).coerceIn(0f, 1f)
+                translationY = d
+                val scale = 1f - 0.1f * progress
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+            }
             .pointerInput(panel) {
                 if (panel == PlayerPanel.NONE) {
                     detectVerticalDragGestures(
                         onDragStart = { isDragging = true },
                         onDragEnd = {
                             isDragging = false
-                            if (dragY > size.height * 0.2f) onCollapse() else dragY = 0f
+                            if (dragY > size.height * 0.15f) onCollapse() else dragY = 0f
                         },
                         onDragCancel = {
                             isDragging = false
@@ -215,105 +233,128 @@ fun MusicPlayerScreen(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            when (panel) {
-                PlayerPanel.UP_NEXT -> UpNextPanel(
-                    queue = state.queue,
-                    currentIndex = state.queueIndex,
-                    autoplay = state.autoplayNext,
-                    onSelect = { index ->
-                        playbackService.playQueue(
-                            state.queue, index,
-                            startInVideoMode = state.playbackMode == PlaybackMode.VIDEO
-                        )
-                    },
-                    onMove = { from, to -> playbackService.moveQueueItem(from, to) },
-                    onRemove = { index -> playbackService.removeQueueItem(index) },
-                    onAutoplayChange = { playbackService.setAutoplayNext(it) },
-                    onStartRadio = { playbackService.startRadio() }
-                )
-                PlayerPanel.LYRICS -> when (val l = lyrics) {
-                    null, is FeedState.Loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
-                    }
-                    is FeedState.Error -> LyricsPanel(
-                        lyrics = LyricsRepository.Lyrics(emptyList()),
-                        message = "Couldn't load lyrics (${l.message})",
-                        currentPositionMs = state.currentPositionMs,
-                        onSeek = {}
+            // Art <-> Up next / Lyrics / Related: the panel rises on frosted glass, the art settles back.
+            androidx.compose.animation.AnimatedContent(
+                targetState = panel,
+                transitionSpec = {
+                    (androidx.compose.animation.fadeIn(tween(220)) +
+                        androidx.compose.animation.slideInVertically(spring(dampingRatio = 0.86f, stiffness = 380f)) { it / 6 }) togetherWith
+                        androidx.compose.animation.fadeOut(tween(160))
+                },
+                label = "PlayerPanel"
+            ) { shownPanel ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (shownPanel != PlayerPanel.NONE) Modifier
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .frostedGlass(RoundedCornerShape(24.dp), strength = 0.9f)
+                        else Modifier
                     )
-                    is FeedState.Data -> LyricsPanel(
-                        lyrics = l.value,
-                        message = "Lyrics aren't available for this song",
-                        currentPositionMs = state.currentPositionMs,
-                        onSeek = { playbackService.seekTo(it) }
-                    )
-                }
-                PlayerPanel.RELATED -> when (val r = related) {
-                    null, is FeedState.Loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
-                    }
-                    is FeedState.Error -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Couldn't load related music (${r.message})", color = DarkPalette.textSecondary, fontSize = 13.sp)
-                    }
-                    is FeedState.Data -> RelatedPanel(
-                        sections = r.value,
-                        onPlay = { tracks, index ->
+            ) {
+                when (shownPanel) {
+                    PlayerPanel.UP_NEXT -> UpNextPanel(
+                        queue = state.queue,
+                        currentIndex = state.queueIndex,
+                        autoplay = state.autoplayNext,
+                        onSelect = { index ->
                             playbackService.playQueue(
-                                tracks, index,
+                                state.queue, index,
                                 startInVideoMode = state.playbackMode == PlaybackMode.VIDEO
                             )
                         },
-                        onOpenPlaylist = onOpenPlaylist,
-                        onOpenArtist = onOpenArtist
+                        onMove = { from, to -> playbackService.moveQueueItem(from, to) },
+                        onRemove = { index -> playbackService.removeQueueItem(index) },
+                        onAutoplayChange = { playbackService.setAutoplayNext(it) },
+                        onStartRadio = { playbackService.startRadio() }
                     )
-                }
-                PlayerPanel.NONE -> Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    if (state.playbackMode == PlaybackMode.VIDEO) {
-                        AndroidView(
-                            factory = { ctx ->
-                                PlayerView(ctx).apply {
-                                    layoutParams = FrameLayout.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                    useController = false
-                                    player = playbackService.getPlayer()
-                                }
-                            },
-                            update = { it.player = playbackService.getPlayer() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color.Black)
+                    PlayerPanel.LYRICS -> when (val l = lyrics) {
+                        null, is FeedState.Loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+                        }
+                        is FeedState.Error -> LyricsPanel(
+                            lyrics = LyricsRepository.Lyrics(emptyList()),
+                            message = "Couldn't load lyrics (${l.message})",
+                            currentPositionMs = state.currentPositionMs,
+                            onSeek = {}
                         )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f)
-                                .graphicsLayer { scaleX = artScale; scaleY = artScale }
-                                .shadow(28.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black, spotColor = Color.Black)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(item.dominantColor)
-                        ) {
-                            if (item.artworkUrl.isNotEmpty()) {
-                                AsyncImage(
-                                    model = item.artworkUrl,
-                                    contentDescription = item.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
+                        is FeedState.Data -> LyricsPanel(
+                            lyrics = l.value,
+                            message = "Lyrics aren't available for this song",
+                            currentPositionMs = state.currentPositionMs,
+                            onSeek = { playbackService.seekTo(it) },
+                            isPlaying = state.isPlaying && !state.isBuffering
+                        )
+                    }
+                    PlayerPanel.RELATED -> when (val r = related) {
+                        null, is FeedState.Loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+                        }
+                        is FeedState.Error -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Couldn't load related music (${r.message})", color = DarkPalette.textSecondary, fontSize = 13.sp)
+                        }
+                        is FeedState.Data -> RelatedPanel(
+                            sections = r.value,
+                            onPlay = { tracks, index ->
+                                playbackService.playQueue(
+                                    tracks, index,
+                                    startInVideoMode = state.playbackMode == PlaybackMode.VIDEO
                                 )
+                            },
+                            onOpenPlaylist = onOpenPlaylist,
+                            onOpenArtist = onOpenArtist
+                        )
+                    }
+                    PlayerPanel.NONE -> Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        if (state.playbackMode == PlaybackMode.VIDEO) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    PlayerView(ctx).apply {
+                                        layoutParams = FrameLayout.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        useController = false
+                                        player = playbackService.getPlayer()
+                                    }
+                                },
+                                update = { it.player = playbackService.getPlayer() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color.Black)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .graphicsLayer { scaleX = artScale; scaleY = artScale }
+                                    .shadow(28.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black, spotColor = Color.Black)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(item.dominantColor)
+                            ) {
+                                if (item.artworkUrl.isNotEmpty()) {
+                                    AsyncImage(
+                                        model = item.artworkUrl,
+                                        contentDescription = item.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
             }
         }
 
@@ -341,10 +382,54 @@ fun MusicPlayerScreen(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = { LibraryRepository.toggleLike(item) }) {
-                Icon(
-                    Icons.Rounded.ThumbUp, "Like",
-                    tint = if (isLiked) Color.White else DarkPalette.textSecondary
+        }
+
+        // YT Music's action pills, on frosted glass: like / dislike, share.
+        val dislikedIds by LibraryRepository.disliked.collectAsState()
+        val isDisliked = item.id in dislikedIds
+        val shareContext = androidx.compose.ui.platform.LocalContext.current
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier
+                    .height(36.dp)
+                    .frostedGlass(CircleShape),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GlassPillButton(
+                    icon = if (isLiked) Icons.Rounded.ThumbUp else Icons.Outlined.ThumbUp,
+                    label = if (isLiked) "Liked" else "Like",
+                    onClick = { LibraryRepository.toggleLike(item) }
+                )
+                Box(Modifier.width(1.dp).height(18.dp).background(Color.White.copy(alpha = 0.25f)))
+                GlassPillButton(
+                    icon = if (isDisliked) Icons.Rounded.ThumbDown else Icons.Outlined.ThumbDown,
+                    label = null,
+                    onClick = { LibraryRepository.toggleDislike(item) }
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .height(36.dp)
+                    .frostedGlass(CircleShape),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GlassPillButton(
+                    icon = Icons.Rounded.Share,
+                    label = "Share",
+                    onClick = {
+                        val link = item.sourceUrl.ifBlank { "https://music.youtube.com/watch?v=${item.id}" }
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, link)
+                        }
+                        runCatching { shareContext.startActivity(android.content.Intent.createChooser(send, null)) }
+                    }
                 )
             }
         }
@@ -362,6 +447,8 @@ fun MusicPlayerScreen(
             positionMs = state.currentPositionMs,
             durationMs = state.durationMs,
             onSeek = { playbackService.seekTo(it) },
+            isPlaying = state.isPlaying && !state.isBuffering,
+            bufferedMs = state.bufferedPositionMs,
             modifier = Modifier.padding(horizontal = 12.dp)
         )
 
@@ -411,11 +498,12 @@ fun MusicPlayerScreen(
             }
         }
 
-        // Bottom tabs: UP NEXT | LYRICS | RELATED (tap active tab to return to the art)
+        // Bottom tabs: UP NEXT | LYRICS | RELATED (tap active tab to return to the art), on a glass bar.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)
+                .frostedGlass(RoundedCornerShape(percent = 50), strength = 0.8f),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             PanelTab("UP NEXT", panel == PlayerPanel.UP_NEXT) {
@@ -500,26 +588,23 @@ private fun SeekBar(
     positionMs: Long,
     durationMs: Long,
     onSeek: (Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = true,
+    bufferedMs: Long = 0L
 ) {
-    var dragFraction by remember { mutableStateOf<Float?>(null) }
     val safeDuration = durationMs.coerceAtLeast(1L)
-    val fraction = dragFraction ?: (positionMs.toFloat() / safeDuration).coerceIn(0f, 1f)
-    val shownMs = dragFraction?.let { (it * safeDuration).toLong() } ?: positionMs
+    val smooth = rememberSmoothPosition(positionMs, isPlaying, stepMs = 0L)
+    var scrub by remember { mutableStateOf<Float?>(null) }
+    val shownMs = scrub?.let { (it * safeDuration).toLong() } ?: positionMs
 
     Column(modifier = modifier) {
-        Slider(
-            value = fraction,
-            onValueChange = { dragFraction = it },
-            onValueChangeFinished = {
-                dragFraction?.let { onSeek((it * safeDuration).toLong()) }
-                dragFraction = null
-            },
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = Color.White,
-                inactiveTrackColor = Color.White.copy(alpha = 0.25f)
-            )
+        LiquidSeekBar(
+            position = { smooth.value.toFloat() / safeDuration },
+            buffered = { bufferedMs.toFloat() / safeDuration },
+            isPlaying = isPlaying,
+            onSeek = { onSeek((it * safeDuration).toLong()) },
+            onScrub = { scrub = it },
+            modifier = Modifier.padding(horizontal = 12.dp)
         )
         Row(
             modifier = Modifier
@@ -527,7 +612,7 @@ private fun SeekBar(
                 .padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(formatTime(shownMs), fontSize = 12.sp, color = DarkPalette.textSecondary)
+            Text(formatTime(shownMs), fontSize = 12.sp, color = if (scrub != null) Color.White else DarkPalette.textSecondary)
             Text(formatTime(durationMs), fontSize = 12.sp, color = DarkPalette.textSecondary)
         }
     }
@@ -566,12 +651,15 @@ private fun LyricsPanel(
     lyrics: LyricsRepository.Lyrics,
     message: String,
     currentPositionMs: Long,
-    onSeek: (Long) -> Unit
+    onSeek: (Long) -> Unit,
+    isPlaying: Boolean = false
 ) {
+    // Glides between the player's position updates so word-by-word lyrics fill smoothly.
+    val smooth by rememberSmoothPosition(currentPositionMs, isPlaying, stepMs = 40L)
     when {
         lyrics.lines.isNotEmpty() -> LyricsView(
             lyrics = lyrics.lines,
-            currentPositionMs = currentPositionMs,
+            currentPositionMs = smooth,
             onSeekToTimestamp = onSeek
         )
         lyrics.plain.isNotBlank() -> Column(
@@ -651,6 +739,24 @@ private fun NowPlayingBackdrop(item: MediaItemModel) {
                         )
                 )
             }
+        }
+    }
+}
+
+/** One segment of a frosted action pill: an icon, optionally with a label. */
+@Composable
+private fun GlassPillButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String?, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxHeight()
+            .bouncyClickable(pressedScale = 0.9f, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = label ?: "Dislike", tint = Color.White, modifier = Modifier.size(18.dp))
+        if (label != null) {
+            Spacer(Modifier.width(6.dp))
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
         }
     }
 }

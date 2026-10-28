@@ -23,6 +23,7 @@ import com.nexusstream.app.ui.theme.paletteFor
 
 class MainActivity : ComponentActivity() {
     companion object {
+        private var imageLoaderInstalled = false
         /** App shortcuts and widgets: open a page ("search", "subscriptions", "shorts", "music"). */
         const val ACTION_SHORTCUT = "com.nexusstream.app.SHORTCUT"
         const val EXTRA_DESTINATION = "destination"
@@ -50,6 +51,8 @@ class MainActivity : ComponentActivity() {
             Configuration.UI_MODE_NIGHT_YES
         ThemeState.palette = paletteFor(AppSettings.themeMode.value, systemDark)
 
+        installImageLoader()
+
         PipController.enter = { enterPictureInPictureIfSupported() }
         // Only the first launch: a recreated activity must not replay an old link.
         if (savedInstanceState == null) handleLaunchIntent(intent)
@@ -57,6 +60,30 @@ class MainActivity : ComponentActivity() {
         setContent {
             NexusApp()
         }
+    }
+
+    /**
+     * Thumbnails and artwork: a larger memory cache so scrolling back never reloads, a 512 MB disk
+     * cache that is used even when YouTube's image servers send short cache headers, and a quick
+     * crossfade so pictures arrive softly instead of popping in.
+     */
+    private fun installImageLoader() {
+        if (imageLoaderInstalled) return
+        imageLoaderInstalled = true
+        val app = applicationContext
+        coil.Coil.setImageLoader(
+            coil.ImageLoader.Builder(app)
+                .memoryCache { coil.memory.MemoryCache.Builder(app).maxSizePercent(0.30).build() }
+                .diskCache {
+                    coil.disk.DiskCache.Builder()
+                        .directory(app.cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(512L * 1024 * 1024)
+                        .build()
+                }
+                .respectCacheHeaders(false)
+                .crossfade(180)
+                .build()
+        )
     }
 
     override fun onNewIntent(intent: Intent) {

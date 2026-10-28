@@ -156,7 +156,9 @@ fun YouTubeHomeScreen(
     playbackService: MediaPlaybackService?,
     modifier: Modifier = Modifier,
     /** The Premium logo at the top switches to YT Music, as in the YouTube app. */
-    onSwitchApp: () -> Unit = {}
+    onSwitchApp: () -> Unit = {},
+    /** The player sheet covers this screen: no mini player of its own until it is minimised. */
+    playerOpen: Boolean = false
 ) {
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedTab by remember { mutableStateOf(0) }
@@ -235,7 +237,7 @@ fun YouTubeHomeScreen(
 
     val homeState = playbackService?.playbackState?.collectAsState()?.value
     val floatingVideo = currentPlayingItem != null && playbackService != null && homeState != null &&
-        homeState.playbackMode == PlaybackMode.VIDEO && selectedTab != 1
+        homeState.playbackMode == PlaybackMode.VIDEO && selectedTab != 1 && !playerOpen
     // The bottom bar floats over the content. It slides away while scrolling down and returns on
     // scrolling up (or when switching tab).
     var navVisible by remember { mutableStateOf(true) }
@@ -271,7 +273,7 @@ fun YouTubeHomeScreen(
             label = "FloatingBottom"
         )
         // The audio mini player sits on top of the bar, so lists leave room for both.
-        val bottomSpace = navSpace + if (currentPlayingItem != null && selectedTab != 1 && !floatingVideo) MINI_PLAYER_SPACE else 0.dp
+        val bottomSpace = navSpace + if (currentPlayingItem != null && selectedTab != 1 && homeState?.playbackMode != PlaybackMode.VIDEO) MINI_PLAYER_SPACE else 0.dp
         val chrome = PaddingValues(top = if (selectedTab != 1) headerHeight else 0.dp, bottom = bottomSpace)
         Box(
             modifier = Modifier
@@ -280,7 +282,13 @@ fun YouTubeHomeScreen(
                 .nestedScroll(scrollConnection)
         ) {
             CompositionLocalProvider(LocalChromePadding provides chrome) {
-            if (floatingVideo && currentPlayingItem != null && playbackService != null && homeState != null) {
+            AnimatedVisibility(
+                visible = floatingVideo,
+                enter = fadeIn(GlassMotion.smooth()) + androidx.compose.animation.scaleIn(spring(dampingRatio = 0.7f, stiffness = 380f), initialScale = 0.6f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)),
+                exit = fadeOut(GlassMotion.smooth()) + androidx.compose.animation.scaleOut(GlassMotion.smooth(), targetScale = 0.7f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)),
+                modifier = Modifier.zIndex(2f)
+            ) {
+            if (currentPlayingItem != null && playbackService != null && homeState != null) {
                 FloatingMiniPlayer(
                     item = currentPlayingItem,
                     state = homeState,
@@ -290,8 +298,8 @@ fun YouTubeHomeScreen(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(top = headerHeight, end = 12.dp, bottom = floatingBottom + 12.dp)
-                        .zIndex(2f)
                 )
+            }
             }
             when (selectedTab) {
                 1 -> Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
@@ -430,7 +438,7 @@ fun YouTubeHomeScreen(
     // Bottom overlay: the mini player (audio) and the navigation bar float over the scrolling content.
     Column(modifier = Modifier.align(Alignment.BottomCenter)) {
         AnimatedVisibility(
-            visible = currentPlayingItem != null && selectedTab != 1 && !floatingVideo,
+            visible = currentPlayingItem != null && selectedTab != 1 && !floatingVideo && !playerOpen,
             enter = slideInVertically(GlassMotion.smooth()) { it / 2 } + fadeIn(GlassMotion.smooth()),
             exit = slideOutVertically(GlassMotion.smooth()) { it / 2 } + fadeOut(GlassMotion.smooth())
         ) {
