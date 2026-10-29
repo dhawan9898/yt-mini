@@ -104,4 +104,18 @@ class ResolvedStreamTest {
         assertEquals(1, stream.audioTracks.size)
         assertEquals(listOf(160, 128, 48), stream.kbpsFor(null))
     }
+
+    @Test
+    fun muxedAndHlsFallbacks() {
+        val s = ResolvedStream(
+            audioOptions = listOf(AudioOption(128, "muxed_360p", trackId = "muxed_360p", isOriginal = true)),
+            videoOptions = listOf(VideoOption(360, "muxed_360p")),
+            muxedUrl = "muxed_360p",
+            hlsUrl = "https://example.com/playlist.m3u8"
+        )
+        assertEquals(360, s.pickVideo(null)?.height)
+        assertEquals(128, s.pickAudio(null)?.kbps)
+        assertEquals("muxed_360p", s.muxedUrl)
+        assertEquals("https://example.com/playlist.m3u8", s.hlsUrl)
+    }
 }

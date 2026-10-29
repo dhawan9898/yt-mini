@@ -404,11 +404,11 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
      */
     fun playQueue(
         items: List<MediaItemModel>,
-        startIndex: Int = 0,
+        startIndex: Int = 0, forceRefresh: Boolean = false,
         startInVideoMode: Boolean = false
     ) {
         if (items.isEmpty()) return
-        val validIndex = startIndex.coerceIn(0, items.lastIndex)
+        val validIndex = startIndex.coerceIn(0, items.lastIndex); val isRetry = forceRefresh || (_playbackState.value.hasError && _playbackState.value.currentItem?.id == items[validIndex].id)
         // Related-video autoplay belongs to the video watch page, never to music playback.
         if (!startInVideoMode) autoplayQueue = emptyList()
         // The music player can show a song as video too, so music tracks count whatever the mode.
@@ -424,14 +424,14 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             errorMessage = null
         )
 
-        loadTrack(items[validIndex], startInVideoMode)
+        loadTrack(items[validIndex], startInVideoMode, isRetry = isRetry)
     }
 
     /**
      * Plays a single media item (replaces queue with this item).
      */
     fun playMediaItem(item: MediaItemModel, startInVideoMode: Boolean = false) {
-        playQueue(listOf(item), 0, startInVideoMode)
+        playQueue(listOf(item), 0, startInVideoMode) } fun retryPlayback() { val current = _playbackState.value.currentItem ?: _playbackState.value.queue.getOrNull(_playbackState.value.queueIndex) ?: return; loadTrack(current, startInVideoMode = currentMode == PlaybackMode.VIDEO, isRetry = true)
     }
 
     private fun loadTrack(
@@ -542,7 +542,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         exoPlayer.clearMediaItems()
         _playbackState.value = _playbackState.value.copy(isResolving = true)
         loadJob = serviceScope.launch {
-            val resolved = YouTubeRepository.resolveStream(item.sourceUrl).getOrElse { error ->
+            val resolved = YouTubeRepository.resolveStream(item.sourceUrl, forceRefresh = isRetry).getOrElse { error ->
                 Log.e(TAG, "Stream resolution failed for ${item.id}: ${error.message}", error)
                 _playbackState.value = _playbackState.value.copy(
                     isResolving = false,
@@ -579,7 +579,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             try {
                 val resolved = YouTubeRepository.prefetchedStream(watchUrl) ?: return@launch
                 val (heightCap, audioCap) = qualityCaps()
-                val targets = listOfNotNull(
+                val videoTarget = resolved.pickVideo(heightCap)?.url; val audioTarget = resolved.pickAudio(audioCap, preferredAudioTrackId)?.url; val targets = if (videoTarget != null && videoTarget == audioTarget) listOf(videoTarget to PRECACHE_VIDEO_BYTES) else listOfNotNull(videoTarget?.let { it to PRECACHE_VIDEO_BYTES }, audioTarget?.let { it to PRECACHE_AUDIO_BYTES }); val unusedTargets = listOfNotNull(
                     resolved.pickVideo(heightCap)?.url?.let { it to PRECACHE_VIDEO_BYTES },
                     resolved.pickAudio(audioCap, preferredAudioTrackId)?.url?.let { it to PRECACHE_AUDIO_BYTES }
                 )
@@ -605,7 +605,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         playWhenReady: Boolean
     ) {
         // Live stream: one HLS playlist, played from the live edge (no quality / caption choices).
-        resolved.hlsUrl?.let { hlsUrl ->
+        if (resolved.hlsUrl != null && (item.isLive || (resolved.audioOptions.isEmpty() && resolved.muxedUrl == null))) resolved.hlsUrl.let { hlsUrl ->
             val hlsSource = HlsMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
                 .createMediaSource(
                     MediaItem.Builder().setMediaId(item.id).setUri(hlsUrl).setMediaMetadata(metadata).build()
@@ -618,7 +618,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
         val (heightCap, audioCap) = qualityCaps()
         val audio = resolved.pickAudio(audioCap, preferredAudioTrackId)
-        if (audio == null) {
+        if (audio == null) { val fallbackMuxed = resolved.muxedUrl; if (fallbackMuxed != null) { val source = ProgressiveMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory()).createMediaSource(MediaItem.Builder().setMediaId(item.id).setUri(fallbackMuxed).setMediaMetadata(metadata).build()); exoPlayer.setMediaSource(source, positionMs); exoPlayer.prepare(); exoPlayer.playWhenReady = playWhenReady; return }; if (resolved.hlsUrl != null) { val hlsSource = HlsMediaSource.Factory(adBlockPipeline.createDataSourceFactory()).createMediaSource(MediaItem.Builder().setMediaId(item.id).setUri(resolved.hlsUrl).setMediaMetadata(metadata).build()); exoPlayer.setMediaSource(hlsSource, positionMs); exoPlayer.prepare(); exoPlayer.playWhenReady = playWhenReady; return }
             // Nothing playable came back: say so instead of leaving an endless spinner.
             _playbackState.value = _playbackState.value.copy(
                 isResolving = false,
@@ -693,7 +693,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             audioSource,
             subtitleSource
         )
-        val source: MediaSource = if (sources.size == 1) sources.first() else MergingMediaSource(*sources.toTypedArray())
+        val source: MediaSource = if (video == null || video.url == audio.url) (if (subtitleSource != null) MergingMediaSource(audioSource, subtitleSource) else audioSource) else (if (sources.size == 1) sources.first() else MergingMediaSource(*sources.toTypedArray()))
 
         exoPlayer.setMediaSource(source, positionMs)
         exoPlayer.prepare()

@@ -376,10 +376,14 @@ object YouTubeRepository {
      * The extractor's full info for a video. The watch page and the player ask for the same video
      * at the same moment; the second caller waits for the first request instead of making its own.
      */
-    private fun streamInfo(watchUrl: String): StreamInfo {
-        cachedInfo?.takeIf { it.first == watchUrl }?.let { return it.second }
+    private fun streamInfo(watchUrl: String, forceRefresh: Boolean = false): StreamInfo {
+        if (!forceRefresh) {
+            cachedInfo?.takeIf { it.first == watchUrl }?.let { return it.second }
+        } else {
+            if (cachedInfo?.first == watchUrl) cachedInfo = null
+        }
         val mine = java.util.concurrent.CompletableFuture<StreamInfo>()
-        val running = infoInFlight.putIfAbsent(watchUrl, mine)
+        val running = if (!forceRefresh) infoInFlight.putIfAbsent(watchUrl, mine) else null
         if (running != null) {
             return try {
                 running.get()
@@ -778,14 +782,14 @@ object YouTubeRepository {
     /** A single file a Cast receiver can play: the best combined video (up to 720p), else audio. */
     suspend fun castTarget(watchUrl: String, audioOnly: Boolean): Result<CastTarget> = io {
         val info = streamInfo(watchUrl)
-        val video = if (audioOnly) null else info.videoStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height in 1..720 }
-            .maxByOrNull { it.height }
+        val video = if (audioOnly) null else info.videoStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height in 1..720 }.maxByOrNull { it.height }
+
+
         if (video != null) {
             CastTarget(video.content, video.format?.mimeType ?: "video/mp4")
         } else {
-            val audio = info.audioStreams
-                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+            val audio = info.audioStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+    
                 .maxByOrNull(::audioScore)
                 ?: error("Nothing this video offers can be cast")
             CastTarget(audio.content, audio.format?.mimeType ?: "audio/mp4")
@@ -981,25 +985,42 @@ object YouTubeRepository {
         prefetched[watchUrl]?.let { runCatching { it.stream.await() }.getOrNull() }
 
     /** Resolves fresh direct stream URLs for a watch URL. Call right before playback. */
-    suspend fun resolveStream(watchUrl: String): Result<ResolvedStream> = io {
-        prefetched.remove(watchUrl)
+    suspend fun resolveStream(watchUrl: String, forceRefresh: Boolean = false): Result<ResolvedStream> = io {
+        if (forceRefresh) {
+            prefetched.remove(watchUrl)
+            if (cachedInfo?.first == watchUrl) cachedInfo = null
+        }
+        val cached = if (!forceRefresh) {
+            prefetched.remove(watchUrl)
             ?.takeIf { System.currentTimeMillis() - it.atMs < PREFETCH_TTL_MS }
             ?.let { runCatching { it.stream.await() }.getOrNull() }
-            ?: fetchStream(watchUrl)
+        } else null
+        cached ?: fetchStream(watchUrl, forceRefresh)
     }
 
-    private fun fetchStream(watchUrl: String): ResolvedStream {
+    private fun fetchStream(watchUrl: String, forceRefresh: Boolean = false): ResolvedStream {
         val info = try {
-            streamInfo(watchUrl)
+            streamInfo(watchUrl, forceRefresh)
         } catch (e: org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) {
             throw IllegalStateException("Age-restricted video: YouTube only serves it to signed-in adult accounts, which this app cannot do yet")
         } catch (e: org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException) {
             throw IllegalStateException("YouTube is blocking video playback from this network right now. Try again later or on another network (for example mobile data instead of Wi-Fi).")
         }
+        try {
+            return extractResolvedStream(info)
+        } catch (e: Throwable) {
+            if (cachedInfo?.first == watchUrl) {
+                cachedInfo = null
+            }
+            throw e
+        }
+    }
+
+    internal fun extractResolvedStream(info: StreamInfo): ResolvedStream {
         // YouTube serves several language tracks (original, auto-dubbed, audio description).
         // Keep the best stream per (track, bitrate) and list the original track first.
-        val audio = info.audioStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+        val progressiveAudio = info.audioStreams.filter { it.content.isNotEmpty() && (it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP || it.content.startsWith("http")) }
+
             .groupBy { it.audioTrackId to it.averageBitrate }
             .mapValues { (_, streams) -> streams.maxByOrNull(::audioScore)!! }
             .values
@@ -1017,18 +1038,49 @@ object YouTubeRepository {
                     .thenBy { it.trackId.orEmpty() }
                     .thenByDescending { it.kbps }
             )
-        check(audio.isNotEmpty()) { "No playable audio stream" }
-        val video = info.videoOnlyStreams
+        val progressiveMuxed = info.videoStreams.filter { it.content.isNotEmpty() && (it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP || it.content.startsWith("http")) }
+        val muxed = progressiveMuxed.maxByOrNull { it.height }?.content
+
+
+        val audio = if (progressiveAudio.isNotEmpty()) {
+            progressiveAudio
+        } else {
+            // If no separate audio streams exist (common on Reels/Shorts), use muxed progressive streams as audio options.
+            progressiveMuxed.map { stream ->
+                AudioOption(
+                    kbps = 128,
+                    url = stream.content,
+                    trackId = "muxed_${stream.height}p",
+                    trackName = "Default",
+                    isOriginal = true
+                )
+            }
+        }.sortedWith(
+            compareByDescending<AudioOption> { it.isOriginal }
+                .thenBy { it.trackId.orEmpty() }
+                .thenByDescending { it.kbps }
+        )
+        val videoOnly = info.videoOnlyStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && it.height > 0 }
             .groupBy { it.height }
             .mapValues { (_, streams) -> streams.maxByOrNull(::videoScore)!! }
             .values
             .sortedByDescending { it.height }
             .map { VideoOption(it.height, it.content) }
-        val muxed = info.videoStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
-            .maxByOrNull { it.height }
-            ?.content
+        val video = if (videoOnly.isNotEmpty()) {
+            videoOnly
+        } else {
+            progressiveMuxed
+                .filter { it.height > 0 }
+                .sortedByDescending { it.height }
+                .map { VideoOption(it.height, it.content) }
+        }
+        val hls = info.hlsUrl?.takeIf { it.isNotBlank() }
+        check(audio.isNotEmpty() || muxed != null || hls != null) { "No playable audio stream" }
+
+
+
+
         val dashVideo = info.videoOnlyStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() && hasIndex(it.initEnd, it.indexEnd) }
             .mapNotNull { v ->
@@ -1051,7 +1103,7 @@ object YouTubeRepository {
             }
             .filter { it.codecs.isNotEmpty() }
         return ResolvedStream(
-            audioOptions = audio, videoOptions = video, subtitles = subtitleOptions(info), muxedUrl = muxed,
+            audioOptions = audio, videoOptions = video, subtitles = subtitleOptions(info), hlsUrl = hls, muxedUrl = muxed,
             dashVideo = dashVideo, dashAudio = dashAudio, durationSec = info.duration
         )
     }
@@ -1066,7 +1118,7 @@ object YouTubeRepository {
     suspend fun downloadOptions(watchUrl: String): Result<List<DownloadOption>> = io {
         val info = streamInfo(watchUrl)
         val playableAudio = info.audioStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.content.isNotEmpty() }
+
         // Save the original-language audio, not an auto-dub.
         val originalTrackId = (playableAudio.firstOrNull { isOriginalTrack(it) } ?: playableAudio.firstOrNull())?.audioTrackId
         val originalAudio = playableAudio.filter { it.audioTrackId == originalTrackId }

@@ -287,7 +287,7 @@ private fun ShortsPager(
             buffering = isActive && playback?.currentItem?.id == item.id && playback.isBuffering,
             error = if (isActive && playback?.hasError == true) playback.errorMessage ?: "Couldn't play this short" else null,
             onRetry = {
-                playbackService?.playQueue(listOf(item), 0, startInVideoMode = true)
+                playbackService?.playQueue(listOf(item), 0, startInVideoMode = true, forceRefresh = true)
                 playbackService?.setLoopOne(true)
             },
             playbackService = playbackService,
