@@ -405,8 +405,16 @@ object YouTubeRepository {
     private const val SHORTS_BATCH = 4
     private const val SHORTS_PER_CHANNEL = 12
     private class Cached<T>(val at: Long, val value: T)
-    private val feedCache = java.util.concurrent.ConcurrentHashMap<String, Cached<Paged<MediaItemModel>>>()
-    private val shelfCache = java.util.concurrent.ConcurrentHashMap<String, Cached<List<MusicShelf>>>()
+    private class LruStore<K, V>(private val maxEntries: Int) {
+        private val map = object : java.util.LinkedHashMap<K, V>(maxEntries + 1, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean = size > maxEntries
+        }
+        @Synchronized operator fun get(key: K): V? = map[key]
+        @Synchronized operator fun set(key: K, value: V) { map[key] = value }
+        @Synchronized fun clear() { map.clear() }
+    }
+    private val feedCache = LruStore<String, Cached<Paged<MediaItemModel>>>(maxEntries = 12)
+    private val shelfCache = LruStore<String, Cached<List<MusicShelf>>>(maxEntries = 12)
 
     /** Cached home feed for [category], if loaded earlier in this process. */
     fun cachedVideoFeed(category: String): Paged<MediaItemModel>? =

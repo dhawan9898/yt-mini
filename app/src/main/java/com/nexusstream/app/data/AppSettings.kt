@@ -71,6 +71,15 @@ object AppSettings {
     private val _showDislikeCounts = MutableStateFlow(false)
     val showDislikeCounts: StateFlow<Boolean> = _showDislikeCounts.asStateFlow()
 
+    /** Auto-skip sponsor segments, intros, and self-promos via SponsorBlock. */
+    private val _sponsorBlockEnabled = MutableStateFlow(true)
+    val sponsorBlockEnabled: StateFlow<Boolean> = _sponsorBlockEnabled.asStateFlow()
+
+    fun setSponsorBlockEnabled(enabled: Boolean) {
+        _sponsorBlockEnabled.value = enabled
+        prefs?.edit()?.putBoolean("sponsorblock_enabled", enabled)?.apply()
+    }
+
     private val _contentCountry = MutableStateFlow("US")
     val contentCountry: StateFlow<String> = _contentCountry.asStateFlow()
 
@@ -155,6 +164,7 @@ object AppSettings {
         _wifiOnlyDownloads.value = p.getBoolean("wifi_only_downloads", false)
         _contentCountry.value = p.getString("country", "US") ?: "US"
         _showDislikeCounts.value = p.getBoolean("dislike_counts", false)
+        _sponsorBlockEnabled.value = p.getBoolean("sponsorblock_enabled", true)
         _ambientMode.value = p.getBoolean("ambient_mode", true)
         _stableVolume.value = p.getBoolean("stable_volume", true)
         _restrictedMode.value = p.getBoolean("restricted_mode", false)
@@ -231,6 +241,7 @@ object AppSettings {
         .put("wifiOnly", _wifiOnlyDownloads.value)
         .put("country", _contentCountry.value)
         .put("dislikeCounts", _showDislikeCounts.value)
+        .put("sponsorBlock", _sponsorBlockEnabled.value)
         .put("ambientMode", _ambientMode.value)
         .put("stableVolume", _stableVolume.value)
         .put("restrictedMode", _restrictedMode.value)
@@ -251,6 +262,7 @@ object AppSettings {
         if (json.has("wifiOnly")) setWifiOnlyDownloads(json.optBoolean("wifiOnly"))
         json.optString("country").takeIf { c -> ContentRegions.countries.any { it.first == c } }?.let { setContentCountry(it) }
         if (json.has("dislikeCounts")) setShowDislikeCounts(json.optBoolean("dislikeCounts"))
+        if (json.has("sponsorBlock")) setSponsorBlockEnabled(json.optBoolean("sponsorBlock"))
         if (json.has("ambientMode")) setAmbientMode(json.optBoolean("ambientMode"))
         if (json.has("stableVolume")) setStableVolume(json.optBoolean("stableVolume"))
         if (json.has("restrictedMode")) setRestrictedMode(json.optBoolean("restrictedMode"))

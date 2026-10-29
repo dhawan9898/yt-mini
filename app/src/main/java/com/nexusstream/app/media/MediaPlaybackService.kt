@@ -150,6 +150,9 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     private var radioJob: Job? = null
     /** Ids of queue entries that came from radio / autoplay rather than from the user. */
     private val radioIds = HashSet<String>()
+    private var sponsorSegments: List<com.nexusstream.app.data.SponsorSegment> = emptyList()
+    private var sponsorJob: Job? = null
+    private var lastSkippedSegmentUuid: String? = null
 
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var mediaSession: MediaLibraryService.MediaLibrarySession
@@ -477,6 +480,15 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             }
         }
         dashActive = false
+        sponsorJob?.cancel()
+        sponsorSegments = emptyList()
+        lastSkippedSegmentUuid = null
+        val currentVideoId = item.id
+        if (currentVideoId.isNotEmpty() && AppSettings.sponsorBlockEnabled.value) {
+            sponsorJob = serviceScope.launch {
+                sponsorSegments = com.nexusstream.app.data.SponsorBlockApi.fetch(currentVideoId).getOrDefault(emptyList())
+            }
+        }
         currentMode = if (startInVideoMode) PlaybackMode.VIDEO else PlaybackMode.AUDIO_ONLY
         applyPlaybackModeTracks(currentMode)
 
@@ -1252,6 +1264,14 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
                         if (++ticks % 25 == 0) saveCurrentPosition()
                         val currentPos = exoPlayer.currentPosition.coerceAtLeast(0L)
                         val bufferedPos = exoPlayer.bufferedPosition.coerceAtLeast(0L)
+                        if (AppSettings.sponsorBlockEnabled.value && sponsorSegments.isNotEmpty()) {
+                            val seg = sponsorSegments.firstOrNull { currentPos >= it.startMs && currentPos < it.endMs - 350 }
+                            if (seg != null && seg.uuid != lastSkippedSegmentUuid) {
+                                lastSkippedSegmentUuid = seg.uuid
+                                Log.i(TAG, "SponsorBlock auto-skipping ${seg.category} (${seg.startMs}ms -> ${seg.endMs}ms)")
+                                exoPlayer.seekTo(seg.endMs)
+                            }
+                        }
                         val playerDur = exoPlayer.duration
                         val dur = if (playerDur > 0 && playerDur != C.TIME_UNSET) {
                             playerDur

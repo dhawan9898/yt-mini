@@ -52,7 +52,7 @@ Status key: **Done** (matches or beats the official app), **Partial** (exists bu
 | Stable volume | Loudness normalisation | Android `LoudnessEnhancer` on the player session, toggle in settings | Partial | Low |
 | Storyboard scrubbing | Thumbnail preview on seek | Implemented (`data/YouTubeRepository.kt` storyboard + `WatchPlayer.kt`) | Done | – |
 | Video quality / ABR | DASH, VP9/AV1, up to 4K HDR | Separate video + audio merged with `MergingMediaSource`; quality picker; default cap 720p (`DEFAULT_MAX_HEIGHT`) | Partial | High |
-| SponsorBlock | Not available | Not integrated (ad-network filter only) | Missing | Medium |
+| SponsorBlock | Not available | Built in (`data/SponsorBlockApi.kt`, `media/MediaPlaybackService.kt`, toggle in settings) | Done | – |
 | Shorts | Infinite vertical feed | Vertical pager, `#shorts` search + subscribed channels' Shorts, edge-to-edge (`ui/youtube/ShortsScreen.kt`); no comments drawer or remix | Partial | Low |
 | Comments | Read, reply, like, post, sort | Read-only list with replies and infinite scroll (`ui/youtube/VideoWatchScreen.kt`); cannot post, like or sort | Partial | High |
 | Search | Suggestions, voice, rich filters | Type chips plus length filter (`ui/youtube/SearchScreen.kt`); no upload-date / feature filters, no voice | Partial | Medium |

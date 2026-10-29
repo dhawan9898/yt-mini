@@ -58,4 +58,31 @@ class LyricsAndDislikeTest {
         assertNull(DislikeApi.parse("not json"))
         assertTrue(DislikeApi.parse("""{"dislikes":0}""") == 0L)
     }
+
+    @Test
+    fun parsesSponsorBlockSegments() {
+        val json = """
+            [
+                {"category":"sponsor","actionType":"skip","segment":[10.5, 30.2],"UUID":"abc-123"},
+                {"category":"intro","actionType":"skip","segment":[0.0, 5.0],"UUID":"def-456"}
+            ]
+        """
+        val segments = SponsorBlockApi.parse(json)
+        assertEquals(2, segments.size)
+        assertEquals("def-456", segments[0].uuid)
+        assertEquals(0L, segments[0].startMs)
+        assertEquals(5000L, segments[0].endMs)
+        assertEquals("intro", segments[0].category)
+
+        assertEquals("abc-123", segments[1].uuid)
+        assertEquals(10500L, segments[1].startMs)
+        assertEquals(30200L, segments[1].endMs)
+        assertEquals("sponsor", segments[1].category)
+    }
+
+    @Test
+    fun handlesInvalidSponsorBlockJson() {
+        assertTrue(SponsorBlockApi.parse("not json").isEmpty())
+        assertTrue(SponsorBlockApi.parse("[]").isEmpty())
+    }
 }

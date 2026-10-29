@@ -76,7 +76,7 @@ object LibraryRepository {
         }
         persistSubscriptions()
         val url = channelUrl.ifEmpty { _subscriptions.value.firstOrNull { it.name == name }?.channelUrl.orEmpty() }
-        remote("Couldn't ${if (willSub) "subscribe to" else "unsubscribe from"} $name on your account", undo = {
+        remote("Couldn't ${if (willSub) "subscribe to" else "unsubscribe from"} $name on your account", key = "sub:$name", undo = {
             _subscriptions.value = if (willSub) _subscriptions.value.filter { it.name != name }
             else _subscriptions.value + ChannelSub(name, avatarUrl, channelUrl, lastSeenMs = System.currentTimeMillis())
             persistSubscriptions()
@@ -92,19 +92,29 @@ object LibraryRepository {
     /** Messages for account changes YouTube refused; the local change has already been undone. */
     val syncErrors: SharedFlow<String> = _syncErrors
 
+    private val mutationGenerations = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     /**
      * Mirrors a library change to the signed-in account in the background. When the request
      * fails, [undo] restores the local state and [failMessage] is shown.
+     * When [key] is supplied, stale rollbacks are discarded if newer operations have been issued.
      */
-    private fun remote(failMessage: String, undo: () -> Unit = {}, block: () -> Unit) {
+    private fun remote(failMessage: String, key: String? = null, undo: () -> Unit = {}, block: () -> Unit) {
         if (!GoogleAccount.isSignedIn()) return
+        val expectedGen = if (key != null) {
+            mutationGenerations.compute(key) { _, current -> (current ?: 0L) + 1L }!!
+        } else 0L
         repoScope.launch {
             val ok = runCatching(block).onFailure { android.util.Log.w("AccountSync", failMessage, it) }.isSuccess
             if (!ok) {
                 // On the main thread, where every other library change happens, so the rollback
                 // can't race a tap and drop it.
-                kotlinx.coroutines.withContext(Dispatchers.Main) { undo() }
-                _syncErrors.tryEmit(failMessage)
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    if (key == null || mutationGenerations[key] == expectedGen) {
+                        undo()
+                        _syncErrors.tryEmit(failMessage)
+                    }
+                }
             }
         }
     }
@@ -181,7 +191,10 @@ object LibraryRepository {
 
     private fun persistSubscriptions() {
         val store = prefs ?: return
-        store.edit().putString("subscriptions", subscriptionsToJson(_subscriptions.value).toString()).apply()
+        val subs = _subscriptions.value
+        repoScope.launch {
+            store.edit().putString("subscriptions", subscriptionsToJson(subs).toString()).apply()
+        }
     }
 
     fun setNotifyLevel(name: String, level: NotifyLevel) {
@@ -313,7 +326,9 @@ object LibraryRepository {
     }
 
     private fun persistStrings(key: String, values: List<String>) {
-        prefs?.edit()?.putString(key, JSONArray(values).toString())?.apply()
+        repoScope.launch {
+            prefs?.edit()?.putString(key, JSONArray(values).toString())?.apply()
+        }
     }
 
     private fun readStrings(json: String?): List<String> = runCatching {
@@ -419,14 +434,17 @@ object LibraryRepository {
 
     private fun persistPlaylists() {
         val store = prefs ?: return
-        val json = JSONArray(_playlists.value.map { playlist ->
-            JSONObject()
-                .put("id", playlist.id)
-                .put("name", playlist.name)
-                .put("remote", playlist.remoteId)
-                .put("items", JSONArray(playlist.items.map(::toJson)))
-        })
-        store.edit().putString("playlists", json.toString()).apply()
+        val current = _playlists.value
+        repoScope.launch {
+            val json = JSONArray(current.map { playlist ->
+                JSONObject()
+                    .put("id", playlist.id)
+                    .put("name", playlist.name)
+                    .put("remote", playlist.remoteId)
+                    .put("items", JSONArray(playlist.items.map(::toJson)))
+            })
+            store.edit().putString("playlists", json.toString()).apply()
+        }
     }
 
     private fun readPlaylists(json: String?): List<Playlist> = runCatching {
@@ -465,6 +483,7 @@ object LibraryRepository {
                 AccountApi.Rating.DISLIKE -> "Couldn't dislike this on your account"
                 AccountApi.Rating.NONE -> "Couldn't remove the rating on your account"
             },
+            key = "rate:${item.id}",
             undo = {
                 _liked.value = wasLiked; persist("liked", wasLiked)
                 _disliked.value = wasDisliked; persistStrings("disliked", wasDisliked.toList())
@@ -653,7 +672,7 @@ object LibraryRepository {
         val adding = !isSaved(item.id)
         _saved.value = if (!adding) _saved.value.filter { it.id != item.id } else listOf(item) + _saved.value
         persist("saved", _saved.value)
-        remote("Couldn't update Watch later on your account", undo = {
+        remote("Couldn't update Watch later on your account", key = "wl:${item.id}", undo = {
             _saved.value = before; persist("saved", before)
         }) {
             if (adding) AccountApi.addVideo(AccountApi.WATCH_LATER, item.id)
@@ -801,7 +820,10 @@ object LibraryRepository {
     // ---- serialization ----
 
     private fun persist(key: String, items: List<MediaItemModel>) {
-        prefs?.edit()?.putString(key, JSONArray(items.map(::toJson)).toString())?.apply()
+        repoScope.launch {
+            val json = JSONArray(items.map(::toJson)).toString()
+            prefs?.edit()?.putString(key, json)?.apply()
+        }
     }
 
     private fun toJson(i: MediaItemModel) = JSONObject().apply {

@@ -243,6 +243,14 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     dislikeCounts
                 ) { AppSettings.setShowDislikeCounts(it) }
             }
+            item(key = "sponsorblock") {
+                val sponsorBlock by AppSettings.sponsorBlockEnabled.collectAsState()
+                SwitchRow(
+                    "SponsorBlock auto-skip",
+                    "Automatically skips sponsor segments, intros, and interaction reminders",
+                    sponsorBlock
+                ) { AppSettings.setSponsorBlockEnabled(it) }
+            }
 
             // ---- Downloads ----
             item(key = "h_downloads") { SettingsHeader("Downloads") }

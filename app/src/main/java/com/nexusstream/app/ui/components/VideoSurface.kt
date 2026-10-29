@@ -132,13 +132,18 @@ fun VideoSurface(
                         subs.setApplyEmbeddedStyles(false)
                         subs.setStyle(captionStyle(captionBackground))
                     }
-                    if (owner) FrameGrabber.view = view.videoSurfaceView as? android.view.TextureView
-                    // Re-attaching forces the player to render into this view's texture again.
+                    val texture = view.videoSurfaceView as? android.view.TextureView
                     if (owner) {
+                        FrameGrabber.view = texture
                         if (view.player !== player) view.player = player
-                    } else if (view.player != null) {
-                        view.player = null
+                    } else {
+                        FrameGrabber.clear(texture)
+                        if (view.player != null) view.player = null
                     }
+                },
+                onRelease = { view ->
+                    (view.videoSurfaceView as? android.view.TextureView)?.let { FrameGrabber.clear(it) }
+                    view.player = null
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -167,19 +172,34 @@ private fun captionStyle(background: Int): androidx.media3.ui.CaptionStyleCompat
 /**
  * The picture currently on screen, for ambient mode: it samples a tiny copy of the frame
  * (TextureView keeps the last frame, so this is cheap) to tint the glow around the player.
+ * Uses a WeakReference to avoid leaking the host Activity/View context.
  */
 object FrameGrabber {
     @Volatile
-    var view: android.view.TextureView? = null
+    private var viewRef: java.lang.ref.WeakReference<android.view.TextureView>? = null
+
+    var view: android.view.TextureView?
+        get() = viewRef?.get()
+        set(value) {
+            viewRef = if (value != null) java.lang.ref.WeakReference(value) else null
+        }
+
+    fun clear(target: android.view.TextureView? = null) {
+        val current = viewRef?.get()
+        if (target == null || current === target) {
+            viewRef = null
+            ambient.value = null
+        }
+    }
 
     /** The last sampled colour (ARGB), shared by the glow and the watch page background. */
     val ambient = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
 
-    /** The average colour of the current frame, or null when nothing is showing. */
-    fun averageColor(): Int? {
-        val v = view ?: return null
-        if (!v.isAvailable) return null
-        val bmp = runCatching { v.getBitmap(16, 9) }.getOrNull() ?: return null
+    /** The average colour of the current frame, computed off the main thread. */
+    suspend fun averageColor(): Int? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+        val v = view ?: return@withContext null
+        if (!v.isAvailable) return@withContext null
+        val bmp = runCatching { v.getBitmap(16, 9) }.getOrNull() ?: return@withContext null
         var r = 0L; var g = 0L; var b = 0L
         var n = 0
         for (y in 0 until bmp.height) for (x in 0 until bmp.width) {
@@ -188,7 +208,7 @@ object FrameGrabber {
             n++
         }
         bmp.recycle()
-        if (n == 0) return null
-        return android.graphics.Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+        if (n == 0) return@withContext null
+        android.graphics.Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
     }
 }

@@ -27,7 +27,11 @@ object InnerTube {
     /** Feed menu feedback tokens for a video, captured while parsing feeds. */
     class Feedback(val notInterested: String?, val dontRecommendChannel: String?)
 
-    private val feedback = java.util.concurrent.ConcurrentHashMap<String, Feedback>()
+    private val feedback = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<String, Feedback>(128, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Feedback>?): Boolean = size > 250
+        }
+    )
 
     fun feedbackFor(videoId: String): Feedback? = feedback[videoId]
 
