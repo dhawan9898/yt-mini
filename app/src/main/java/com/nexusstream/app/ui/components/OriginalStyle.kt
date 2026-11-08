@@ -374,8 +374,12 @@ fun OriginalLoading(modifier: Modifier = Modifier) {
     }
 }
 
+/** Lets an error screen offer the user's downloads when the device is offline (set by the home screen). */
+val LocalOpenDownloads = androidx.compose.runtime.staticCompositionLocalOf<(() -> Unit)?> { null }
+
 @Composable
 fun OriginalError(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    val openDownloads = LocalOpenDownloads.current
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -395,6 +399,18 @@ fun OriginalError(message: String, onRetry: () -> Unit, modifier: Modifier = Mod
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
             Text(text = "Retry", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = OriginalColors.OnInverse)
+        }
+        if (message == FriendlyError.OFFLINE && openDownloads != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Watch your downloads",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = OriginalColors.TextPrimary,
+                modifier = Modifier
+                    .bouncyClickable(onClick = openDownloads)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
         }
     }
 }

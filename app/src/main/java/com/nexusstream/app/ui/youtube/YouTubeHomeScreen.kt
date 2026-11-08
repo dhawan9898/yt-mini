@@ -293,7 +293,10 @@ fun YouTubeHomeScreen(
                 .glassBackdrop(backdrop)
                 .nestedScroll(scrollConnection)
         ) {
-            CompositionLocalProvider(LocalChromePadding provides chrome) {
+            CompositionLocalProvider(
+                LocalChromePadding provides chrome,
+                com.nexusstream.app.ui.components.LocalOpenDownloads provides { nav.open(Route.Downloads) }
+            ) {
             PopInFromCorner(visible = floatingVideo, modifier = Modifier.zIndex(2f)) {
             if (currentPlayingItem != null && playbackService != null && homeState != null) {
                 FloatingMiniPlayer(
