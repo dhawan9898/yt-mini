@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -329,6 +330,83 @@ fun OriginalBottomNav(
                     fontSize = 10.sp,
                     color = tint,
                     fontWeight = if (index == selectedIndex) FontWeight.Medium else FontWeight.Normal
+                )
+            }
+        }
+    }
+}
+
+/**
+ * YouTube's bottom bar: flat and docked to the bottom edge, with the Create "+" between the
+ * second and third tab. [entries] are the four tabs; [onCreate] is the "+". The caller adds the
+ * navigation-bar inset (the bar's own height is 56 dp).
+ */
+@Composable
+fun YouTubeBottomNav(
+    entries: List<BottomNavEntry>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onCreate: () -> Unit,
+    background: Color,
+    modifier: Modifier = Modifier
+) {
+    val split = entries.size / 2 // tabs before the "+"
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(background)
+            .height(56.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        entries.forEachIndexed { index, entry ->
+            if (index == split) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            role = Role.Button,
+                            onClickLabel = "Create"
+                        ) { onCreate() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AddCircleOutline,
+                        contentDescription = "Create",
+                        tint = OriginalColors.TextPrimary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+            val selected = index == selectedIndex
+            val tint = if (selected) OriginalColors.TextPrimary else OriginalColors.TextSecondary
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Tab
+                    ) { onSelect(index) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = if (selected) entry.selectedIcon else entry.icon,
+                    contentDescription = entry.label,
+                    tint = tint,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = entry.label,
+                    fontSize = 10.sp,
+                    color = tint,
+                    fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1
                 )
             }
         }

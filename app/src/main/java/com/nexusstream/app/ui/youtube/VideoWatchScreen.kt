@@ -140,6 +140,8 @@ import com.nexusstream.app.data.CommentModel
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
@@ -425,9 +427,9 @@ fun VideoWatchScreen(
             item {
                 val tag = details?.tags?.firstOrNull()?.takeIf { it.isNotBlank() }
                 val statsLine = buildAnnotatedString {
+                    // "1.2M views  3 days ago  #tag ...more": the channel and the likes have their own
+                    // places below the title, as on YouTube.
                     val parts = listOfNotNull(
-                        mediaItem.artistOrChannel.takeIf { it.isNotBlank() },
-                        details?.likes?.takeIf { it >= 0 }?.let { "${YouTubeRepository.formatCount(it)} likes" },
                         (details?.views?.takeIf { it >= 0 }?.let { YouTubeRepository.formatCount(it) }
                             ?: mediaItem.viewsOrPlays.takeIf { it.isNotBlank() })?.let { "$it views" },
                         (details?.uploadedText?.takeIf { it.isNotBlank() } ?: mediaItem.publishDate.takeIf { it.isNotBlank() }),
@@ -446,17 +448,17 @@ fun VideoWatchScreen(
                 ) {
                     Text(
                         text = mediaItem.title,
-                        fontSize = 18.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         color = OriginalColors.TextPrimary,
-                        lineHeight = 24.sp,
+                        lineHeight = 22.sp,
                         maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = statsLine,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         color = OriginalColors.TextSecondary,
                         maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
                         overflow = TextOverflow.Ellipsis
@@ -567,17 +569,17 @@ fun VideoWatchScreen(
                 }
             }
 
-            // Channel avatar + Subscribe, with icon-only actions on the right
-            item {
+            // Channel row: avatar, name with subscriber count, Subscribe
+            item(key = "channel-row") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 12.dp, end = 4.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
                             .background(mediaItem.dominantColor)
                             .clickable { onOpenChannel(mediaItem) },
@@ -589,6 +591,29 @@ fun VideoWatchScreen(
                                 contentDescription = mediaItem.artistOrChannel,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onOpenChannel(mediaItem) }
+                    ) {
+                        Text(
+                            text = mediaItem.artistOrChannel,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = OriginalColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        details?.subscribers?.takeIf { it >= 0 }?.let { subs ->
+                            Text(
+                                text = "${YouTubeRepository.formatCount(subs)} subscribers",
+                                fontSize = 12.sp,
+                                color = OriginalColors.TextSecondary,
+                                maxLines = 1
                             )
                         }
                     }
@@ -609,64 +634,116 @@ fun VideoWatchScreen(
                             color = if (isSubscribed) OriginalColors.TextPrimary else OriginalColors.OnInverse
                         )
                     }
-                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
 
-                    IconButton(onClick = { LibraryRepository.toggleLike(mediaItem) }) {
-                        Icon(
-                            imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                            contentDescription = "Like",
-                            tint = OriginalColors.TextPrimary,
-                            modifier = Modifier.size(24.dp)
+            // Action chips (scroll sideways): Like | Dislike, Share, Download, Save, More
+            item(key = "action-chips") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(OriginalColors.Chip),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .clickable(onClickLabel = if (isLiked) "Remove like" else "Like") { LibraryRepository.toggleLike(mediaItem) }
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                                contentDescription = "Like",
+                                tint = OriginalColors.TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            details?.likes?.takeIf { it >= 0 }?.let { likes ->
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = YouTubeRepository.formatCount(likes),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = OriginalColors.TextPrimary,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(20.dp)
+                                .background(OriginalColors.Divider)
                         )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .clickable(onClickLabel = if (isDisliked) "Remove dislike" else "Dislike") { LibraryRepository.toggleDislike(mediaItem) }
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                                contentDescription = "Dislike",
+                                tint = OriginalColors.TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            dislikeCount?.let { count ->
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = YouTubeRepository.formatCount(count),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = OriginalColors.TextPrimary,
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     }
-                    IconButton(onClick = { LibraryRepository.toggleDislike(mediaItem) }) {
-                        Icon(
-                            imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                            contentDescription = "Dislike",
-                            tint = OriginalColors.TextPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    dislikeCount?.let { count ->
-                        Text(
-                            text = YouTubeRepository.formatCount(count),
-                            fontSize = 12.sp,
-                            color = OriginalColors.TextSecondary
-                        )
-                    }
-                    IconButton(onClick = {
+                    WatchActionChip(label = "Share", description = "Share", onClick = {
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TEXT, mediaItem.watchUrl)
                         }
                         context.startActivity(Intent.createChooser(send, "Share"))
                     }) {
-                        Icon(Icons.Outlined.Share, "Share", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Outlined.Share, null, tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
                     }
-                    IconButton(onClick = {
-                        if (downloadState !is DownloadState.Downloading) showDownloadSheet = true
-                    }) {
+                    WatchActionChip(
+                        label = if (isDownloaded) "Downloaded" else if (downloadState is DownloadState.Downloading) "Downloading" else "Download",
+                        description = "Download",
+                        onClick = { if (downloadState !is DownloadState.Downloading) showDownloadSheet = true }
+                    ) {
                         when {
                             downloadState is DownloadState.Downloading -> CircularProgressIndicator(
                                 progress = { downloadState.progress },
                                 color = OriginalColors.TextPrimary,
                                 strokeWidth = 2.dp,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(18.dp)
                             )
-                            isDownloaded -> Icon(Icons.Outlined.DownloadDone, "Downloaded", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
-                            else -> Icon(Icons.Outlined.FileDownload, "Download", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
+                            isDownloaded -> Icon(Icons.Outlined.DownloadDone, null, tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
+                            else -> Icon(Icons.Outlined.FileDownload, null, tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
                         }
                     }
-                    IconButton(onClick = { showSaveSheet = true }) {
+                    WatchActionChip(label = if (isSaved) "Saved" else "Save", description = if (isSaved) "Saved" else "Save", onClick = { showSaveSheet = true }) {
                         Icon(
                             imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                            contentDescription = if (isSaved) "Saved" else "Save",
+                            contentDescription = null,
                             tint = OriginalColors.TextPrimary,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    IconButton(onClick = { showOptions = true }) {
-                        Icon(Icons.Rounded.MoreHoriz, "More", tint = OriginalColors.TextPrimary, modifier = Modifier.size(24.dp))
+                    WatchActionChip(label = null, description = "More", onClick = { showOptions = true }) {
+                        Icon(Icons.Rounded.MoreHoriz, null, tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -1412,6 +1489,37 @@ private fun LiveChatSheet(start: com.nexusstream.app.data.LiveChat.Start, positi
                     }
                 }
             }
+        }
+    }
+}
+
+/** One of the grey pill buttons under the channel row ("Share", "Download", ...). [label] null makes it icon-only. */
+@Composable
+private fun WatchActionChip(
+    label: String?,
+    description: String,
+    onClick: () -> Unit,
+    leading: @Composable () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(OriginalColors.Chip)
+            .clickable(onClickLabel = description, onClick = onClick)
+            .padding(horizontal = if (label == null) 10.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        leading()
+        if (label != null) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = OriginalColors.TextPrimary,
+                maxLines = 1
+            )
         }
     }
 }

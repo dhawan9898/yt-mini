@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -114,7 +115,7 @@ internal fun YouTubeVideoCard(
 
             IconButton(onClick = { showMenu = true }) {
                 Icon(
-                    imageVector = Icons.Rounded.MoreHoriz,
+                    imageVector = Icons.Rounded.MoreVert,
                     contentDescription = "Options",
                     tint = OriginalColors.TextPrimary,
                     modifier = Modifier.size(22.dp)
@@ -225,13 +226,13 @@ private fun Thumbnail(item: MediaItemModel, inset: Boolean, rounded: Boolean = f
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(8.dp)
-                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = formatVideoDuration(item.durationMs),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
                     color = Color.White
                 )
             }
@@ -252,33 +253,31 @@ private fun Thumbnail(item: MediaItemModel, inset: Boolean, rounded: Boolean = f
     }
 }
 
-/** "Channel  ▷ 456K  1d ago", like the original feed. */
+/** "Channel · 1.2M views · 3 days ago", the one grey line YouTube shows under the title. */
 @Composable
 private fun MetaLine(item: MediaItemModel) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = item.artistOrChannel,
-            fontSize = 13.sp,
-            color = OriginalColors.TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-        if (item.viewsOrPlays.isNotBlank()) {
-            Spacer(modifier = Modifier.width(10.dp))
-            Icon(
-                imageVector = Icons.Outlined.PlayArrow,
-                contentDescription = null,
-                tint = OriginalColors.TextSecondary,
-                modifier = Modifier.size(15.dp)
-            )
-            Text(text = item.viewsOrPlays, fontSize = 13.sp, color = OriginalColors.TextSecondary, maxLines = 1)
-        }
-        if (item.publishDate.isNotBlank()) {
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(text = item.publishDate, fontSize = 13.sp, color = OriginalColors.TextSecondary, maxLines = 1)
+    Text(
+        text = videoMetaText(item),
+        fontSize = 12.sp,
+        color = OriginalColors.TextSecondary,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+/** The channel, views and age joined with middle dots; anything unknown is left out. */
+internal fun videoMetaText(item: MediaItemModel): String {
+    val views = item.viewsOrPlays.trim().let { v ->
+        when {
+            v.isEmpty() -> ""
+            item.isLive -> "$v watching"
+            v.contains("view", ignoreCase = true) || v.contains("play", ignoreCase = true) -> v
+            else -> "$v views"
         }
     }
+    return listOf(item.artistOrChannel.trim(), views, item.publishDate.trim())
+        .filter { it.isNotEmpty() }
+        .joinToString(" \u00b7 ")
 }
 
 internal fun formatVideoDuration(ms: Long): String {
