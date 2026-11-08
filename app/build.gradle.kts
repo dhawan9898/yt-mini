@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -9,7 +11,7 @@ plugins {
 // Without one the official-API fallback stays off and the app uses the extractor alone.
 val ytApiKey: String = (project.findProperty("ytApiKey") as String?)
     ?: System.getenv("YT_API_KEY")
-    ?: java.util.Properties().also { props ->
+    ?: Properties().also { props ->
         rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { props.load(it) }
     }.getProperty("yt.api.key")
     ?: ""
