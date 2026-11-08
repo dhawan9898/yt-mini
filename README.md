@@ -46,3 +46,9 @@ keytool -list -v -keystore keystore/nexusstream.p12 -storetype pkcs12 -storepass
 ## Tests
 
 `./gradlew testDebugUnitTest`. `YouTubeDataApiTest` runs the API client against a local mock server (quota, caching, retries, error handling); `YouTubeApiFallbackTest` covers the mapping into the app's models.
+
+## Web prototype (`src/`, `web/`, `index.html`)
+
+A Vite + React mock-up of the app's look, running on sample data in `src/data/catalog.ts`. It is a design
+prototype only: it does not talk to YouTube and is not part of the Android build. Run it with
+`npm install && npm run dev`. The Android app in `app/` is the product.

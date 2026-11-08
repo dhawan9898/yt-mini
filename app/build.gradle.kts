@@ -45,18 +45,9 @@ android {
             keyAlias = "nexusstream"
             keyPassword = "nexusstream"
         }
-        create("debugConfig") {
-            storeFile = file("${rootDir}/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
     }
 
     buildTypes {
-        debug {
-            signingConfig = signingConfigs.getByName("debugConfig")
-        }
         release {
             // R8 shrinking is opt-in (./gradlew assembleRelease -Pminify=true) until it has been tried
             // on a device; the default release build is unchanged.

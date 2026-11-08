@@ -441,7 +441,7 @@ sealed interface FeedState<out T> {
 /** Converts a [Result] into a [FeedState]. */
 fun <T> Result<T>.toFeedState(): FeedState<T> = fold(
     onSuccess = { FeedState.Data(it) },
-    onFailure = { FeedState.Error(it.message ?: "Something went wrong") }
+    onFailure = { FeedState.Error(FriendlyError.message(it)) }
 )
 
 @Composable
