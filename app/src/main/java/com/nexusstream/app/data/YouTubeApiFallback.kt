@@ -105,6 +105,38 @@ internal object YouTubeApiFallback {
         videoCount = p.itemCount
     )
 
+    // ------------------------------------------------------------------ shorts
+
+    /** A short by length (and the #shorts tag for the longer ones YouTube now allows). */
+    internal fun isShortVideo(v: YouTubeDataApi.Video): Boolean =
+        !v.isLive && v.durationSeconds in 1..SHORT_MAX_SECONDS ||
+            (!v.isLive && v.durationSeconds in 1..180 && "#shorts" in (v.title + " " + v.description).lowercase())
+
+    private fun asShort(v: YouTubeDataApi.Video, avatar: String = ""): MediaItemModel = toModel(v, avatar).copy(isShort = true)
+
+    /** The newest Shorts from one channel's uploads (2 units). */
+    fun channelShorts(channelUrl: String, take: Int = 1): List<MediaItemModel> {
+        val id = CHANNEL_ID.find(channelUrl)?.groupValues?.get(1)
+        val handle = HANDLE.find(channelUrl)?.groupValues?.get(1)
+        val channel = when {
+            id != null -> YouTubeDataApi.channelById(id)
+            handle != null -> YouTubeDataApi.channelByHandle(handle)
+            else -> null
+        } ?: return emptyList()
+        if (channel.uploadsPlaylistId.isEmpty()) return emptyList()
+        return YouTubeDataApi.playlistVideos(channel.uploadsPlaylistId, max = 30).items
+            .filter { isShortVideo(it) }.take(take).map { asShort(it, channel.avatarUrl) }
+    }
+
+    /** Shorts found by the official search (100 units): pageable, cached for half an hour. */
+    fun shortsSearch(region: String): Paged<MediaItemModel> {
+        val kinds = listOf(YouTubeDataApi.SearchKind.VIDEO)
+        val first = YouTubeDataApi.search("#shorts", kinds, region = region, max = 50, videoDuration = "short")
+        return pagedFrom(first, { hit -> (hit as? YouTubeDataApi.SearchHit.VideoHit)?.video?.takeIf { isShortVideo(it) }?.let { asShort(it) } }) { token ->
+            YouTubeDataApi.search("#shorts", kinds, pageToken = token, region = region, max = 50, videoDuration = "short")
+        }
+    }
+
     // ------------------------------------------------------------------ video, channel, playlist
 
     /** The video behind a watch link. */

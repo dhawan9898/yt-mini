@@ -231,7 +231,6 @@ fun YouTubeHomeScreen(
         if (selectedCategory in base) base else base + selectedCategory
     }
     var showExplore by remember { mutableStateOf(false) }
-    var showCreate by remember { mutableStateOf(false) }
     val navEntries = remember {
         listOf(
             BottomNavEntry("Home", Icons.Outlined.Home, Icons.Filled.Home),
@@ -443,9 +442,6 @@ fun YouTubeHomeScreen(
             }
         }
 
-    if (showCreate) {
-        CreateSheet(onDismiss = { showCreate = false }, onUpload = { showCreate = false; nav.open(Route.Upload) })
-    }
 
     // Bottom overlay: the mini player (audio) and the navigation bar float over the scrolling content.
     Column(modifier = Modifier.align(Alignment.BottomCenter)) {
@@ -467,29 +463,29 @@ fun YouTubeHomeScreen(
                 )
             }
         }
-        // YouTube's bottom bar is flat, docked, and always there (only the top bar scrolls away).
-        if (!wide) {
-            androidx.compose.foundation.layout.Column(
+        // Floating liquid-glass bar; it slips away while scrolling down and returns on scroll up.
+        AnimatedVisibility(
+            visible = !wide && (navVisible || selectedTab == 1),
+            enter = slideInVertically(GlassMotion.smooth()) { it } + fadeIn(GlassMotion.smooth()),
+            exit = slideOutVertically(GlassMotion.smooth()) { it } + fadeOut(GlassMotion.smooth())
+        ) {
+            GlassNavBar(
+                entries = navEntries,
+                selectedIndex = selectedTab,
+                onSelect = selectTab,
+                backdrop = backdrop,
                 modifier = Modifier
-                    .background(OriginalColors.YouTubeBackground)
                     .navigationBarsPadding()
-            ) {
-                com.nexusstream.app.ui.components.YouTubeBottomNav(
-                    entries = navEntries,
-                    selectedIndex = selectedTab,
-                    onSelect = selectTab,
-                    onCreate = { showCreate = true },
-                    background = OriginalColors.YouTubeBackground
-                )
-            }
+                    .padding(horizontal = 28.dp, vertical = 8.dp)
+            )
         }
     }
     }
     }
 }
 
-/** Height of the docked bottom bar. */
-private val NAV_BAR_SPACE = 56.dp
+/** Room kept under lists for the floating bar. */
+private val NAV_BAR_SPACE = 76.dp
 
 /** Height of the glass mini player plus its padding. */
 internal val MINI_PLAYER_SPACE = 72.dp

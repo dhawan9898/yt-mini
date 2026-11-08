@@ -93,4 +93,13 @@ class YouTubeApiFallbackTest {
         assertNull(none.loadReplies)
         assertEquals("", none.date)
     }
+
+    @Test
+    fun shortsAreRecognisedByLength() {
+        assertTrue(YouTubeApiFallback.isShortVideo(video("a", 45)))
+        assertTrue(YouTubeApiFallback.isShortVideo(video("a", 60)))
+        assertFalse(YouTubeApiFallback.isShortVideo(video("a", 61)))
+        assertFalse(YouTubeApiFallback.isShortVideo(video("a", 30, live = true)))
+        assertFalse(YouTubeApiFallback.isShortVideo(video("a", 0)))
+    }
 }

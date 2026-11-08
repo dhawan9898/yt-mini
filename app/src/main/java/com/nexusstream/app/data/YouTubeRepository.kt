@@ -607,6 +607,16 @@ object YouTubeRepository {
     ): Result<Paged<MediaItemModel>> = io {
         if (!refresh) shortsCache.get()?.let { return@io it }
 
+        // The official API first: your channels' newest Shorts (cheap) plus a Shorts search.
+        // The extractor path below is the fallback when the API has nothing or is out of quota.
+        if (YouTubeDataApi.isAvailable) {
+            val viaApi = runCatching { apiShortsFeed(seedChannels) }.getOrNull()
+            if (viaApi != null && viaApi.items.isNotEmpty()) {
+                shortsCache.set(viaApi)
+                return@io viaApi
+            }
+        }
+
         coroutineScope {
             val search = async { runCatching { fetchShortsSearchPaged("#shorts") }.getOrNull() }
             // Only a couple of your channels, one short each: the feed is recommendations first.
@@ -635,6 +645,20 @@ object YouTubeRepository {
             shortsCache.set(paged)
             paged
         }
+    }
+
+    private fun apiShortsFeed(seedChannels: List<String>): Paged<MediaItemModel> {
+        val mine = seedChannels.filter { it.isNotBlank() }.distinct().shuffled().take(3)
+            .flatMap { runCatching { YouTubeApiFallback.channelShorts(it) }.getOrDefault(emptyList()) }
+        val search = if (YouTubeDataApi.canSearch) runCatching { YouTubeApiFallback.shortsSearch(AppSettings.contentCountry.value) }.getOrNull() else null
+        val base = search?.items.orEmpty().shuffled()
+        val items = mixIn(base, mine, every = 5).distinctBy { it.id }
+        // When the API pages run out, the Shorts player's own sequence keeps the feed going.
+        val tail = items.lastOrNull()?.id
+        val more: (suspend () -> Result<Paged<MediaItemModel>>)? = search?.loadMore ?: tail?.let { seed ->
+            suspend { io { withReelSequence(Paged(listOf(bareShort(seed)), null)).let { Paged(emptyList(), it.loadMore) } } }
+        }
+        return Paged(items, more)
     }
 
     private fun bareShort(id: String): MediaItemModel =

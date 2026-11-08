@@ -188,13 +188,15 @@ object YouTubeDataApi {
      * Search (100 units, plus 1 for the video details of video results). Keep this for when the
      * extractor failed.
      */
-    fun search(query: String, kinds: List<SearchKind>, pageToken: String? = null, region: String = "", max: Int = 20): Page<SearchHit> {
+    fun search(query: String, kinds: List<SearchKind>, pageToken: String? = null, region: String = "", max: Int = 20, videoDuration: String? = null): Page<SearchHit> {
         require(kinds.isNotEmpty()) { "at least one kind" }
         val params = linkedMapOf(
             "part" to "snippet", "q" to query, "type" to kinds.joinToString(",") { it.apiValue },
             "maxResults" to max.coerceIn(1, 50).toString(), "safeSearch" to "none"
         )
         if (region.isNotBlank()) params["regionCode"] = region
+        // "short" = under four minutes: the closest the API has to a Shorts filter.
+        if (videoDuration != null && SearchKind.VIDEO in kinds) params["videoDuration"] = videoDuration
         pageToken?.let { params["pageToken"] = it }
         val json = request("search", params, cost = 100, cacheTtlMs = SEARCH_CACHE_TTL_MS)
         val rows = json.optJSONArray("items") ?: JSONArray()
