@@ -50,7 +50,7 @@ internal class AutoLibrary(
         mediaId: String
     ): ListenableFuture<LibraryResult<MediaItem>> {
         val item = known[mediaId]?.let(::playable) ?: folders().firstOrNull { it.mediaId == mediaId }
-        return Futures.immediateFuture(item?.let { LibraryResult.ofItem(it, null) } ?: LibraryResult.ofError(ERROR_BAD_VALUE))
+        return Futures.immediateFuture(item?.let { LibraryResult.ofItem(it, null) } ?: LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
     }
 
     override fun onGetChildren(

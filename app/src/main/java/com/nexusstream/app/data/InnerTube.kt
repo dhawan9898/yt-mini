@@ -297,8 +297,8 @@ object InnerTube {
             .header("Origin", origin)
             .header("X-Origin", origin)
             .header("Content-Type", "application/json")
-            builder.header("X-Youtube-Client-Name", clientNameId)
-            builder.header("X-Youtube-Client-Version", clientVersion)
+        builder.header("X-Youtube-Client-Name", clientNameId)
+        builder.header("X-Youtube-Client-Version", clientVersion)
         GoogleAccount.cookieHeaderFor(origin)?.let { cookies ->
             builder.header("Cookie", cookies)
             sapisidHash(cookies, origin = origin)?.let { builder.header("Authorization", it) }

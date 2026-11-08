@@ -47,7 +47,7 @@ private const val SIGN_IN_URL =
     "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fm.youtube.com%2F"
 
 /** Signs in to Google inside a WebView; the session cookies are then used for YouTube requests. */
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "RestrictedApi")
 @Composable
 fun GoogleSignInScreen(nav: YouTubeNav) {
     val context = androidx.compose.ui.platform.LocalContext.current

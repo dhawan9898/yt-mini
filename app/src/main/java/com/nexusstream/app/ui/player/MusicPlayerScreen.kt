@@ -110,7 +110,8 @@ private enum class PlayerPanel { NONE, UP_NEXT, LYRICS, RELATED }
  * square album art, title + artist, seek bar, transport controls and an
  * UP NEXT / LYRICS / RELATED tab row at the bottom.
  */
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
+@UnstableApi
 @Composable
 fun MusicPlayerScreen(
     playbackService: MediaPlaybackService,

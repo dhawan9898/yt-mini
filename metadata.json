@@ -1,0 +1,6 @@
+{
+  "name": "NexusStream",
+  "description": "Unified YouTube and YouTube Music client with ad-free media pipeline, synchronized lyrics, vinyl turntable mode, and shorts.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

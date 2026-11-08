@@ -239,19 +239,45 @@ const state = {
   repeatMode: "ALL",
   queue: [...MUSIC_CATALOG],
   currentScreen: "FEED",
-  isScrubbing: false
+  isScrubbing: false,
+  sponsorBlockEnabled: true,
+  playbackSpeed: 1.0,
+  sleepTimerTimeout: null,
+  sleepTimerOnEnd: false,
+  downloadedItems: [
+    {
+      id: "ytm_1",
+      title: "Starfall Horizons (Liquid Edit)",
+      artistOrChannel: "Aetheria & Kroma",
+      artworkUrl: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&q=80",
+      audioUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+      size: "8.4 MB",
+      type: "Audio (256kbps)"
+    },
+    {
+      id: "ytv_1",
+      title: "Building an Autonomous Coding Agent",
+      artistOrChannel: "Tech Vanguard Lab",
+      artworkUrl: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&q=80",
+      videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+      size: "72.1 MB",
+      type: "1080p Premium"
+    }
+  ]
 };
 
 // =================================================================
 // DOM REFS
 // =================================================================
 const elements = {
-  // Mode switcher
+  // Mode switcher & header
   modeIndicator: document.getElementById("modeIndicator"),
   ytMusicTabBtn: document.getElementById("ytMusicTabBtn"),
   ytVideoTabBtn: document.getElementById("ytVideoTabBtn"),
   musicAppScreen: document.getElementById("musicAppScreen"),
   youtubeAppScreen: document.getElementById("youtubeAppScreen"),
+  premiumHubBtn: document.getElementById("premiumHubBtn"),
+  headerAvatarBtn: document.getElementById("headerAvatarBtn"),
 
   // Search
   searchToggleBtn: document.getElementById("searchToggleBtn"),
@@ -302,6 +328,7 @@ const elements = {
   capsuleIndicator: document.getElementById("capsuleIndicator"),
   modeSongBtn: document.getElementById("modeSongBtn"),
   modeVideoBtn: document.getElementById("modeVideoBtn"),
+  pipBtn: document.getElementById("pipBtn"),
   queueToggleBtn: document.getElementById("queueToggleBtn"),
   lyricsToggleBtn: document.getElementById("lyricsToggleBtn"),
 
@@ -316,6 +343,7 @@ const elements = {
 
   playerTitle: document.getElementById("playerTitle"),
   playerArtist: document.getElementById("playerArtist"),
+  playerOptionsBtn: document.getElementById("playerOptionsBtn"),
   sliderTrack: document.getElementById("sliderTrack"),
   sliderBuffer: document.getElementById("sliderBuffer"),
   sliderProgress: document.getElementById("sliderProgress"),
@@ -330,6 +358,30 @@ const elements = {
   nextBtn: document.getElementById("nextBtn"),
   repeatBtn: document.getElementById("repeatBtn"),
   repeatIcon: document.getElementById("repeatIcon"),
+
+  // Options Sheet & Modals
+  playerOptionsSheet: document.getElementById("playerOptionsSheet"),
+  optionsSheetBackdrop: document.getElementById("optionsSheetBackdrop"),
+  closeOptionsBtn: document.getElementById("closeOptionsBtn"),
+  qualitySelect: document.getElementById("qualitySelect"),
+  speedSelect: document.getElementById("speedSelect"),
+  currentSpeedLabel: document.getElementById("currentSpeedLabel"),
+  sleepTimerSelect: document.getElementById("sleepTimerSelect"),
+  sleepTimerLabel: document.getElementById("sleepTimerLabel"),
+  downloadCurrentMediaBtn: document.getElementById("downloadCurrentMediaBtn"),
+  sheetPipBtn: document.getElementById("sheetPipBtn"),
+  sponsorBlockToggle: document.getElementById("sponsorBlockToggle"),
+
+  downloadsModal: document.getElementById("downloadsModal"),
+  closeDownloadsBtn: document.getElementById("closeDownloadsBtn"),
+  downloadsList: document.getElementById("downloadsList"),
+
+  premiumModal: document.getElementById("premiumModal"),
+  closePremiumBtn: document.getElementById("closePremiumBtn"),
+
+  premiumToast: document.getElementById("premiumToast"),
+  toastIcon: document.getElementById("toastIcon"),
+  toastMessage: document.getElementById("toastMessage"),
 
   queueDrawer: document.getElementById("queueDrawer"),
   closeQueueBtn: document.getElementById("closeQueueBtn"),
@@ -570,6 +622,61 @@ class NexusMasterApp {
       this.loadTrack(state.queue[0], true);
       this.showMasterPlayer(true);
     });
+
+    // YouTube Premium Hub & Settings
+    if (elements.premiumHubBtn) {
+      elements.premiumHubBtn.addEventListener("click", () => this.togglePremiumModal(true));
+    }
+    if (elements.closePremiumBtn) {
+      elements.closePremiumBtn.addEventListener("click", () => this.togglePremiumModal(false));
+    }
+
+    // Picture-in-Picture
+    if (elements.pipBtn) {
+      elements.pipBtn.addEventListener("click", () => this.togglePiP());
+    }
+    if (elements.sheetPipBtn) {
+      elements.sheetPipBtn.addEventListener("click", () => {
+        this.toggleOptionsSheet(false);
+        this.togglePiP();
+      });
+    }
+
+    // Player Options Sheet
+    if (elements.playerOptionsBtn) {
+      elements.playerOptionsBtn.addEventListener("click", () => this.toggleOptionsSheet(true));
+    }
+    if (elements.closeOptionsBtn) {
+      elements.closeOptionsBtn.addEventListener("click", () => this.toggleOptionsSheet(false));
+    }
+    if (elements.optionsSheetBackdrop) {
+      elements.optionsSheetBackdrop.addEventListener("click", () => this.toggleOptionsSheet(false));
+    }
+
+    // Quality, Speed, Sleep Timer & Downloads
+    if (elements.qualitySelect) {
+      elements.qualitySelect.addEventListener("change", (e) => this.handleQualityChange(e.target.value));
+    }
+    if (elements.speedSelect) {
+      elements.speedSelect.addEventListener("change", (e) => this.handleSpeedChange(e.target.value));
+    }
+    if (elements.sleepTimerSelect) {
+      elements.sleepTimerSelect.addEventListener("change", (e) => this.handleSleepTimerChange(e.target.value));
+    }
+    if (elements.downloadCurrentMediaBtn) {
+      elements.downloadCurrentMediaBtn.addEventListener("click", () => this.downloadCurrentMedia());
+    }
+    if (elements.sponsorBlockToggle) {
+      elements.sponsorBlockToggle.addEventListener("change", (e) => {
+        state.sponsorBlockEnabled = e.target.checked;
+        this.showToast(state.sponsorBlockEnabled ? "⚡ SponsorBlock Auto-Skip Enabled" : "SponsorBlock Disabled", "security");
+      });
+    }
+
+    // Downloads Modal Close
+    if (elements.closeDownloadsBtn) {
+      elements.closeDownloadsBtn.addEventListener("click", () => this.toggleDownloadsModal(false));
+    }
 
     this.setupScrubber();
   }
@@ -847,6 +954,7 @@ class NexusMasterApp {
     YOUTUBE_VIDEOS.slice(0, 3).forEach((vid, i) => {
       const card = document.createElement("div");
       card.className = "you-history-card";
+      card.style.cursor = "pointer";
       card.innerHTML = `
         <div class="you-hist-thumb">
           <img src="${vid.thumbUrl}" alt="${vid.title}">
@@ -855,18 +963,36 @@ class NexusMasterApp {
         <div class="you-hist-title">${vid.title}</div>
         <div class="you-hist-author">${vid.channel}</div>
       `;
+      card.addEventListener("click", () => {
+        const item = {
+          id: vid.id,
+          title: vid.title,
+          artistOrChannel: vid.channel,
+          audioUrl: vid.videoUrl,
+          videoUrl: vid.videoUrl,
+          artworkUrl: vid.thumbUrl,
+          durationMs: 180000,
+          dominantColor: "#0984e3",
+          secondaryColor: "#00cec9"
+        };
+        state.queue = [item, ...MUSIC_CATALOG];
+        state.currentTrackIndex = 0;
+        this.setPlaybackMode("VIDEO");
+        this.loadTrack(item, true);
+        this.showMasterPlayer(true);
+      });
       elements.youHistoryRow.appendChild(card);
     });
 
     elements.youPlaylistsRow.innerHTML = `
-      <div class="you-history-card">
+      <div class="you-history-card" id="likedVideosPlaylistCard" style="cursor: pointer;">
         <div class="you-hist-thumb">
           <img src="https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&q=80" alt="Liked">
         </div>
         <div class="you-hist-title">Liked Videos</div>
         <div class="you-hist-author">142 videos • Private</div>
       </div>
-      <div class="you-history-card">
+      <div class="you-history-card" id="watchLaterPlaylistCard" style="cursor: pointer;">
         <div class="you-hist-thumb">
           <img src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80" alt="Watch Later">
         </div>
@@ -874,6 +1000,39 @@ class NexusMasterApp {
         <div class="you-hist-author">28 videos • Private</div>
       </div>
     `;
+
+    const likedCard = document.getElementById("likedVideosPlaylistCard");
+    if (likedCard) {
+      likedCard.addEventListener("click", () => {
+        state.queue = [...MUSIC_CATALOG];
+        state.currentTrackIndex = 0;
+        this.loadTrack(state.queue[0], true);
+        this.showMasterPlayer(true);
+        this.showToast("Playing Liked Videos playlist", "thumb_up");
+      });
+    }
+
+    // Attach click handlers to the options items in You tab
+    const optItems = document.querySelectorAll(".you-options-list .you-opt-item");
+    if (optItems.length >= 3) {
+      // 0: Downloads
+      const dSub = optItems[0].querySelector(".opt-sub");
+      if (dSub) {
+        dSub.textContent = `${state.downloadedItems.length} items offline • Smart storage`;
+      }
+      optItems[0].style.cursor = "pointer";
+      optItems[0].onclick = () => this.toggleDownloadsModal(true);
+
+      // 1: Liked
+      optItems[1].style.cursor = "pointer";
+      optItems[1].onclick = () => {
+        this.showToast("142 items liked • Cloud sync active", "thumb_up");
+      };
+
+      // 2: Settings & Ad-Free Shield
+      optItems[2].style.cursor = "pointer";
+      optItems[2].onclick = () => this.togglePremiumModal(true);
+    }
   }
 
   // =================================================================
@@ -1040,6 +1199,12 @@ class NexusMasterApp {
     elements.mediaAudio.src = track.audioUrl;
     elements.mediaVideo.src = track.videoUrl;
 
+    // Reset SponsorBlock and preserve playback rate
+    elements.mediaAudio._sponsorSkipped = false;
+    elements.mediaVideo._sponsorSkipped = false;
+    elements.mediaAudio.playbackRate = state.playbackSpeed;
+    elements.mediaVideo.playbackRate = state.playbackSpeed;
+
     elements.sliderProgress.style.width = "0%";
     elements.sliderThumb.style.left = "0%";
     elements.currentTime.textContent = "00:00";
@@ -1119,6 +1284,15 @@ class NexusMasterApp {
   }
 
   onTrackEnded() {
+    if (state.sleepTimerOnEnd) {
+      this.pause();
+      state.sleepTimerOnEnd = false;
+      if (elements.sleepTimerSelect) elements.sleepTimerSelect.value = "0";
+      if (elements.sleepTimerLabel) elements.sleepTimerLabel.textContent = "Off";
+      this.showToast("⏱️ Sleep timer finished • Playback paused", "bedtime");
+      return;
+    }
+
     if (state.repeatMode === "ONE") {
       const media = this.getCurrentMedia();
       media.currentTime = 0;
@@ -1192,6 +1366,13 @@ class NexusMasterApp {
     if (state.isScrubbing) return;
     const currentMs = media.currentTime * 1000;
     const durMs = media.duration && !isNaN(media.duration) ? media.duration * 1000 : this.currentTrack.durationMs;
+
+    // SponsorBlock Auto-Skip Simulation
+    if (state.sponsorBlockEnabled && media.currentTime >= 12 && media.currentTime < 13.5 && !media._sponsorSkipped) {
+      media._sponsorSkipped = true;
+      media.currentTime = 22; // Auto-skip forward 10 seconds
+      this.showToast("⚡ SponsorBlock: Skipped sponsored segment", "bolt");
+    }
 
     const progressFrac = Math.min(1, Math.max(0, currentMs / durMs));
     elements.sliderProgress.style.width = `${progressFrac * 100}%`;
@@ -1349,6 +1530,178 @@ class NexusMasterApp {
       });
 
       elements.queueList.appendChild(el);
+    });
+  }
+
+  // =================================================================
+  // YOUTUBE PREMIUM & ENHANCED PIPELINE HELPERS
+  // =================================================================
+  showToast(message, icon = "bolt") {
+    if (!elements.premiumToast) return;
+    elements.toastMessage.textContent = message;
+    elements.toastIcon.textContent = icon;
+    elements.premiumToast.classList.remove("hidden");
+    clearTimeout(this._toastTimeout);
+    this._toastTimeout = setTimeout(() => {
+      elements.premiumToast.classList.add("hidden");
+    }, 3200);
+  }
+
+  togglePremiumModal(show) {
+    if (!elements.premiumModal) return;
+    elements.premiumModal.classList.toggle("hidden", !show);
+  }
+
+  toggleOptionsSheet(show) {
+    if (!elements.playerOptionsSheet) return;
+    elements.playerOptionsSheet.classList.toggle("hidden", !show);
+  }
+
+  toggleDownloadsModal(show) {
+    if (!elements.downloadsModal) return;
+    elements.downloadsModal.classList.toggle("hidden", !show);
+    if (show) this.renderDownloads();
+  }
+
+  async togglePiP() {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        this.showToast("Exited Picture-in-Picture", "picture_in_picture");
+      } else if (elements.mediaVideo && document.pictureInPictureEnabled) {
+        if (state.playbackMode !== "VIDEO") {
+          this.setPlaybackMode("VIDEO");
+        }
+        await elements.mediaVideo.requestPictureInPicture();
+        this.showToast("Picture-in-Picture mode active", "picture_in_picture_alt");
+      } else {
+        this.showToast("Background audio streaming active", "headphones");
+      }
+    } catch {
+      this.showToast("Background audio streaming active", "headphones");
+    }
+  }
+
+  handleQualityChange(val) {
+    const labels = {
+      "1080p-premium": "1080p Premium (Enhanced Bitrate 60fps)",
+      "1080p": "1080p Standard",
+      "720p": "720p HD",
+      "480p": "480p SD",
+      "audio-only": "High Bitrate Opus Audio (256kbps)"
+    };
+    this.showToast(`✨ Switched: ${labels[val] || val}`, "high_quality");
+    const videoBadge = document.querySelector(".premium-video-badge span:last-child");
+    if (videoBadge) {
+      videoBadge.textContent = val === "1080p-premium" ? "1080p Premium Enhanced" : (labels[val] || val);
+    }
+  }
+
+  handleSpeedChange(val) {
+    const speed = parseFloat(val) || 1.0;
+    state.playbackSpeed = speed;
+    elements.mediaAudio.playbackRate = speed;
+    elements.mediaVideo.playbackRate = speed;
+    if (elements.currentSpeedLabel) {
+      elements.currentSpeedLabel.textContent = `${speed}x`;
+    }
+    this.showToast(`Playback speed set to ${speed}x`, "speed");
+  }
+
+  handleSleepTimerChange(val) {
+    if (state.sleepTimerTimeout) {
+      clearTimeout(state.sleepTimerTimeout);
+      state.sleepTimerTimeout = null;
+    }
+    state.sleepTimerOnEnd = false;
+
+    if (val === "0") {
+      if (elements.sleepTimerLabel) elements.sleepTimerLabel.textContent = "Off";
+      this.showToast("Sleep timer turned off", "bedtime_off");
+      return;
+    }
+
+    if (val === "end") {
+      state.sleepTimerOnEnd = true;
+      if (elements.sleepTimerLabel) elements.sleepTimerLabel.textContent = "End of track";
+      this.showToast("Sleep timer: pause at end of track", "bedtime");
+      return;
+    }
+
+    const minutes = parseInt(val, 10);
+    if (elements.sleepTimerLabel) elements.sleepTimerLabel.textContent = `${minutes} min`;
+    this.showToast(`Sleep timer set for ${minutes} minutes`, "bedtime");
+
+    state.sleepTimerTimeout = setTimeout(() => {
+      this.pause();
+      this.showToast("⏱️ Sleep timer finished • Playback paused", "bedtime");
+      if (elements.sleepTimerSelect) elements.sleepTimerSelect.value = "0";
+      if (elements.sleepTimerLabel) elements.sleepTimerLabel.textContent = "Off";
+    }, minutes * 60 * 1000);
+  }
+
+  downloadCurrentMedia() {
+    if (!this.currentTrack) return;
+    const item = {
+      id: this.currentTrack.id,
+      title: this.currentTrack.title,
+      artistOrChannel: this.currentTrack.artistOrChannel,
+      artworkUrl: this.currentTrack.artworkUrl,
+      audioUrl: this.currentTrack.audioUrl,
+      videoUrl: this.currentTrack.videoUrl,
+      size: state.playbackMode === "VIDEO" ? "68.4 MB" : "9.2 MB",
+      type: state.playbackMode === "VIDEO" ? "1080p Premium" : "Audio (256kbps)"
+    };
+
+    const exists = state.downloadedItems.some((d) => d.id === item.id);
+    if (!exists) {
+      state.downloadedItems.unshift(item);
+    }
+    this.toggleOptionsSheet(false);
+    this.showToast(`⬇️ Downloaded "${item.title}" for offline play`, "download_done");
+    this.renderYouView();
+  }
+
+  renderDownloads() {
+    if (!elements.downloadsList) return;
+    elements.downloadsList.innerHTML = "";
+    if (state.downloadedItems.length === 0) {
+      elements.downloadsList.innerHTML = '<div style="text-align: center; color: rgba(255,255,255,0.4); padding: 24px;">No offline downloads yet</div>';
+      return;
+    }
+
+    state.downloadedItems.forEach((item, index) => {
+      const row = document.createElement("div");
+      row.className = "download-item";
+      row.innerHTML = `
+        <img src="${item.artworkUrl}" class="download-thumb" alt="${item.title}">
+        <div class="download-info">
+          <div class="download-title">${item.title}</div>
+          <div class="download-meta">${item.artistOrChannel} • ${item.size} • <span style="color: #ffd700;">${item.type}</span></div>
+        </div>
+        <button class="download-del-btn" aria-label="Delete offline download">
+          <span class="material-symbols-rounded">delete</span>
+        </button>
+      `;
+
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".download-del-btn")) {
+          e.stopPropagation();
+          state.downloadedItems.splice(index, 1);
+          this.renderDownloads();
+          this.renderYouView();
+          this.showToast(`Removed "${item.title}" from offline downloads`, "delete");
+          return;
+        }
+        state.queue = [item, ...MUSIC_CATALOG];
+        state.currentTrackIndex = 0;
+        this.setPlaybackMode(item.type.includes("1080p") ? "VIDEO" : "SONG");
+        this.loadTrack(item, true);
+        this.toggleDownloadsModal(false);
+        this.showMasterPlayer(true);
+      });
+
+      elements.downloadsList.appendChild(row);
     });
   }
 }

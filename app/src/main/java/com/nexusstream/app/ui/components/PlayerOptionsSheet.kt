@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.components
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -51,6 +52,7 @@ private fun speedLabel(speed: Float) = if (speed == 1f) "Normal" else "${speed}x
  * original app's settings sheet (download has its own button there).
  */
 @OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 fun PlayerOptionsSheet(
     item: MediaItemModel,

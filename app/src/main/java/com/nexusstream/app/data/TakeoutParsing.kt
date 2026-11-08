@@ -36,7 +36,7 @@ object TakeoutParsing {
 
     /** Parses Takeout's `subscriptions.csv` ("Channel Id,Channel Url,Channel Title"). */
     fun parseSubscriptionsCsv(text: String): List<LibraryRepository.ChannelSub> {
-        val lines = text.removePrefix("﻿").lines().filter { it.isNotBlank() }
+        val lines = text.removePrefix("\uFEFF").lines().filter { it.isNotBlank() }
         if (lines.size < 2) return emptyList()
         val header = parseCsvLine(lines.first()).map { it.trim().lowercase() }
         val idCol = header.indexOf("channel id")

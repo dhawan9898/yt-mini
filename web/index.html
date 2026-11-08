@@ -32,6 +32,10 @@
       </div>
 
       <div class="header-actions">
+        <button id="premiumHubBtn" class="premium-badge-capsule" aria-label="YouTube Premium Hub">
+          <span class="material-symbols-rounded premium-spark">stars</span>
+          <span>PREMIUM</span>
+        </button>
         <button id="searchToggleBtn" class="icon-glass-btn sm" aria-label="Search">
           <span class="material-symbols-rounded">search</span>
         </button>
@@ -265,6 +269,9 @@
         </div>
 
         <div class="player-top-actions">
+          <button id="pipBtn" class="icon-glass-btn" aria-label="Picture-in-Picture" title="Picture-in-Picture">
+            <span class="material-symbols-rounded">picture_in_picture_alt</span>
+          </button>
           <button id="queueToggleBtn" class="icon-glass-btn" aria-label="Queue">
             <span class="material-symbols-rounded">queue_music</span>
           </button>
@@ -293,6 +300,10 @@
         <div id="videoContainer" class="media-viewport-container video-mode hidden">
           <div class="video-glass-frame">
             <video id="mediaVideo" playsinline preload="auto"></video>
+            <div class="premium-video-badge">
+              <span class="material-symbols-rounded">high_quality</span>
+              <span>1080p Premium Enhanced</span>
+            </div>
             <div id="videoBufferingOverlay" class="buffering-overlay hidden">
               <div class="liquid-spinner"></div>
             </div>
@@ -374,6 +385,194 @@
         <div id="queueList" class="queue-items-list"></div>
       </div>
     </section>
+
+    <!-- Player Options Bottom Glass Sheet -->
+    <div id="playerOptionsSheet" class="options-sheet hidden">
+      <div class="options-sheet-backdrop" id="optionsSheetBackdrop"></div>
+      <div class="options-sheet-content">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h3>Playback & Premium Options</h3>
+          <button id="closeOptionsBtn" class="icon-glass-btn sm" aria-label="Close Options"><span class="material-symbols-rounded">close</span></button>
+        </div>
+        <div class="options-group">
+          <div class="option-row">
+            <div class="option-info">
+              <span class="material-symbols-rounded">high_quality</span>
+              <div>
+                <div class="option-label">Stream Quality</div>
+                <div class="option-desc">Premium Enhanced Bitrate (1080p60)</div>
+              </div>
+            </div>
+            <select id="qualitySelect" class="glass-select">
+              <option value="1080p-premium" selected>1080p Premium (Enhanced)</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="480p">480p</option>
+              <option value="audio-only">Audio Only (256kbps)</option>
+            </select>
+          </div>
+
+          <div class="option-row">
+            <div class="option-info">
+              <span class="material-symbols-rounded">speed</span>
+              <div>
+                <div class="option-label">Playback Speed</div>
+                <div class="option-desc" id="currentSpeedLabel">Normal (1.0x)</div>
+              </div>
+            </div>
+            <select id="speedSelect" class="glass-select">
+              <option value="0.5">0.5x</option>
+              <option value="0.75">0.75x</option>
+              <option value="1.0" selected>1.0x (Normal)</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="1.75">1.75x</option>
+              <option value="2.0">2.0x</option>
+            </select>
+          </div>
+
+          <div class="option-row">
+            <div class="option-info">
+              <span class="material-symbols-rounded">bedtime</span>
+              <div>
+                <div class="option-label">Sleep Timer</div>
+                <div class="option-desc" id="sleepTimerLabel">Off</div>
+              </div>
+            </div>
+            <select id="sleepTimerSelect" class="glass-select">
+              <option value="0" selected>Off</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="45">45 minutes</option>
+              <option value="60">60 minutes</option>
+              <option value="end">End of track</option>
+            </select>
+          </div>
+
+          <div class="option-row clickable" id="downloadCurrentMediaBtn">
+            <div class="option-info">
+              <span class="material-symbols-rounded">download_for_offline</span>
+              <div>
+                <div class="option-label">Download Offline</div>
+                <div class="option-desc">Save to device for offline flights & commutes</div>
+              </div>
+            </div>
+            <span class="material-symbols-rounded option-chevron">arrow_forward_ios</span>
+          </div>
+
+          <div class="option-row clickable" id="sheetPipBtn">
+            <div class="option-info">
+              <span class="material-symbols-rounded">picture_in_picture_alt</span>
+              <div>
+                <div class="option-label">Picture-in-Picture</div>
+                <div class="option-desc">Pop out mini-floating window</div>
+              </div>
+            </div>
+            <span class="material-symbols-rounded option-chevron">open_in_new</span>
+          </div>
+
+          <div class="option-row">
+            <div class="option-info">
+              <span class="material-symbols-rounded">security</span>
+              <div>
+                <div class="option-label">SponsorBlock Auto-Skip</div>
+                <div class="option-desc">Automatically bypass sponsor & promo segments</div>
+              </div>
+            </div>
+            <label class="glass-toggle">
+              <input type="checkbox" id="sponsorBlockToggle" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Downloads Management Modal -->
+    <div id="downloadsModal" class="glass-modal hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="material-symbols-rounded modal-title-icon">download_done</span>
+            <div>
+              <h3>Offline Downloads</h3>
+              <p class="modal-sub">Smart offline storage • 1.2 GB cached</p>
+            </div>
+          </div>
+          <button id="closeDownloadsBtn" class="icon-glass-btn sm" aria-label="Close Downloads"><span class="material-symbols-rounded">close</span></button>
+        </div>
+        <div id="downloadsList" class="downloads-items-list">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- YouTube Premium Hub Modal -->
+    <div id="premiumModal" class="glass-modal hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <div class="premium-icon-badge">
+              <span class="material-symbols-rounded">verified</span>
+            </div>
+            <div>
+              <h3>YouTube Premium Hub</h3>
+              <p class="modal-sub">NexusStream Enhanced Pipeline Active</p>
+            </div>
+          </div>
+          <button id="closePremiumBtn" class="icon-glass-btn sm" aria-label="Close Premium Hub"><span class="material-symbols-rounded">close</span></button>
+        </div>
+        <div class="premium-features-list">
+          <div class="premium-feat-card">
+            <span class="material-symbols-rounded feat-icon gold">block</span>
+            <div class="feat-details">
+              <h4>Ad-Free Video & Music</h4>
+              <p>100% of pre-rolls, mid-rolls, and banners blocked seamlessly.</p>
+            </div>
+            <span class="status-pill active">ACTIVE</span>
+          </div>
+          <div class="premium-feat-card">
+            <span class="material-symbols-rounded feat-icon gold">fast_forward</span>
+            <div class="feat-details">
+              <h4>SponsorBlock Engine</h4>
+              <p>Community-sourced auto-skipping of intros, outros, and sponsor spots.</p>
+            </div>
+            <span class="status-pill active">ACTIVE</span>
+          </div>
+          <div class="premium-feat-card">
+            <span class="material-symbols-rounded feat-icon gold">high_quality</span>
+            <div class="feat-details">
+              <h4>1080p Premium Enhanced</h4>
+              <p>Maximum bitrate streaming with higher details and zero compression artifacts.</p>
+            </div>
+            <span class="status-pill active">ACTIVE</span>
+          </div>
+          <div class="premium-feat-card">
+            <span class="material-symbols-rounded feat-icon gold">picture_in_picture</span>
+            <div class="feat-details">
+              <h4>Background & PiP Play</h4>
+              <p>Continue listening when switching screens, locking phone, or browsing.</p>
+            </div>
+            <span class="status-pill active">ACTIVE</span>
+          </div>
+          <div class="premium-feat-card">
+            <span class="material-symbols-rounded feat-icon gold">offline_pin</span>
+            <div class="feat-details">
+              <h4>Smart Downloads</h4>
+              <p>Cache your favorite tracks and videos locally for offline flights & commutes.</p>
+            </div>
+            <span class="status-pill active">ACTIVE</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Premium Toast Notification -->
+    <div id="premiumToast" class="premium-toast hidden">
+      <span class="material-symbols-rounded toast-icon" id="toastIcon">bolt</span>
+      <span id="toastMessage" class="toast-message">Sponsor segment automatically skipped</span>
+    </div>
 
   </div>
 
