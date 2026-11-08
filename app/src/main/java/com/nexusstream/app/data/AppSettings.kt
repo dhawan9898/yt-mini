@@ -150,10 +150,30 @@ object AppSettings {
         prefs?.edit()?.putBoolean("restricted_mode", enabled)?.apply()
     }
 
+    /**
+     * SHA-1 of the app's signing certificate ("AB:CD:..."), sent to Google so an API key restricted
+     * to this app is accepted. Empty until [init] has run or when it cannot be read.
+     */
+    @Volatile
+    var signingCertSha1: String = ""
+        private set
+
+    private val memoryQuota = MemoryQuotaStore()
+
+    /** Where the YouTube Data API's daily quota count is kept (survives restarts once [init] has run). */
+    fun quotaStore(): QuotaStore = object : QuotaStore {
+        override fun get(key: String): String? = prefs?.getString("quota_$key", null) ?: memoryQuota.get(key)
+        override fun put(key: String, value: String) {
+            memoryQuota.put(key, value)
+            prefs?.edit()?.putString("quota_$key", value)?.apply()
+        }
+    }
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
+        signingCertSha1 = AppSignature.sha1(context.applicationContext)
         _themeMode.value = runCatching { ThemeMode.valueOf(p.getString("theme", "SYSTEM") ?: "SYSTEM") }
             .getOrDefault(ThemeMode.SYSTEM)
         _defaultVideoHeight.value = p.getInt("default_height", 0)

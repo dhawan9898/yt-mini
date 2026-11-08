@@ -38,21 +38,46 @@ class NewPipeDownloader private constructor(
             GoogleAccount.cookieHeaderFor(request.url())?.let { builder.header("Cookie", it) }
         }
 
-        client.newCall(builder.build()).execute().use { response ->
-            if (response.code == 429) {
-                throw ReCaptchaException("reCaptcha challenge requested", request.url())
+        return call(builder.build(), retry = method == "GET")
+    }
+
+    /**
+     * Runs the request. A GET gets one more try after a dropped connection, a timeout or a 5xx
+     * answer (YouTube and its CDNs hiccup constantly; the second try nearly always works).
+     * A CAPTCHA demand is never retried.
+     */
+    private fun call(request: okhttp3.Request, retry: Boolean): Response {
+        val attempts = if (retry) 2 else 1
+        var lastError: java.io.IOException? = null
+        for (attempt in 1..attempts) {
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.code == 429) {
+                        throw ReCaptchaException("reCaptcha challenge requested", request.url.toString())
+                    }
+                    if (!(response.code in 500..599 && attempt < attempts)) {
+                        return Response(
+                            response.code,
+                            response.message,
+                            response.headers.toMultimap(),
+                            response.body?.string(),
+                            response.request.url.toString()
+                        )
+                    }
+                }
+            } catch (e: ReCaptchaException) {
+                throw e
+            } catch (e: java.io.IOException) {
+                lastError = e
+                if (attempt >= attempts) throw e
             }
-            return Response(
-                response.code,
-                response.message,
-                response.headers.toMultimap(),
-                response.body?.string(),
-                response.request.url.toString()
-            )
+            Thread.sleep(RETRY_DELAY_MS)
         }
+        throw lastError ?: java.io.IOException("Request failed")
     }
 
     companion object {
+        private const val RETRY_DELAY_MS = 400L
         const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
@@ -61,6 +86,8 @@ class NewPipeDownloader private constructor(
                 OkHttpClient.Builder()
                     .readTimeout(30, TimeUnit.SECONDS)
                     .connectTimeout(15, TimeUnit.SECONDS)
+                    // Never hang for longer than this, whatever the server does.
+                    .callTimeout(60, TimeUnit.SECONDS)
                     .build()
             )
         }

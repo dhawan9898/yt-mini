@@ -4,6 +4,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// YouTube Data API v3 key. Never committed: pass -PytApiKey=..., set YT_API_KEY in the environment
+// (CI uses a repository secret), or add yt.api.key=... to the git-ignored local.properties.
+// Without one the official-API fallback stays off and the app uses the extractor alone.
+val ytApiKey: String = (project.findProperty("ytApiKey") as String?)
+    ?: System.getenv("YT_API_KEY")
+    ?: java.util.Properties().also { props ->
+        rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { props.load(it) }
+    }.getProperty("yt.api.key")
+    ?: ""
+
 android {
     namespace = "com.nexusstream.app"
     compileSdk = (project.findProperty("compileSdkOverride") as String?)?.toInt() ?: 35
@@ -14,6 +24,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "2.0.0"
+
+        buildConfigField("String", "YT_API_KEY", "\"${ytApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -56,6 +68,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
@@ -119,6 +132,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // Real org.json for unit tests (the Android one is a stub on the JVM).
     testImplementation("org.json:json:20240303")
+    // A local HTTP server for the YouTube Data API client's tests.
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
     // Google Play Services: Google Cast & Native On-Device Google Sign-In
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")

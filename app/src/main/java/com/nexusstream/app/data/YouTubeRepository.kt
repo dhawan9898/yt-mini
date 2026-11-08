@@ -1,6 +1,7 @@
 package com.nexusstream.app.data
 
 import androidx.compose.ui.graphics.Color
+import com.nexusstream.app.BuildConfig
 import com.nexusstream.app.model.MediaContentType
 import com.nexusstream.app.model.MediaItemModel
 import kotlinx.coroutines.Dispatchers
@@ -8,6 +9,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.schabi.newpipe.extractor.Image
 import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
@@ -341,7 +343,33 @@ object YouTubeRepository {
             Localization(ContentRegions.languageFor(country), country),
             ContentCountry(country)
         )
+        // The official API (stable second source). Without a key it stays off.
+        YouTubeDataApi.configure(
+            key = BuildConfig.YT_API_KEY,
+            quotaTracker = QuotaTracker(AppSettings.quotaStore()),
+            packageName = BuildConfig.APPLICATION_ID,
+            certSha1 = AppSettings.signingCertSha1
+        )
         true
+    }
+
+    /**
+     * The official API is the primary source: [api] is tried first. When it is switched off, its
+     * budget for the day is spent, or it fails or has nothing, [scrape] (the extractor / InnerTube)
+     * answers instead. Cancellation is never swallowed. If scraping then fails too, its error is
+     * what the caller sees.
+     */
+    private inline fun <T> apiFirst(api: () -> T?, scrape: () -> T): T {
+        if (YouTubeDataApi.isAvailable) {
+            try {
+                api()?.let { return it }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // Falls through to scraping below.
+            }
+        }
+        return scrape()
     }
 
     /** Loads the extractor in the background so the first screen does not pay for it. */
@@ -461,6 +489,15 @@ object YouTubeRepository {
                 return@io it
             }
         }
+        // Topics that have an official YouTube category: that category's chart comes first.
+        if (category != "All" && YouTubeApiFallback.categoryIdFor(category) != null && YouTubeDataApi.isAvailable) {
+            runCatching { YouTubeApiFallback.trendingFeed(AppSettings.contentCountry.value, category) }.getOrNull()
+                ?.takeIf { it.items.size >= 8 }?.let {
+                    lastVideoFeed = it.items
+                    feedCache[category] = Cached(System.currentTimeMillis(), it)
+                    return@io it
+                }
+        }
         // Explore destinations: the topic's own YouTube page.
         YouTubeWeb.exploreDestinations.firstOrNull { it.first == category }?.let { (_, browseId) ->
             runCatching { webFeed(YouTubeWeb.explore(browseId)) }.getOrNull()?.takeIf { it.items.size >= 4 }?.let {
@@ -470,7 +507,14 @@ object YouTubeRepository {
             }
         }
         val query = if (category == "All") "trending videos today" else category
-        val base = searchPaged(query, YoutubeSearchQueryHandlerFactory.VIDEOS) { videoOnly(it) }
+        val region = AppSettings.contentCountry.value
+        // The official most-popular chart (1 unit) is the feed's source; a search for "trending"
+        // is only the fallback.
+        val base = apiFirst(
+            // Only for "All" and topics with an official category: the general chart is no answer for "Live".
+            api = { if (category == "All" || YouTubeApiFallback.categoryIdFor(category) != null) YouTubeApiFallback.trendingFeed(region, category).takeIf { it.items.size >= 8 } else null },
+            scrape = { searchPaged(query, YoutubeSearchQueryHandlerFactory.VIDEOS) { videoOnly(it) } }
+        )
         val first = if (category == "All" && personalChannels.isNotEmpty()) {
             val personal = coroutineScope {
                 personalChannels.take(3).map { name ->
@@ -540,7 +584,11 @@ object YouTubeRepository {
     }
 
     suspend fun search(query: String, type: SearchType): Result<Paged<SearchResult>> = io {
-        searchPaged(query, type.filter) { toSearchResult(it, type.isMusic) }
+        apiFirst(
+            // Search is the one expensive call (100 units): only while the budget allows it.
+            api = { if (YouTubeDataApi.canSearch) YouTubeApiFallback.search(query, type, AppSettings.contentCountry.value)?.takeIf { it.items.isNotEmpty() } else null },
+            scrape = { searchPaged(query, type.filter) { toSearchResult(it, type.isMusic) } }
+        )
     }
 
     private val shortsCache = java.util.concurrent.atomic.AtomicReference<Paged<MediaItemModel>?>(null)
@@ -803,6 +851,13 @@ object YouTubeRepository {
 
     /** Channel header plus first page of videos. [channelUrl] is a youtube.com/channel/... URL. */
     suspend fun channelPage(channelUrl: String, music: Boolean = false): Result<ChannelPage> = io {
+        apiFirst(
+            api = { if (music) null else YouTubeApiFallback.channelPage(channelUrl) },
+            scrape = { extractorChannelPage(channelUrl, music) }
+        )
+    }
+
+    private fun extractorChannelPage(channelUrl: String, music: Boolean): ChannelPage {
         val info = ChannelInfo.getInfo(youtube, channelUrl)
         val avatar = bestImage(info.avatars)
         val canonicalUrl = "https://www.youtube.com/channel/${info.id}"
@@ -817,7 +872,7 @@ object YouTubeRepository {
             }
         } ?: Paged(emptyList(), null)
 
-        ChannelPage(
+        return ChannelPage(
             name = info.name,
             url = canonicalUrl,
             avatarUrl = avatar,
@@ -837,6 +892,13 @@ object YouTubeRepository {
 
     /** Playlist header plus first page of videos. */
     suspend fun playlistPage(playlistUrl: String, music: Boolean = false): Result<PlaylistPage> = io {
+        apiFirst(
+            api = { if (music) null else YouTubeApiFallback.playlistPage(playlistUrl) },
+            scrape = { extractorPlaylistPage(playlistUrl, music) }
+        )
+    }
+
+    private fun extractorPlaylistPage(playlistUrl: String, music: Boolean): PlaylistPage {
         val info = PlaylistInfo.getInfo(youtube, playlistUrl)
         fun map(item: StreamInfoItem): MediaItemModel? = if (item.duration > 0) toModel(item, music) else null
         val videos = pagedOf(
@@ -846,7 +908,7 @@ object YouTubeRepository {
             val more = PlaylistInfo.getMoreItems(youtube, playlistUrl, page)
             more.items.mapNotNull { map(it) } to (if (more.hasNextPage()) more.nextPage else null)
         }
-        PlaylistPage(
+        return PlaylistPage(
             title = info.name,
             owner = info.uploaderName.orEmpty(),
             videoCount = info.streamCount,
@@ -1172,9 +1234,16 @@ object YouTubeRepository {
     /** A full video item for a watch URL (used when a link or notification only gives the id). */
     suspend fun videoFromUrl(watchUrl: String): Result<MediaItemModel> = io {
         val id = VIDEO_ID.find(watchUrl)?.groupValues?.get(1) ?: error("Not a video link")
+        apiFirst(
+            api = { YouTubeApiFallback.toModel(YouTubeApiFallback.video(watchUrl)) },
+            scrape = { extractorVideo(id, watchUrl) }
+        )
+    }
+
+    private fun extractorVideo(id: String, watchUrl: String): MediaItemModel {
         val info = streamInfo(watchUrl)
         val (primary, secondary) = colorsFor(id)
-        MediaItemModel(
+        return MediaItemModel(
             id = id,
             title = info.name,
             artistOrChannel = info.uploaderName.orEmpty(),
@@ -1195,8 +1264,43 @@ object YouTubeRepository {
 
     /** Likes, views, description, tags and related videos for the watch page. */
     suspend fun details(watchUrl: String): Result<VideoDetails> = io {
+        apiFirst(
+            api = { apiDetails(watchUrl) },
+            scrape = { extractorDetails(watchUrl) }
+        )
+    }
+
+    /**
+     * The watch page from the official API: likes, views, description, tags, subscribers and the
+     * chapters written in the description. Three things only the extractor knows - related videos,
+     * the seek-bar storyboard and the video's own chapter list - are added when its info arrives
+     * within [EXTRAS_WAIT_MS] (it is the same request playback makes, so it is normally loaded
+     * already). If it is late or fails the page still opens at once, with more videos from the same
+     * channel (an official-API call) in place of the related list.
+     */
+    private suspend fun apiDetails(watchUrl: String): VideoDetails {
+        // Started first so the extractor and the API work at the same time. It runs in its own
+        // scope: waiting for it is bounded below, and if it is slow it still finishes and caches.
+        val extrasJob = prefetchScope.async { runCatching { extractorDetails(watchUrl) }.getOrNull() }
+        val video = YouTubeApiFallback.video(watchUrl)
+        val base = YouTubeApiFallback.details(video)
+        val extras = withTimeoutOrNull(EXTRAS_WAIT_MS) { extrasJob.await() }
+        return if (extras != null) {
+            base.copy(
+                related = extras.related.ifEmpty { runCatching { YouTubeApiFallback.moreFromChannel(video) }.getOrDefault(emptyList()) },
+                storyboard = extras.storyboard,
+                chapters = extras.chapters.ifEmpty { base.chapters }
+            )
+        } else {
+            base.copy(related = runCatching { YouTubeApiFallback.moreFromChannel(video) }.getOrDefault(emptyList()))
+        }
+    }
+
+    private const val EXTRAS_WAIT_MS = 6_000L
+
+    private fun extractorDetails(watchUrl: String): VideoDetails {
         val info = streamInfo(watchUrl)
-        VideoDetails(
+        return VideoDetails(
             likes = info.likeCount,
             views = info.viewCount,
             uploadedText = info.textualUploadDate.orEmpty(),
@@ -1253,6 +1357,12 @@ object YouTubeRepository {
      */
     suspend fun comments(watchUrl: String, sort: CommentsApi.Sort = CommentsApi.Sort.TOP): Result<CommentsPage> = io {
         val videoId = Regex("""[?&]v=([\w-]{11})""").find(watchUrl)?.groupValues?.get(1)
+        // Signed out: the official API first. Signed in, the site's own API stays first because it is
+        // the one that can like, reply and post (the official API is read-only without OAuth).
+        if (videoId != null && !GoogleAccount.isSignedIn() && YouTubeDataApi.isAvailable) {
+            runCatching { YouTubeApiFallback.comments(videoId, newest = sort == CommentsApi.Sort.NEWEST) }
+                .getOrNull()?.takeIf { it.items.isNotEmpty() }?.let { return@io it }
+        }
         if (videoId != null) {
             runCatching {
                 val first = CommentsApi.load(videoId, sort)
@@ -1273,16 +1383,21 @@ object YouTubeRepository {
                 )
             }.onSuccess { return@io it }
         }
-        val info = CommentsInfo.getInfo(youtube, watchUrl)
-        val paged = pagedOf(
-            info.relatedItems.map { toComment(it, watchUrl, withReplies = true) },
-            if (info.hasNextPage()) info.nextPage else null
-        ) { page ->
-            val more = CommentsInfo.getMoreItems(youtube, watchUrl, page)
-            more.items.map { toComment(it, watchUrl, withReplies = true) } to
-                (if (more.hasNextPage()) more.nextPage else null)
-        }
-        CommentsPage(totalCount = info.commentsCount, paged = paged)
+        apiFirst(
+            api = { if (videoId != null && GoogleAccount.isSignedIn()) YouTubeApiFallback.comments(videoId, newest = sort == CommentsApi.Sort.NEWEST) else null },
+            scrape = {
+                val info = CommentsInfo.getInfo(youtube, watchUrl)
+                val paged = pagedOf(
+                    info.relatedItems.map { toComment(it, watchUrl, withReplies = true) },
+                    if (info.hasNextPage()) info.nextPage else null
+                ) { page ->
+                    val more = CommentsInfo.getMoreItems(youtube, watchUrl, page)
+                    more.items.map { toComment(it, watchUrl, withReplies = true) } to
+                        (if (more.hasNextPage()) more.nextPage else null)
+                }
+                CommentsPage(totalCount = info.commentsCount, paged = paged)
+            }
+        )
     }
 
     private fun toComment(c: CommentsInfoItem, watchUrl: String, withReplies: Boolean): CommentModel {
@@ -1358,8 +1473,26 @@ object YouTubeRepository {
     private suspend fun <T> io(block: suspend () -> T): Result<T> = withContext(Dispatchers.IO) {
         runCatching {
             check(initialized)
-            block()
+            try {
+                block()
+            } catch (e: Throwable) {
+                // One more try after a dropped connection or timeout; anything else (a removed
+                // video, a blocked request, cancellation) fails at once.
+                if (!isTransientNetworkError(e)) throw e
+                kotlinx.coroutines.delay(RETRY_DELAY_MS)
+                block()
+            }
         }
+    }
+
+    private const val RETRY_DELAY_MS = 500L
+
+    /** A timeout or a dropped connection - worth one retry. Not "offline" and not a CAPTCHA. */
+    internal fun isTransientNetworkError(e: Throwable): Boolean {
+        if (e is kotlinx.coroutines.CancellationException) return false
+        if (e is java.net.UnknownHostException) return false
+        if (e is org.schabi.newpipe.extractor.exceptions.ReCaptchaException) return false
+        return e is java.io.IOException || e.cause is java.io.IOException
     }
 
     private fun searchItems(query: String, filter: String, minSeconds: Long): List<MediaItemModel> {
@@ -1563,7 +1696,7 @@ object YouTubeRepository {
     }
 
     /** Stable accent colors derived from the video id (artwork palette extraction not available). */
-    private fun colorsFor(id: String): Pair<Color, Color> {
+    internal fun colorsFor(id: String): Pair<Color, Color> {
         val h = abs(id.hashCode())
         val primary = Color.hsv((h % 360).toFloat(), 0.55f, 0.55f)
         val secondary = Color.hsv(((h / 360) % 360).toFloat(), 0.50f, 0.65f)
