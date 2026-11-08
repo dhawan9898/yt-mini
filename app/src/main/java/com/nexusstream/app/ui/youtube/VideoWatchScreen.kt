@@ -396,7 +396,7 @@ fun VideoWatchScreen(
         val ambientMode by AppSettings.ambientMode.collectAsState()
         val sampledAmbient by FrameGrabber.ambient.collectAsState()
         val ambientGlowColor = remember(mediaItem.dominantColor, sampledAmbient) {
-            if (sampledAmbient != null) Color(sampledAmbient!!) else if (mediaItem.dominantColor == Color.Unspecified || mediaItem.dominantColor == Color.Transparent || mediaItem.dominantColor == Color.Black) {
+            if (sampledAmbient != null) Color(sampledAmbient ?: 0) else if (mediaItem.dominantColor == Color.Unspecified || mediaItem.dominantColor == Color.Transparent || mediaItem.dominantColor == Color.Black) {
                 Color(0xFF282828)
             } else {
                 mediaItem.dominantColor
@@ -1240,7 +1240,7 @@ private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
                                 val target = !liked
                                 liked = target
                                 scope.launch {
-                                    withContext(Dispatchers.IO) { runCatching { CommentsApi.act(action!!) } }.onFailure {
+                                    withContext(Dispatchers.IO) { runCatching { CommentsApi.act(action ?: error("No action")) } }.onFailure {
                                         liked = !target
                                         Toast.makeText(context, it.message ?: "Couldn't like the comment", Toast.LENGTH_SHORT).show()
                                     }
@@ -1428,7 +1428,7 @@ private fun LiveChatSheet(start: com.nexusstream.app.data.LiveChat.Start, positi
     LaunchedEffect(start) {
         var token: String? = start.continuation
         while (token != null) {
-            val result = withContext(Dispatchers.IO) { runCatching { com.nexusstream.app.data.LiveChat.poll(token!!, start.replay, positionMs()) } }
+            val result = withContext(Dispatchers.IO) { runCatching { com.nexusstream.app.data.LiveChat.poll(token.orEmpty(), start.replay, positionMs()) } }
             val page = result.getOrNull()
             if (page == null) {
                 error = result.exceptionOrNull()?.message ?: "Couldn't load the chat"

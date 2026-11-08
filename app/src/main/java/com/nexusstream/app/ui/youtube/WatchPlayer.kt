@@ -428,7 +428,7 @@ fun WatchPlayerViewport(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (teasing && !cardsOpen) {
-                                Text(active!!.teaser.ifBlank { active.title }, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 6.dp).widthIn(max = 200.dp))
+                                Text(active?.let { it.teaser.ifBlank { it.title } }.orEmpty(), color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 6.dp).widthIn(max = 200.dp))
                             }
                             Icon(Icons.Outlined.Info, "Cards", tint = Color.White, modifier = Modifier.size(18.dp))
                         }

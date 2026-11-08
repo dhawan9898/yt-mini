@@ -200,7 +200,7 @@ fun ChannelScreen(
                     playlistCursor = next
                 }
                 webTab(tab) != null -> webTabs[tab]?.continuation?.let { token ->
-                    val web = webTab(tab)!!
+                    val web = webTab(tab) ?: return@let
                     YouTubeRepository.channelTab(loaded?.url.orEmpty(), web, token).onSuccess { more ->
                         webTabs[tab]?.let { webTabs = webTabs + (tab to it.plus(more)) }
                     }
