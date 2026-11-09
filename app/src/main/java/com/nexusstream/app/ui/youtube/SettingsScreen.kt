@@ -86,6 +86,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     val defaultHeight by AppSettings.defaultVideoHeight.collectAsState()
     val mobileHeight by AppSettings.mobileVideoHeight.collectAsState()
     val stableVolume by AppSettings.stableVolume.collectAsState()
+    val ambientMode by AppSettings.ambientMode.collectAsState()
     val dataSaver by AppSettings.dataSaver.collectAsState()
     val autoplay by AppSettings.autoplay.collectAsState()
     val captions by AppSettings.captionsByDefault.collectAsState()
@@ -155,6 +156,10 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     onSelect = { label -> AppSettings.setThemeMode(ThemeMode.entries.first { themeLabel(it) == label }) },
                     unselectedColor = OriginalColors.Chip
                 )
+            }
+
+            item(key = "ambient") {
+                SwitchRow("Ambient mode", "Glow around the video player that follows the picture's colours", ambientMode) { AppSettings.setAmbientMode(it) }
             }
 
             // ---- Playback ----
@@ -399,6 +404,15 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
             }
 
             // ---- About ----
+            item(key = "h_data") { SettingsHeader("YouTube data") }
+            item(key = "data_status") {
+                val api = com.nexusstream.app.data.YouTubeDataApi
+                SettingsHint(
+                    if (api.isAvailable) "Official YouTube API: on (about ${api.quotaRemaining} of today's requests left). Pages fall back to the extractor if it runs out."
+                    else "Official YouTube API: unavailable right now, using the extractor."
+                )
+            }
+
             item(key = "h_about") { SettingsHeader("About") }
             item(key = "version") { ActionRow("Version", versionName) {} }
             item(key = "self_test") {

@@ -262,6 +262,13 @@ fun SearchScreen(
                     unselectedColor = OriginalColors.Chip
                 )
                 if (type == SearchType.ALL || type == SearchType.VIDEOS) {
+                    // Sort order is always one tap away, like YouTube's own results.
+                    OriginalFilterChips(
+                        labels = YouTubeWeb.SortBy.values().map { it.label },
+                        selected = filters.sort.label,
+                        onSelect = { label -> filters = filters.copy(sort = YouTubeWeb.SortBy.values().first { it.label == label }) },
+                        unselectedColor = OriginalColors.Chip
+                    )
                     Row(
                         modifier = Modifier
                             .padding(horizontal = 12.dp, vertical = 4.dp)

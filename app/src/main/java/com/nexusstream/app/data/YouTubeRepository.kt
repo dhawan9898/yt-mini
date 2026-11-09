@@ -515,7 +515,10 @@ object YouTubeRepository {
             api = { if (category == "All" || YouTubeApiFallback.categoryIdFor(category) != null) YouTubeApiFallback.trendingFeed(region, category).takeIf { it.items.size >= 8 } else null },
             scrape = { searchPaged(query, YoutubeSearchQueryHandlerFactory.VIDEOS) { videoOnly(it) } }
         )
-        val first = if (category == "All" && personalChannels.isNotEmpty()) {
+        val forYou = if (category == "All" && YouTubeDataApi.isAvailable) runCatching { forYouBlend(base.items) }.getOrNull() else null
+        val first = if (forYou != null) {
+            forYou
+        } else if (category == "All" && personalChannels.isNotEmpty()) {
             val personal = coroutineScope {
                 personalChannels.take(3).map { name ->
                     async {
@@ -535,6 +538,25 @@ object YouTubeRepository {
             lastVideoFeed = it.items
             feedCache[category] = Cached(System.currentTimeMillis(), it)
         }
+    }
+
+    /**
+     * Home for "you": the newest videos of the channels you subscribe to, like and watch most,
+     * mixed with the chart, minus what you already watched. Null when there is nothing personal yet.
+     */
+    private suspend fun forYouBlend(chart: List<MediaItemModel>): List<MediaItemModel>? {
+        val history = LibraryRepository.watchHistory()
+        val channels = ForYou.channelsToFollow(
+            subscribed = LibraryRepository.subscriptions.value.map { it.channelUrl },
+            history = history,
+            liked = LibraryRepository.liked.value
+        )
+        if (channels.isEmpty()) return null
+        val personal = coroutineScope {
+            channels.map { url -> async { runCatching { YouTubeApiFallback.channelRecent(url, take = 4) }.getOrDefault(emptyList()) } }.awaitAll()
+        }
+        if (personal.all { it.isEmpty() }) return null
+        return ForYou.blend(personal, chart, seen = history.map { it.id }.toSet()).takeIf { it.size >= 8 }
     }
 
     /** Typed, paged search (videos, channels, playlists). */
@@ -558,9 +580,16 @@ object YouTubeRepository {
         fun page(p: YouTubeWeb.ResultPage): Paged<SearchResult> = Paged(p.results, p.continuation?.let { token ->
             { io { page(YouTubeWeb.searchMore(token)) } }
         })
-        page(YouTubeWeb.search(query, filters, videosOnly = type == SearchType.VIDEOS)).also {
-            check(it.items.isNotEmpty()) { "No results" }
+        val viaWeb = runCatching {
+            page(YouTubeWeb.search(query, filters, videosOnly = type == SearchType.VIDEOS)).also {
+                check(it.items.isNotEmpty()) { "No results" }
+            }
         }
+        // The extractor's filters failed (or found nothing): the official API can still sort and limit by length.
+        viaWeb.getOrNull() ?: (if (YouTubeDataApi.canSearch) {
+            runCatching { YouTubeApiFallback.filteredSearch(query, filters, AppSettings.contentCountry.value) }
+                .getOrNull()?.takeIf { it.items.isNotEmpty() }
+        } else null) ?: viaWeb.getOrThrow()
     }
 
     /** One channel tab (Home, Shorts, Live, Releases, Posts...), or a sort chip / next page via [continuation]. */

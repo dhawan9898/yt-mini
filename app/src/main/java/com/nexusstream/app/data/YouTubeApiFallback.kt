@@ -114,6 +114,45 @@ internal object YouTubeApiFallback {
 
     private fun asShort(v: YouTubeDataApi.Video, avatar: String = ""): MediaItemModel = toModel(v, avatar).copy(isShort = true)
 
+    private fun channelFromUrl(channelUrl: String): YouTubeDataApi.Channel? {
+        val id = CHANNEL_ID.find(channelUrl)?.groupValues?.get(1)
+        val handle = HANDLE.find(channelUrl)?.groupValues?.get(1)
+        return when {
+            id != null -> YouTubeDataApi.channelById(id)
+            handle != null -> YouTubeDataApi.channelByHandle(handle)
+            else -> null
+        }
+    }
+
+    /** A channel's newest regular videos (2 units), for the personal part of Home. */
+    fun channelRecent(channelUrl: String, take: Int = 4): List<MediaItemModel> {
+        val channel = channelFromUrl(channelUrl) ?: return emptyList()
+        if (channel.uploadsPlaylistId.isEmpty()) return emptyList()
+        return YouTubeDataApi.playlistVideos(channel.uploadsPlaylistId, max = 15).items
+            .filter { isRegularVideo(it) }.take(take).map { toModel(it, channel.avatarUrl) }
+    }
+
+    /** Sorted and length-filtered video search by the official API (used when the extractor's filters fail). */
+    fun filteredSearch(query: String, filters: YouTubeWeb.SearchFilters, region: String): Paged<SearchResult> {
+        val kinds = listOf(YouTubeDataApi.SearchKind.VIDEO)
+        val order = when (filters.sort) {
+            YouTubeWeb.SortBy.RELEVANCE -> "relevance"
+            YouTubeWeb.SortBy.UPLOAD_DATE -> "date"
+            YouTubeWeb.SortBy.VIEW_COUNT -> "viewCount"
+            YouTubeWeb.SortBy.RATING -> "rating"
+        }
+        val duration = when (filters.duration) {
+            YouTubeWeb.Duration.SHORT -> "short"
+            YouTubeWeb.Duration.MEDIUM -> "medium"
+            YouTubeWeb.Duration.LONG -> "long"
+            YouTubeWeb.Duration.ANY -> null
+        }
+        val first = YouTubeDataApi.search(query, kinds, region = region, videoDuration = duration, order = order)
+        return pagedFrom(first, { hit -> toSearchResult(hit) }) { token ->
+            YouTubeDataApi.search(query, kinds, pageToken = token, region = region, videoDuration = duration, order = order)
+        }
+    }
+
     /** The newest Shorts from one channel's uploads (2 units). */
     fun channelShorts(channelUrl: String, take: Int = 1): List<MediaItemModel> {
         val id = CHANNEL_ID.find(channelUrl)?.groupValues?.get(1)
