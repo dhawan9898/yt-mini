@@ -86,6 +86,12 @@ fun VideoSurface(
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 size = videoSize
             }
+
+            // A new video must not inherit the previous one's shape (a short briefly shown as a small
+            // landscape window, then jumping to full screen): use the placeholder until its size is known.
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                size = VideoSize.UNKNOWN
+            }
         }
         player.addListener(listener)
         size = player.videoSize

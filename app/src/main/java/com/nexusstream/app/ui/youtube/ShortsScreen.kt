@@ -324,6 +324,18 @@ private fun ShortPage(
             item = item0.copy(title = info.title, artistOrChannel = info.artistOrChannel, channelAvatarUrl = info.channelAvatarUrl, channelUrl = info.channelUrl)
         }
     }
+    // Like and comment counts (and the title/channel, when the sequence gave only an id) from the official API.
+    var stats by remember(item0.id) { mutableStateOf<com.nexusstream.app.data.YouTubeDataApi.Video?>(null) }
+    LaunchedEffect(item0.id, isActive) {
+        if (isActive && stats == null && com.nexusstream.app.data.YouTubeDataApi.isAvailable) {
+            stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { com.nexusstream.app.data.YouTubeDataApi.videos(listOf(item0.id)).firstOrNull() }.getOrNull()
+            }
+            stats?.let { s ->
+                if (item.title.isBlank()) item = item.copy(title = s.title, artistOrChannel = s.channelTitle)
+            }
+        }
+    }
     val liked by LibraryRepository.liked.collectAsState()
     val disliked by LibraryRepository.disliked.collectAsState()
     val saved by LibraryRepository.saved.collectAsState()
@@ -462,6 +474,7 @@ private fun ShortPage(
                         modifier = Modifier.size(28.dp)
                     )
                 }
+                stats?.likeCount?.takeIf { it >= 0 }?.let { ShortCount(YouTubeRepository.formatCount(it)) }
                 IconButton(onClick = { LibraryRepository.toggleDislike(item) }) {
                     Icon(
                         imageVector = if (item.id in disliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
@@ -473,6 +486,7 @@ private fun ShortPage(
                 IconButton(onClick = { showComments = true }) {
                     Icon(Icons.Outlined.Comment, "Comments", tint = Color.White, modifier = Modifier.size(28.dp))
                 }
+                stats?.commentCount?.takeIf { it >= 0 }?.let { ShortCount(YouTubeRepository.formatCount(it)) }
                 IconButton(onClick = { showSave = true }) {
                     Icon(
                         imageVector = if (saved.any { it.id == item.id }) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
@@ -499,6 +513,12 @@ private fun ShortPage(
 }
 
 @kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+/** The small number under a Shorts action icon. */
+@Composable
+private fun ShortCount(text: String) {
+    Text(text = text, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Medium)
+}
+
 @Composable
 private fun ShortComments(item: MediaItemModel, onDismiss: () -> Unit) {
     var sort by remember { mutableStateOf(com.nexusstream.app.data.CommentsApi.Sort.TOP) }

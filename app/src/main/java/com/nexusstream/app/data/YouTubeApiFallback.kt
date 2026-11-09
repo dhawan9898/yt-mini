@@ -33,7 +33,23 @@ internal object YouTubeApiFallback {
 
     private fun compact(n: Long): String = if (n >= 0) YouTubeRepository.formatCount(n) else ""
 
-    fun toModel(v: YouTubeDataApi.Video, channelAvatar: String = "", now: Long = System.currentTimeMillis()): MediaItemModel {
+    /** Channel avatars by channel id, filled one batch per page (1 unit) so cards can show the channel icon. */
+    private val avatarCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Fetches the avatars of the channels behind [items] (videos or search hits) that are not known yet. */
+    private fun prefetchAvatars(items: List<*>) {
+        val ids = items.mapNotNull {
+            when (it) {
+                is YouTubeDataApi.Video -> it.channelId
+                is YouTubeDataApi.SearchHit.VideoHit -> it.video.channelId
+                else -> null
+            }
+        }.filter { it.isNotEmpty() && it !in avatarCache }.distinct().take(50)
+        if (ids.isEmpty()) return
+        runCatching { YouTubeDataApi.channels(ids) }.getOrNull()?.forEach { if (it.avatarUrl.isNotEmpty()) avatarCache[it.id] = it.avatarUrl }
+    }
+
+    fun toModel(v: YouTubeDataApi.Video, channelAvatar: String = avatarCache[v.channelId].orEmpty(), now: Long = System.currentTimeMillis()): MediaItemModel {
         val (primary, secondary) = YouTubeRepository.colorsFor(v.id)
         return MediaItemModel(
             id = v.id,
@@ -300,6 +316,7 @@ internal object YouTubeApiFallback {
 
     /** Maps an API page and lets the next one be fetched lazily, like the extractor's pages. */
     internal fun <A, B> pagedFrom(first: YouTubeDataApi.Page<A>, map: (A) -> B?, fetch: (String) -> YouTubeDataApi.Page<A>): Paged<B> {
+        prefetchAvatars(first.items)
         val loader: (suspend () -> Result<Paged<B>>)? = first.nextPageToken?.let { token ->
             suspend { withContext(Dispatchers.IO) { runCatching { pagedFrom(fetch(token), map, fetch) } } }
         }
