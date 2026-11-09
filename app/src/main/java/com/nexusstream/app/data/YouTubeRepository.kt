@@ -696,11 +696,12 @@ object YouTubeRepository {
     /** [extra] spread through [base], one after every [every] items. */
     internal fun <T> mixIn(base: List<T>, extra: List<T>, every: Int): List<T> {
         if (extra.isEmpty()) return base
+        val step = every.coerceAtLeast(1) // 0 or less would divide by zero
         val out = ArrayList<T>(base.size + extra.size)
         var next = 0
         base.forEachIndexed { i, item ->
             out += item
-            if ((i + 1) % every == 0 && next < extra.size) out += extra[next++]
+            if ((i + 1) % step == 0 && next < extra.size) out += extra[next++]
         }
         while (next < extra.size) out += extra[next++]
         return out
@@ -1628,7 +1629,7 @@ object YouTubeRepository {
         videoCount = item.streamCount
     )
 
-    private fun <T> interleave(lists: List<List<T>>): List<T> {
+    internal fun <T> interleave(lists: List<List<T>>): List<T> {
         val out = mutableListOf<T>()
         var index = 0
         while (lists.any { index < it.size }) {
