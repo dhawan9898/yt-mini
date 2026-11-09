@@ -44,7 +44,7 @@ internal object YouTubeApiFallback {
                 is YouTubeDataApi.SearchHit.VideoHit -> it.video.channelId
                 else -> null
             }
-        }.filter { it.isNotEmpty() && it !in avatarCache }.distinct().take(50)
+        }.filter { it.isNotEmpty() && !avatarCache.containsKey(it) }.distinct().take(50)
         if (ids.isEmpty()) return
         runCatching { YouTubeDataApi.channels(ids) }.getOrNull()?.forEach { if (it.avatarUrl.isNotEmpty()) avatarCache[it.id] = it.avatarUrl }
     }

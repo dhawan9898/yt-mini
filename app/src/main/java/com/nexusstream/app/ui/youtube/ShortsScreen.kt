@@ -512,13 +512,13 @@ private fun ShortPage(
     if (showComments) ShortComments(item, onDismiss = { showComments = false })
 }
 
-@kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 /** The small number under a Shorts action icon. */
 @Composable
 private fun ShortCount(text: String) {
     Text(text = text, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Medium)
 }
 
+@kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun ShortComments(item: MediaItemModel, onDismiss: () -> Unit) {
     var sort by remember { mutableStateOf(com.nexusstream.app.data.CommentsApi.Sort.TOP) }
