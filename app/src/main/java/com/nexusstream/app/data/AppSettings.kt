@@ -193,6 +193,15 @@ object AppSettings {
         _smartDownloads.value = p.getInt("smart_downloads", 0)
         _captionScale.value = p.getFloat("caption_scale", 1f)
         _captionBackground.value = p.getInt("caption_background", 1)
+        _hapticsEnabled.value = p.getBoolean("haptics_enabled", false)
+    }
+
+    private val _hapticsEnabled = MutableStateFlow(false)
+    val hapticsEnabled: StateFlow<Boolean> = _hapticsEnabled.asStateFlow()
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        _hapticsEnabled.value = enabled
+        prefs?.edit()?.putBoolean("haptics_enabled", enabled)?.apply()
     }
 
     fun setThemeMode(mode: ThemeMode) {

@@ -83,6 +83,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
 
     val googleSignedIn by GoogleAccount.signedIn.collectAsState()
     val theme by AppSettings.themeMode.collectAsState()
+    val haptics by AppSettings.hapticsEnabled.collectAsState()
     val defaultHeight by AppSettings.defaultVideoHeight.collectAsState()
     val mobileHeight by AppSettings.mobileVideoHeight.collectAsState()
     val stableVolume by AppSettings.stableVolume.collectAsState()
@@ -160,6 +161,10 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
 
             item(key = "ambient") {
                 SwitchRow("Ambient mode", "Glow around the video player that follows the picture's colours", ambientMode) { AppSettings.setAmbientMode(it) }
+            }
+
+            item(key = "haptics") {
+                SwitchRow("Haptic feedback", "Tactile vibration on button taps, play/pause and navigation", haptics) { AppSettings.setHapticsEnabled(it) }
             }
 
             // ---- Playback ----

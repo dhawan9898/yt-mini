@@ -20,7 +20,8 @@ object InnerTube {
     private const val ENDPOINT = "https://www.youtube.com/youtubei/v1/browse?prettyPrint=false"
     private const val NEXT_ENDPOINT = "https://www.youtube.com/youtubei/v1/next?prettyPrint=false"
     private const val ORIGIN = "https://www.youtube.com"
-    private const val CLIENT_VERSION = "2.20250101.00.00"
+    private const val CLIENT_VERSION = "2.20260301.00.00"
+    private const val FALLBACK_CLIENT_VERSION = "2.20250101.00.00"
     private val JSON = "application/json".toMediaType()
     private val DURATION = Regex("""\d{1,2}(:\d{2}){1,2}""")
 
@@ -306,6 +307,10 @@ object InnerTube {
             builder.header("X-Youtube-Bootstrap-Logged-In", "true")
         }
         NewPipeDownloader.instance.client.newCall(builder.build()).execute().use { response ->
+            if (!response.isSuccessful && response.code == 400 && clientVersion != FALLBACK_CLIENT_VERSION) {
+                // If the updated version is rejected, retry once with the fallback version
+                return post(endpoint, extra, origin, clientName, clientNameId, FALLBACK_CLIENT_VERSION)
+            }
             check(response.isSuccessful) { "YouTube returned HTTP ${response.code}" }
             return JSONObject(response.body?.string().orEmpty())
         }

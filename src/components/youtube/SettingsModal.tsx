@@ -17,7 +17,13 @@ export const SettingsModal: React.FC = () => {
     setVideoQuality,
     sleepTimerSeconds,
     setSleepTimer,
-    downloadedIds
+    downloadedIds,
+    themePreference,
+    setThemePreference,
+    resolvedTheme,
+    hapticsEnabled,
+    setHapticsEnabled,
+    triggerHaptic
   } = usePlayer();
 
   if (!isSettingsOpen) return null;
@@ -29,13 +35,16 @@ export const SettingsModal: React.FC = () => {
         <div className="settings-header">
           <div className="settings-title-group">
             <span className="material-symbols-rounded" style={{ color: '#00cec9', fontSize: '24px' }}>
-              security
+              settings
             </span>
-            <h3 className="settings-heading">Settings & Shield</h3>
+            <h3 className="settings-heading">Settings & Preferences</h3>
           </div>
           <button
             className="icon-glass-btn sm"
-            onClick={() => setIsSettingsOpen(false)}
+            onClick={() => {
+              triggerHaptic('light');
+              setIsSettingsOpen(false);
+            }}
             aria-label="Close Settings"
             type="button"
           >
@@ -44,6 +53,54 @@ export const SettingsModal: React.FC = () => {
         </div>
 
         <div className="settings-content-scroll">
+          {/* Appearance & Theme Section */}
+          <div className="settings-section-title">APPEARANCE & THEME</div>
+          <div className="settings-options-group">
+            <div className="settings-option-item">
+              <div className="option-label-col">
+                <span className="option-name">Theme Mode</span>
+                <span className="option-desc">
+                  {themePreference === 'system'
+                    ? `System OS preference (Currently ${resolvedTheme === 'dark' ? 'Dark' : 'Light'})`
+                    : `Manual override (${themePreference === 'light' ? 'Light' : 'Dark'} mode)`}
+                </span>
+              </div>
+              <div className="theme-segmented-control" style={{ display: 'inline-flex', gap: '4px' }}>
+                {(['system', 'light', 'dark'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`theme-segment-btn ${themePreference === mode ? 'active' : ''}`}
+                    onClick={() => setThemePreference(mode)}
+                  >
+                    {mode === 'system' ? 'Auto' : mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Tactile & Feedback Section */}
+          <div className="settings-section-title">TACTILE & HAPTICS</div>
+          <div className="settings-options-group">
+            <div className="settings-option-item">
+              <div className="option-label-col">
+                <span className="option-name">Haptic Feedback</span>
+                <span className="option-desc">
+                  Vibrate on taps, play/pause and navigation (Navigator.vibrate)
+                </span>
+              </div>
+              <label className="switch-toggle">
+                <input
+                  type="checkbox"
+                  checked={hapticsEnabled}
+                  onChange={(e) => setHapticsEnabled(e.target.checked)}
+                />
+                <span className="switch-slider" />
+              </label>
+            </div>
+          </div>
+
           {/* Ad-Free Shield Card */}
           <div className="settings-card-glass">
             <div className="settings-card-top">

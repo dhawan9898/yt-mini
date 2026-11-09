@@ -263,7 +263,9 @@ const state = {
       size: "72.1 MB",
       type: "1080p Premium"
     }
-  ]
+  ],
+  themePreference: localStorage.getItem("nexus_theme_preference") || "system",
+  hapticsEnabled: localStorage.getItem("nexus_haptics_enabled") === "true"
 };
 
 // =================================================================
@@ -389,7 +391,18 @@ const elements = {
   queueCount: document.getElementById("queueCount"),
 
   mediaAudio: document.getElementById("mediaAudio"),
-  meshCanvas: document.getElementById("meshCanvas")
+  meshCanvas: document.getElementById("meshCanvas"),
+
+  // Settings & Theme
+  settingsModal: document.getElementById("settingsModal"),
+  closeSettingsBtn: document.getElementById("closeSettingsBtn"),
+  themeSegmentedControl: document.getElementById("themeSegmentedControl"),
+  currentThemeDesc: document.getElementById("currentThemeDesc"),
+  hapticFeedbackToggle: document.getElementById("hapticFeedbackToggle"),
+  sheetThemeSelect: document.getElementById("sheetThemeSelect"),
+  sheetThemeDesc: document.getElementById("sheetThemeDesc"),
+  sheetHapticToggle: document.getElementById("sheetHapticToggle"),
+  settingsSponsorBlockToggle: document.getElementById("settingsSponsorBlockToggle")
 };
 
 // =================================================================
@@ -427,7 +440,8 @@ class DynamicMeshEngine {
     const h = this.height;
     const ctx = this.ctx;
 
-    ctx.fillStyle = "#07070a";
+    const isLight = document.documentElement.getAttribute("data-theme") === "light";
+    ctx.fillStyle = isLight ? "#f0f2f8" : "#07070a";
     ctx.fillRect(0, 0, w, h);
 
     const x1 = w * (0.35 + 0.18 * Math.cos(this.phase));
@@ -439,8 +453,8 @@ class DynamicMeshEngine {
     const r2 = Math.min(w, h) * 0.85;
 
     const grad1 = ctx.createRadialGradient(x1, y1, 0, x1, y1, r1);
-    grad1.addColorStop(0, hexToRgba(this.dominantColor, 0.45));
-    grad1.addColorStop(0.5, hexToRgba(this.dominantColor, 0.18));
+    grad1.addColorStop(0, hexToRgba(this.dominantColor, isLight ? 0.22 : 0.45));
+    grad1.addColorStop(0.5, hexToRgba(this.dominantColor, isLight ? 0.08 : 0.18));
     grad1.addColorStop(1, "transparent");
     ctx.fillStyle = grad1;
     ctx.beginPath();
@@ -448,8 +462,8 @@ class DynamicMeshEngine {
     ctx.fill();
 
     const grad2 = ctx.createRadialGradient(x2, y2, 0, x2, y2, r2);
-    grad2.addColorStop(0, hexToRgba(this.secondaryColor, 0.4));
-    grad2.addColorStop(0.5, hexToRgba(this.secondaryColor, 0.12));
+    grad2.addColorStop(0, hexToRgba(this.secondaryColor, isLight ? 0.18 : 0.4));
+    grad2.addColorStop(0.5, hexToRgba(this.secondaryColor, isLight ? 0.06 : 0.12));
     grad2.addColorStop(1, "transparent");
     ctx.fillStyle = grad2;
     ctx.beginPath();
@@ -457,9 +471,9 @@ class DynamicMeshEngine {
     ctx.fill();
 
     const vignette = ctx.createLinearGradient(0, 0, 0, h);
-    vignette.addColorStop(0, "rgba(0, 0, 0, 0.35)");
+    vignette.addColorStop(0, isLight ? "rgba(255, 255, 255, 0.4)" : "rgba(0, 0, 0, 0.35)");
     vignette.addColorStop(0.5, "transparent");
-    vignette.addColorStop(1, "rgba(0, 0, 0, 0.85)");
+    vignette.addColorStop(1, isLight ? "rgba(240, 242, 248, 0.75)" : "rgba(0, 0, 0, 0.85)");
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, w, h);
 
@@ -540,6 +554,7 @@ class NexusMasterApp {
     drawVinylGrooves(elements.vinylCanvas);
     this.currentTrack = state.queue[0];
 
+    this.initThemeAndHaptics();
     this.bindEvents();
     this.renderYTMusicSections();
     this.renderYouTubeFeed();
@@ -549,14 +564,144 @@ class NexusMasterApp {
     this.loadTrack(this.currentTrack, false);
   }
 
+  // =================================================================
+  // TACTILE HAPTICS (Navigator.vibrate with user opt-in)
+  // =================================================================
+  triggerHaptic(type = "light") {
+    if (!state.hapticsEnabled) return;
+    if (!("vibrate" in navigator) || typeof navigator.vibrate !== "function") return;
+    try {
+      if (type === "light") {
+        navigator.vibrate(12);
+      } else if (type === "medium") {
+        navigator.vibrate(25);
+      } else if (type === "heavy") {
+        navigator.vibrate([35, 30, 20]);
+      } else if (type === "selection") {
+        navigator.vibrate(8);
+      }
+    } catch (_) {}
+  }
+
+  // =================================================================
+  // SYSTEM OS AUTO THEME & MANUAL OVERRIDE
+  // =================================================================
+  initThemeAndHaptics() {
+    // Media query to observe live OS light/dark changes
+    const systemQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemThemeChange = () => {
+      if (state.themePreference === "system") {
+        this.applyTheme("system");
+      }
+    };
+    if (systemQuery.addEventListener) {
+      systemQuery.addEventListener("change", onSystemThemeChange);
+    } else if (systemQuery.addListener) {
+      systemQuery.addListener(onSystemThemeChange);
+    }
+
+    this.applyTheme(state.themePreference);
+
+    if (elements.hapticFeedbackToggle) {
+      elements.hapticFeedbackToggle.checked = state.hapticsEnabled;
+    }
+    if (elements.sheetHapticToggle) {
+      elements.sheetHapticToggle.checked = state.hapticsEnabled;
+    }
+  }
+
+  applyTheme(pref) {
+    const systemQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const systemIsDark = systemQuery.matches;
+    let resolved = "dark";
+
+    if (pref === "system") {
+      resolved = systemIsDark ? "dark" : "light";
+    } else if (pref === "light") {
+      resolved = "light";
+    } else {
+      resolved = "dark";
+    }
+
+    document.documentElement.setAttribute("data-theme", resolved);
+
+    // Sync segmented control in Settings modal
+    if (elements.themeSegmentedControl) {
+      const btns = elements.themeSegmentedControl.querySelectorAll(".theme-segment-btn");
+      btns.forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.themeVal === pref);
+      });
+    }
+
+    // Sync select dropdown in Player Options Sheet
+    if (elements.sheetThemeSelect) {
+      elements.sheetThemeSelect.value = pref;
+    }
+
+    // Update descriptive labels
+    const currentThemeText = pref === "system"
+      ? `System default (Currently ${systemIsDark ? "Dark" : "Light"})`
+      : `Manual override (${pref.charAt(0).toUpperCase() + pref.slice(1)} theme)`;
+
+    if (elements.currentThemeDesc) {
+      elements.currentThemeDesc.textContent = currentThemeText;
+    }
+    if (elements.sheetThemeDesc) {
+      elements.sheetThemeDesc.textContent = currentThemeText;
+    }
+  }
+
+  setThemePreference(pref) {
+    state.themePreference = pref;
+    localStorage.setItem("nexus_theme_preference", pref);
+    this.applyTheme(pref);
+    this.triggerHaptic("selection");
+    const label = pref === "system" ? "System Auto" : (pref === "light" ? "Light Mode" : "Dark Mode");
+    this.showToast(`Theme updated: ${label}`, "palette");
+  }
+
+  setHapticsEnabled(enabled) {
+    state.hapticsEnabled = enabled;
+    localStorage.setItem("nexus_haptics_enabled", enabled ? "true" : "false");
+    if (elements.hapticFeedbackToggle) elements.hapticFeedbackToggle.checked = enabled;
+    if (elements.sheetHapticToggle) elements.sheetHapticToggle.checked = enabled;
+
+    if (enabled) {
+      try {
+        if ("vibrate" in navigator) navigator.vibrate(35);
+      } catch (_) {}
+    }
+    this.showToast(enabled ? "Haptic feedback enabled (Navigator.vibrate)" : "Haptic feedback disabled", "vibration");
+  }
+
+  toggleSettingsModal(open) {
+    if (!elements.settingsModal) return;
+    const isHidden = elements.settingsModal.classList.contains("hidden");
+    const shouldOpen = typeof open === "boolean" ? open : isHidden;
+    elements.settingsModal.classList.toggle("hidden", !shouldOpen);
+    this.triggerHaptic(shouldOpen ? "medium" : "light");
+
+    if (shouldOpen) {
+      this.applyTheme(state.themePreference);
+      if (elements.hapticFeedbackToggle) elements.hapticFeedbackToggle.checked = state.hapticsEnabled;
+      if (elements.settingsSponsorBlockToggle) elements.settingsSponsorBlockToggle.checked = state.sponsorBlockEnabled;
+    }
+  }
+
   getCurrentMedia() {
     return state.playbackMode === "VIDEO" ? elements.mediaVideo : elements.mediaAudio;
   }
 
   bindEvents() {
     // Mode Switching: YT Music <-> YouTube
-    elements.ytMusicTabBtn.addEventListener("click", () => this.switchAppMode("YTMUSIC"));
-    elements.ytVideoTabBtn.addEventListener("click", () => this.switchAppMode("YOUTUBE"));
+    elements.ytMusicTabBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.switchAppMode("YTMUSIC");
+    });
+    elements.ytVideoTabBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.switchAppMode("YOUTUBE");
+    });
 
     // YouTube Bottom Navigation Pill
     const navButtons = [
@@ -567,6 +712,7 @@ class NexusMasterApp {
     ];
     navButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
+        this.triggerHaptic("light");
         navButtons.forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
         this.switchYouTubeSubView(btn.dataset.view);
@@ -583,33 +729,74 @@ class NexusMasterApp {
     elements.mediaVideo.addEventListener("progress", () => this.onBufferProgress(elements.mediaVideo));
 
     // Master Player Controls
-    elements.masterPlayPauseBtn.addEventListener("click", () => this.togglePlayPause());
+    elements.masterPlayPauseBtn.addEventListener("click", () => {
+      this.triggerHaptic("medium");
+      this.togglePlayPause();
+    });
     elements.miniPlayPauseBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      this.triggerHaptic("medium");
       this.togglePlayPause();
     });
 
-    elements.nextBtn.addEventListener("click", () => this.skipNext());
-    elements.prevBtn.addEventListener("click", () => this.skipPrev());
-    elements.shuffleBtn.addEventListener("click", () => this.toggleShuffle());
-    elements.repeatBtn.addEventListener("click", () => this.toggleRepeat());
+    elements.nextBtn.addEventListener("click", () => {
+      this.triggerHaptic("heavy");
+      this.skipNext();
+    });
+    elements.prevBtn.addEventListener("click", () => {
+      this.triggerHaptic("heavy");
+      this.skipPrev();
+    });
+    elements.shuffleBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.toggleShuffle();
+    });
+    elements.repeatBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.toggleRepeat();
+    });
 
     // Screen Switching
-    elements.miniPlayerClickZone.addEventListener("click", () => this.showMasterPlayer(true));
-    elements.collapsePlayerBtn.addEventListener("click", () => this.showMasterPlayer(false));
+    elements.miniPlayerClickZone.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.showMasterPlayer(true);
+    });
+    elements.collapsePlayerBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.showMasterPlayer(false);
+    });
 
     // Song vs Video Toggle
-    elements.modeSongBtn.addEventListener("click", () => this.setPlaybackMode("SONG"));
-    elements.modeVideoBtn.addEventListener("click", () => this.setPlaybackMode("VIDEO"));
+    elements.modeSongBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.setPlaybackMode("SONG");
+    });
+    elements.modeVideoBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.setPlaybackMode("VIDEO");
+    });
 
     // Lyrics & Queue Toggles
-    elements.lyricsToggleBtn.addEventListener("click", () => this.toggleLyrics());
-    elements.queueToggleBtn.addEventListener("click", () => this.toggleQueueDrawer());
-    elements.closeQueueBtn.addEventListener("click", () => this.toggleQueueDrawer(false));
+    elements.lyricsToggleBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.toggleLyrics();
+    });
+    elements.queueToggleBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.toggleQueueDrawer();
+    });
+    elements.closeQueueBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.toggleQueueDrawer(false);
+    });
 
     // Search Toggle & Search Input
-    elements.searchToggleBtn.addEventListener("click", () => this.toggleSearchOverlay());
+    elements.searchToggleBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.toggleSearchOverlay();
+    });
     elements.clearSearchBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
       elements.searchInput.value = "";
       this.handleSearch("");
     });
@@ -617,26 +804,93 @@ class NexusMasterApp {
 
     // Quick Picks Play All
     elements.playAllQuickPicksBtn.addEventListener("click", () => {
+      this.triggerHaptic("medium");
       state.queue = [...MUSIC_CATALOG];
       state.currentTrackIndex = 0;
       this.loadTrack(state.queue[0], true);
       this.showMasterPlayer(true);
     });
 
-    // YouTube Premium Hub & Settings
+    // YouTube Premium Hub
     if (elements.premiumHubBtn) {
-      elements.premiumHubBtn.addEventListener("click", () => this.togglePremiumModal(true));
+      elements.premiumHubBtn.addEventListener("click", () => {
+        this.triggerHaptic("light");
+        this.togglePremiumModal(true);
+      });
     }
     if (elements.closePremiumBtn) {
-      elements.closePremiumBtn.addEventListener("click", () => this.togglePremiumModal(false));
+      elements.closePremiumBtn.addEventListener("click", () => {
+        this.triggerHaptic("light");
+        this.togglePremiumModal(false);
+      });
+    }
+
+    // Avatar / Settings Modal
+    if (elements.headerAvatarBtn) {
+      elements.headerAvatarBtn.addEventListener("click", () => this.toggleSettingsModal(true));
+    }
+    if (elements.closeSettingsBtn) {
+      elements.closeSettingsBtn.addEventListener("click", () => this.toggleSettingsModal(false));
+    }
+    if (elements.settingsModal) {
+      elements.settingsModal.addEventListener("click", (e) => {
+        if (e.target === elements.settingsModal) {
+          this.toggleSettingsModal(false);
+        }
+      });
+    }
+
+    // Theme Segmented Control
+    if (elements.themeSegmentedControl) {
+      elements.themeSegmentedControl.addEventListener("click", (e) => {
+        const btn = e.target.closest(".theme-segment-btn");
+        if (btn && btn.dataset.themeVal) {
+          this.setThemePreference(btn.dataset.themeVal);
+        }
+      });
+    }
+
+    // Haptic Feedback Toggles (opt-in)
+    if (elements.hapticFeedbackToggle) {
+      elements.hapticFeedbackToggle.addEventListener("change", (e) => {
+        this.setHapticsEnabled(e.target.checked);
+      });
+    }
+    if (elements.sheetHapticToggle) {
+      elements.sheetHapticToggle.addEventListener("change", (e) => {
+        this.setHapticsEnabled(e.target.checked);
+      });
+    }
+
+    // Sheet Theme Selector
+    if (elements.sheetThemeSelect) {
+      elements.sheetThemeSelect.addEventListener("change", (e) => {
+        this.setThemePreference(e.target.value);
+      });
+    }
+
+    // Settings Modal SponsorBlock toggle sync
+    if (elements.settingsSponsorBlockToggle) {
+      elements.settingsSponsorBlockToggle.addEventListener("change", (e) => {
+        state.sponsorBlockEnabled = e.target.checked;
+        if (elements.sponsorBlockToggle) {
+          elements.sponsorBlockToggle.checked = e.target.checked;
+        }
+        this.triggerHaptic("selection");
+        this.showToast(state.sponsorBlockEnabled ? "⚡ SponsorBlock Auto-Skip Enabled" : "SponsorBlock Disabled", "security");
+      });
     }
 
     // Picture-in-Picture
     if (elements.pipBtn) {
-      elements.pipBtn.addEventListener("click", () => this.togglePiP());
+      elements.pipBtn.addEventListener("click", () => {
+        this.triggerHaptic("light");
+        this.togglePiP();
+      });
     }
     if (elements.sheetPipBtn) {
       elements.sheetPipBtn.addEventListener("click", () => {
+        this.triggerHaptic("light");
         this.toggleOptionsSheet(false);
         this.togglePiP();
       });
@@ -644,10 +898,16 @@ class NexusMasterApp {
 
     // Player Options Sheet
     if (elements.playerOptionsBtn) {
-      elements.playerOptionsBtn.addEventListener("click", () => this.toggleOptionsSheet(true));
+      elements.playerOptionsBtn.addEventListener("click", () => {
+        this.triggerHaptic("medium");
+        this.toggleOptionsSheet(true);
+      });
     }
     if (elements.closeOptionsBtn) {
-      elements.closeOptionsBtn.addEventListener("click", () => this.toggleOptionsSheet(false));
+      elements.closeOptionsBtn.addEventListener("click", () => {
+        this.triggerHaptic("light");
+        this.toggleOptionsSheet(false);
+      });
     }
     if (elements.optionsSheetBackdrop) {
       elements.optionsSheetBackdrop.addEventListener("click", () => this.toggleOptionsSheet(false));
@@ -669,13 +929,20 @@ class NexusMasterApp {
     if (elements.sponsorBlockToggle) {
       elements.sponsorBlockToggle.addEventListener("change", (e) => {
         state.sponsorBlockEnabled = e.target.checked;
+        if (elements.settingsSponsorBlockToggle) {
+          elements.settingsSponsorBlockToggle.checked = e.target.checked;
+        }
+        this.triggerHaptic("selection");
         this.showToast(state.sponsorBlockEnabled ? "⚡ SponsorBlock Auto-Skip Enabled" : "SponsorBlock Disabled", "security");
       });
     }
 
     // Downloads Modal Close
     if (elements.closeDownloadsBtn) {
-      elements.closeDownloadsBtn.addEventListener("click", () => this.toggleDownloadsModal(false));
+      elements.closeDownloadsBtn.addEventListener("click", () => {
+        this.triggerHaptic("light");
+        this.toggleDownloadsModal(false);
+      });
     }
 
     this.setupScrubber();
@@ -1031,7 +1298,7 @@ class NexusMasterApp {
 
       // 2: Settings & Ad-Free Shield
       optItems[2].style.cursor = "pointer";
-      optItems[2].onclick = () => this.togglePremiumModal(true);
+      optItems[2].onclick = () => this.toggleSettingsModal(true);
     }
   }
 
@@ -1064,10 +1331,20 @@ class NexusMasterApp {
     const shortsMatches = YOUTUBE_SHORTS.filter((sh) => sh.title.toLowerCase().includes(q) || sh.channel.toLowerCase().includes(q));
 
     let liveResults = [];
+    let suggestions = [];
     try {
-      const res = await fetch(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(query)}&type=video`, { signal: AbortSignal.timeout(2800) });
-      if (res.ok) {
-        const data = await res.json();
+      const [invRes, sugRes] = await Promise.allSettled([
+        fetch(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(query)}&type=video`, { signal: AbortSignal.timeout(2400) }),
+        fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(2000) })
+      ]);
+
+      if (sugRes.status === "fulfilled" && sugRes.value.ok) {
+        const sData = await sugRes.value.json();
+        suggestions = Array.isArray(sData.suggestions) ? sData.suggestions : [];
+      }
+
+      if (invRes.status === "fulfilled" && invRes.value.ok) {
+        const data = await invRes.value.json();
         liveResults = data.slice(0, 8).map((item) => ({
           id: item.videoId,
           title: item.title,
@@ -1085,7 +1362,25 @@ class NexusMasterApp {
 
     elements.searchResultsList.innerHTML = "";
 
-    if (songMatches.length === 0 && videoMatches.length === 0 && shortsMatches.length === 0 && liveResults.length === 0) {
+    // Render Live Search Suggestions if available
+    if (suggestions.length > 0) {
+      const suggestWrap = document.createElement("div");
+      suggestWrap.style.cssText = "display: flex; gap: 8px; overflow-x: auto; padding: 4px 8px 12px; scrollbar-width: none;";
+      suggestions.forEach((text) => {
+        const chip = document.createElement("button");
+        chip.className = "search-chip";
+        chip.style.cssText = "white-space: nowrap; font-size: 13px; padding: 6px 14px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 9999px; color: #fff; cursor: pointer;";
+        chip.textContent = text;
+        chip.addEventListener("click", () => {
+          elements.searchInput.value = text;
+          this.handleSearch(text);
+        });
+        suggestWrap.appendChild(chip);
+      });
+      elements.searchResultsList.appendChild(suggestWrap);
+    }
+
+    if (songMatches.length === 0 && videoMatches.length === 0 && shortsMatches.length === 0 && liveResults.length === 0 && suggestions.length === 0) {
       elements.searchResultsList.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.4); padding: 20px;">No matching results</p>';
       return;
     }

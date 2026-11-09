@@ -105,6 +105,14 @@ interface PlayerContextType {
   // Sleep / Bedtime Timer
   sleepTimerSeconds: number | null; // null if not active, or seconds remaining
   setSleepTimer: (minutes: number | null) => void;
+
+  // Theme & Haptics
+  themePreference: 'system' | 'light' | 'dark';
+  setThemePreference: (pref: 'system' | 'light' | 'dark') => void;
+  resolvedTheme: 'light' | 'dark';
+  hapticsEnabled: boolean;
+  setHapticsEnabled: (enabled: boolean) => void;
+  triggerHaptic: (type?: 'light' | 'medium' | 'heavy' | 'selection') => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -155,6 +163,53 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Sleep Timer
   const [sleepTimerSeconds, setSleepTimerSeconds] = useState<number | null>(null);
+
+  // Theme & Haptics
+  const [themePreference, setThemePreferenceState] = useState<'system' | 'light' | 'dark'>(() => {
+    return (localStorage.getItem('nexus_theme_preference') as 'system' | 'light' | 'dark') || 'system';
+  });
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
+  const [hapticsEnabled, setHapticsEnabledState] = useState<boolean>(() => {
+    return localStorage.getItem('nexus_haptics_enabled') === 'true';
+  });
+
+  const triggerHaptic = useCallback((type: 'light' | 'medium' | 'heavy' | 'selection' = 'light') => {
+    if (!hapticsEnabled) return;
+    if (!('vibrate' in navigator) || typeof navigator.vibrate !== 'function') return;
+    try {
+      if (type === 'light') navigator.vibrate(12);
+      else if (type === 'medium') navigator.vibrate(25);
+      else if (type === 'heavy') navigator.vibrate([35, 30, 20]);
+      else if (type === 'selection') navigator.vibrate(8);
+    } catch (_) {}
+  }, [hapticsEnabled]);
+
+  const setThemePreference = useCallback((pref: 'system' | 'light' | 'dark') => {
+    setThemePreferenceState(pref);
+    localStorage.setItem('nexus_theme_preference', pref);
+    triggerHaptic('selection');
+  }, [triggerHaptic]);
+
+  const setHapticsEnabled = useCallback((enabled: boolean) => {
+    setHapticsEnabledState(enabled);
+    localStorage.setItem('nexus_haptics_enabled', enabled ? 'true' : 'false');
+    if (enabled && 'vibrate' in navigator) {
+      try { navigator.vibrate(35); } catch (_) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const updateTheme = () => {
+      const active = themePreference === 'system' ? (mq.matches ? 'dark' : 'light') : themePreference;
+      setResolvedTheme(active);
+      document.documentElement.setAttribute('data-theme', active);
+    };
+
+    updateTheme();
+    mq.addEventListener('change', updateTheme);
+    return () => mq.removeEventListener('change', updateTheme);
+  }, [themePreference]);
 
   // Media DOM refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -526,7 +581,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setVideoQuality,
 
         sleepTimerSeconds,
-        setSleepTimer
+        setSleepTimer,
+
+        themePreference,
+        setThemePreference,
+        resolvedTheme,
+        hapticsEnabled,
+        setHapticsEnabled,
+        triggerHaptic
       }}
     >
       {/* Background HTML5 audio & video streams */}

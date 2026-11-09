@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>NexusStream • YouTube & YT Music Unified Client</title>
+  <meta name="description" content="Unified YouTube and YouTube Music client with ad-free media pipeline, synchronized lyrics, vinyl turntable mode, and shorts.">
+  <meta property="og:title" content="NexusStream • YouTube & YT Music Unified Client">
+  <meta property="og:description" content="Unified YouTube and YouTube Music client with ad-free media pipeline, synchronized lyrics, vinyl turntable mode, and shorts.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -485,6 +488,35 @@
               <span class="toggle-slider"></span>
             </label>
           </div>
+
+          <div class="option-row">
+            <div class="option-info">
+              <span class="material-symbols-rounded">palette</span>
+              <div>
+                <div class="option-label">Theme Mode</div>
+                <div class="option-desc" id="sheetThemeDesc">System default (Auto)</div>
+              </div>
+            </div>
+            <select id="sheetThemeSelect" class="glass-select">
+              <option value="system" selected>Auto (System)</option>
+              <option value="light">Light Theme</option>
+              <option value="dark">Dark Theme</option>
+            </select>
+          </div>
+
+          <div class="option-row">
+            <div class="option-info">
+              <span class="material-symbols-rounded">vibration</span>
+              <div>
+                <div class="option-label">Haptic Feedback</div>
+                <div class="option-desc">Tactile vibration on interactions</div>
+              </div>
+            </div>
+            <label class="glass-toggle">
+              <input type="checkbox" id="sheetHapticToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -563,6 +595,90 @@
               <p>Cache your favorite tracks and videos locally for offline flights & commutes.</p>
             </div>
             <span class="status-pill active">ACTIVE</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings & Preferences Modal -->
+    <div id="settingsModal" class="glass-modal hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <div class="settings-icon-badge">
+              <span class="material-symbols-rounded">settings</span>
+            </div>
+            <div>
+              <h3>Settings & Preferences</h3>
+              <p class="modal-sub">Appearance, tactile haptics & shield</p>
+            </div>
+          </div>
+          <button id="closeSettingsBtn" class="icon-glass-btn sm" aria-label="Close Settings"><span class="material-symbols-rounded">close</span></button>
+        </div>
+        <div class="settings-content-list">
+          <!-- Appearance & Theme Section -->
+          <div class="settings-section">
+            <h4 class="settings-section-title">APPEARANCE & THEME</h4>
+            <div class="option-row">
+              <div class="option-info">
+                <span class="material-symbols-rounded">palette</span>
+                <div>
+                  <div class="option-label">Theme Mode</div>
+                  <div class="option-desc" id="currentThemeDesc">System default (Auto)</div>
+                </div>
+              </div>
+              <div class="theme-segmented-control" id="themeSegmentedControl">
+                <button type="button" class="theme-segment-btn active" data-theme-val="system">Auto</button>
+                <button type="button" class="theme-segment-btn" data-theme-val="light">Light</button>
+                <button type="button" class="theme-segment-btn" data-theme-val="dark">Dark</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tactile & Interaction Section -->
+          <div class="settings-section">
+            <h4 class="settings-section-title">TACTILE & FEEDBACK</h4>
+            <div class="option-row">
+              <div class="option-info">
+                <span class="material-symbols-rounded">vibration</span>
+                <div>
+                  <div class="option-label">Haptic Feedback</div>
+                  <div class="option-desc">Tactile response on button taps & navigation (Navigator.vibrate)</div>
+                </div>
+              </div>
+              <label class="glass-toggle">
+                <input type="checkbox" id="hapticFeedbackToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Playback Defaults Section -->
+          <div class="settings-section">
+            <h4 class="settings-section-title">PROTECTION & SHIELDS</h4>
+            <div class="option-row">
+              <div class="option-info">
+                <span class="material-symbols-rounded">shield</span>
+                <div>
+                  <div class="option-label">Nexus AdBlock Media Pipeline</div>
+                  <div class="option-desc">Zero video prerolls, midrolls, or ad banners</div>
+                </div>
+              </div>
+              <span class="status-pill active">ACTIVE</span>
+            </div>
+            <div class="option-row">
+              <div class="option-info">
+                <span class="material-symbols-rounded">fast_forward</span>
+                <div>
+                  <div class="option-label">SponsorBlock Auto-Skip</div>
+                  <div class="option-desc">Community-sourced auto-skip of sponsor spots</div>
+                </div>
+              </div>
+              <label class="glass-toggle">
+                <input type="checkbox" id="settingsSponsorBlockToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
