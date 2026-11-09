@@ -431,7 +431,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
      * Plays a single media item (replaces queue with this item).
      */
     fun playMediaItem(item: MediaItemModel, startInVideoMode: Boolean = false) {
-        playQueue(listOf(item), 0, startInVideoMode) } fun retryPlayback() { val current = _playbackState.value.currentItem ?: _playbackState.value.queue.getOrNull(_playbackState.value.queueIndex) ?: return; loadTrack(current, startInVideoMode = currentMode == PlaybackMode.VIDEO, isRetry = true)
+        playQueue(listOf(item), 0, startInVideoMode = startInVideoMode) } fun retryPlayback() { val current = _playbackState.value.currentItem ?: _playbackState.value.queue.getOrNull(_playbackState.value.queueIndex) ?: return; loadTrack(current, startInVideoMode = currentMode == PlaybackMode.VIDEO, isRetry = true)
     }
 
     private fun loadTrack(
@@ -1031,7 +1031,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
                 // Queue exhausted: continue with a related video if autoplay is on.
                 val upNext = autoplayQueue.firstOrNull { rel -> queue.none { it.id == rel.id } }
                 if (currentState.autoplayNext && upNext != null) {
-                    playQueue(listOf(upNext), 0, currentMode == PlaybackMode.VIDEO)
+                    playQueue(listOf(upNext), 0, startInVideoMode = currentMode == PlaybackMode.VIDEO)
                 }
                 return
             }
