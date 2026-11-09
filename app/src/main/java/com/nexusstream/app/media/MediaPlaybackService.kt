@@ -1128,6 +1128,11 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
     override fun onPlaybackStateChanged(playbackState: Int) {
         if (!::exoPlayer.isInitialized) return
+        // Safety net: a video that should be showing must not stay audio-only because the video
+        // track type was left disabled by an earlier item.
+        if (currentMode == PlaybackMode.VIDEO && C.TRACK_TYPE_VIDEO in exoPlayer.trackSelectionParameters.disabledTrackTypes) {
+            applyPlaybackModeTracks(PlaybackMode.VIDEO)
+        }
 
         val isBuffering = playbackState == Player.STATE_BUFFERING
         val playerDuration = exoPlayer.duration

@@ -643,18 +643,21 @@ private fun WatchControls(
                     color = Color.White
                 )
                 // The chapter under the playhead (or under the finger while scrubbing), like YouTube.
-                chapters.lastOrNull { it.startMs <= shownMs }?.let { chapter ->
+                val chapterNow = chapters.lastOrNull { it.startMs <= shownMs }
+                if (chapterNow != null) {
+                    // The title takes all the leftover width, so the fullscreen button stays at the right edge.
                     Text(
-                        text = "  •  ${chapter.title}",
+                        text = "  •  ${chapterNow.title}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.White,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f)
                     )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
                 }
-                Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = { onTouched(); onToggleFullscreen() }, modifier = Modifier.size(40.dp)) {
                     Icon(
                         imageVector = if (fullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
