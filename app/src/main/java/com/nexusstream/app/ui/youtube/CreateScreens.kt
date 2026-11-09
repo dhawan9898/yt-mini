@@ -210,7 +210,7 @@ fun AccountFeedScreen(
             list == null -> OriginalEmptyState("Loading...", "")
             list.isEmpty() -> OriginalEmptyState("Nothing here yet", route.emptyMessage)
             else -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp), modifier = Modifier.fillMaxSize()) {
-                items(list, key = { "af_${it.id}" }) { video ->
+                items(list.distinctBy { it.id }, key = { "af_${it.id}" }) { video ->
                     CompactVideoRow(
                         item = video,
                         onClick = { onSelectVideo(video, list) },

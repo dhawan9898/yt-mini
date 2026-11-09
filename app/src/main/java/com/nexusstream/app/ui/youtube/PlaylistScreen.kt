@@ -122,7 +122,7 @@ fun PlaylistScreen(
                                 }
                             )
                         }
-                        items(videos, key = { "pv_${it.id}" }) { video ->
+                        items(videos.distinctBy { it.id }, key = { "pv_${it.id}" }) { video ->
                             CompactVideoRow(
                                 item = video,
                                 onClick = { onSelectVideo(video, videos) },

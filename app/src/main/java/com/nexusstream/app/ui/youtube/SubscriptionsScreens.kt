@@ -139,7 +139,7 @@ internal fun SubscriptionsTab(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                items(displaySubs, key = { it.name }) { sub ->
+                items(displaySubs.distinctBy { it.name }, key = { it.name }) { sub ->
                     val hasNew = items.any {
                         (it.channelUrl == sub.channelUrl && sub.channelUrl.isNotBlank() || it.artistOrChannel == sub.name) &&
                             it.publishedAtMs > sub.lastSeenMs
@@ -217,7 +217,7 @@ internal fun SubscriptionsTab(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(shown, key = { "sub_${it.id}" }) { video ->
+                    items(shown.distinctBy { it.id }, key = { "sub_${it.id}" }) { video ->
                         YouTubeVideoCard(
                             item = video,
                             onClick = { onSelectVideo(video, shown) },
@@ -419,7 +419,7 @@ fun AllSubscriptionsScreen(
             OriginalEmptyState("No subscriptions", "Channels you subscribe to will be listed here.")
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(subs, key = { "all_${it.name}" }) { sub ->
+                items(subs.distinctBy { it.name }, key = { "all_${it.name}" }) { sub ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

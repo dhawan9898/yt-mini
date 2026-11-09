@@ -321,7 +321,7 @@ fun YTMusicHomeScreen(
                                 contentPadding = PaddingValues(top = 8.dp, bottom = bottomSpace + 8.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(library, key = { "lib_${it.id}" }) { track ->
+                                items(library.distinctBy { it.id }, key = { "lib_${it.id}" }) { track ->
                                     YTMusicSearchResultRow(item = track, onClick = { playOrOpen(track, library) })
                                 }
                             }
@@ -477,7 +477,7 @@ private fun LegacyMusicHome(
                 modifier = Modifier.fillMaxSize()
             ) {
                 val rows = if (selectedMood.isBlank() && listenAgain.items.isNotEmpty()) listOf(listenAgain) + state.value else state.value
-                items(rows, key = { it.title }) { shelf ->
+                items(rows.distinctBy { it.title }, key = { it.title }) { shelf ->
                     YTMusicShelfCarousel(shelf = shelf, onSelectTrack = { track -> playOrOpen(track, shelf.items) })
                 }
             }
@@ -638,7 +638,7 @@ private fun YTMusicShelfCarousel(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(shelf.items, key = { "carousel_${shelf.title}_${it.id}" }) { item ->
+            items(shelf.items.distinctBy { it.id }, key = { "carousel_${shelf.title}_${it.id}" }) { item ->
                 YTMusicAlbumCard(
                     item = item,
                     onClick = { onSelectTrack(item) }

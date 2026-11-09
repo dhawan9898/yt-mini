@@ -240,7 +240,7 @@ private fun VideoListBody(
                 }
             )
         }
-        items(items, key = { "vl_${it.id}" }) { video ->
+        items(items.distinctBy { it.id }, key = { "vl_${it.id}" }) { video ->
             CompactVideoRow(
                 item = video,
                 onClick = { onSelectVideo(video, items) },
@@ -289,7 +289,7 @@ fun PlaylistsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
             OriginalEmptyState("No playlists", "Tap + to create one, or use Save on any video.")
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(playlists, key = { it.id }) { playlist ->
+                items(playlists.distinctBy { it.id }, key = { it.id }) { playlist ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -381,7 +381,7 @@ fun LocalPlaylistScreen(
                         }
                     )
                 }
-                itemsIndexed(playlist.items, key = { _, video -> "lp_${video.id}" }) { index, video ->
+                itemsIndexed(playlist.items, key = { index, video -> "lp_${index}_${video.id}" }) { index, video ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             IconButton(
@@ -488,13 +488,13 @@ fun DownloadsScreen(
                 }
                 if (pending.isNotEmpty()) {
                     item(key = "h_progress") { SectionHeader("In progress") }
-                    items(pending, key = { "pd_${it.item.id}" }) { download ->
+                    items(pending.distinctBy { it.item.id }, key = { "pd_${it.item.id}" }) { download ->
                         PendingRow(download, states[download.item.id], context)
                     }
                 }
                 if (downloads.isNotEmpty()) {
                     item(key = "h_done") { SectionHeader("Downloaded") }
-                    items(downloads, key = { "dl_${it.id}" }) { video ->
+                    items(downloads.distinctBy { it.id }, key = { "dl_${it.id}" }) { video ->
                         CompactVideoRow(
                             item = video,
                             onClick = { onSelectVideo(video, downloads) },

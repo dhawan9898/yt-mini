@@ -280,7 +280,7 @@ fun ChannelScreen(
                             } else if (visibleVideos.isEmpty()) {
                             item(key = "no_videos") { OriginalEmptyState("No videos", "This channel has no videos yet.", Modifier.height(240.dp)) }
                         } else {
-                            items(visibleVideos, key = { "cv_${it.id}" }) { video ->
+                            items(visibleVideos.distinctBy { it.id }, key = { "cv_${it.id}" }) { video ->
                                 YouTubeVideoCard(item = video, onClick = { onSelectVideo(video, visibleVideos) })
                             }
                             }
@@ -418,7 +418,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.webTabItems(
                 item(key = "web_empty") { OriginalEmptyState("Nothing here", "This channel has nothing in this tab yet.", Modifier.height(240.dp)) }
             }
             if (shorts.isNotEmpty()) {
-                items(shorts.chunked(3), key = { "sh_${it.first().id}" }) { row ->
+                items(shorts.distinctBy { it.id }.chunked(3), key = { "sh_${it.first().id}" }) { row ->
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                         row.forEach { short ->
                             Column(
@@ -441,13 +441,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.webTabItems(
                     }
                 }
             }
-            items(videos, key = { "wv_${it.id}" }) { video ->
+            items(videos.distinctBy { it.id }, key = { "wv_${it.id}" }) { video ->
                 YouTubeVideoCard(item = video, onClick = { onSelectVideo(video, videos) })
             }
             items(state.playlists, key = { "wp_${it.url}" }) { playlist ->
                 PlaylistResultRow(playlist) { nav.openPlaylist(playlist.url, playlist.title) }
             }
-            items(state.posts, key = { "post_${it.id}" }) { post ->
+            items(state.posts.distinctBy { it.id }, key = { "post_${it.id}" }) { post ->
                 PostCard(post, onOpenVideo = { onSelectVideo(it, listOf(it)) })
             }
         }

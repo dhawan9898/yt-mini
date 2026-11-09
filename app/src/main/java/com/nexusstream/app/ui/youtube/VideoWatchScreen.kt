@@ -1023,7 +1023,7 @@ private fun LazyListScope.relatedSection(
         }
     }
     val shown = if (onlyChannel) related.filter { it.artistOrChannel == channelName } else related
-    items(shown, key = { "rec_${it.id}" }) { rec ->
+    items(shown.distinctBy { it.id }, key = { "rec_${it.id}" }) { rec ->
         YouTubeVideoCard(
             item = rec,
             onClick = { onSelectVideo(rec) },

@@ -120,7 +120,7 @@ fun NotificationsScreen(
             )
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(inbox, key = { "inbox_${it.id}" }) { video ->
+                items(inbox.distinctBy { it.id }, key = { "inbox_${it.id}" }) { video ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
@@ -281,7 +281,7 @@ fun NotificationSettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     )
                 }
             } else {
-                items(subs, key = { "cs_${it.name}" }) { sub ->
+                items(subs.distinctBy { it.name }, key = { "cs_${it.name}" }) { sub ->
                     Column(modifier = Modifier.padding(top = 4.dp)) {
                         Text(
                             text = sub.name,

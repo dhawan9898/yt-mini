@@ -367,7 +367,7 @@ fun YouTubeHomeScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxSize()
                                 ) {
-                                    items(visible, key = { "yt_${it.id}" }) { video ->
+                                    items(visible.distinctBy { it.id }, key = { "yt_${it.id}" }) { video ->
                                         YouTubeVideoCard(
                                             item = video,
                                             onClick = { onSelectVideo(video, visible) },
@@ -705,7 +705,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
                     contentPadding = PaddingValues(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(history.take(10), key = { "hs_${it.id}" }) { video ->
+                    items(history.distinctBy { it.id }.take(10), key = { "hs_${it.id}" }) { video ->
                         Column(
                             modifier = Modifier
                                 .width(160.dp)
