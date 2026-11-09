@@ -97,6 +97,25 @@ fun VideoSurface(
         onDispose { SurfaceOwners.stack.remove(token) }
     }
     val owner by remember { derivedStateOf { SurfaceOwners.stack.lastOrNull() === token } }
+
+    // Keep the screen awake while a video is actually playing (or about to), so it does not
+    // dim and lock after the system timeout; released as soon as it pauses or this surface goes away.
+    val view = androidx.compose.ui.platform.LocalView.current
+    var playing by remember(player) { mutableStateOf(player.isPlaying || (player.playWhenReady && player.playbackState == Player.STATE_BUFFERING)) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying || (player.playWhenReady && player.playbackState == Player.STATE_BUFFERING) }
+            override fun onPlaybackStateChanged(playbackState: Int) { playing = player.isPlaying || (player.playWhenReady && playbackState == Player.STATE_BUFFERING) }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { playing = player.isPlaying || (playWhenReady && player.playbackState == Player.STATE_BUFFERING) }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+    DisposableEffect(playing, owner, view) {
+        val keepOn = playing && owner
+        if (keepOn) view.keepScreenOn = true
+        onDispose { if (keepOn) view.keepScreenOn = false }
+    }
     val captionScale by com.nexusstream.app.data.AppSettings.captionScale.collectAsState()
     val captionBackground by com.nexusstream.app.data.AppSettings.captionBackground.collectAsState()
 
