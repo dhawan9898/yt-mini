@@ -136,7 +136,7 @@ fun ChannelScreen(
                 page = FeedState.Data(it)
                 LibraryRepository.markSeen(it.name)
             },
-            onFailure = { page = FeedState.Error(it.message ?: "Something went wrong") }
+            onFailure = { page = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it)) }
         )
     }
 
@@ -148,7 +148,7 @@ fun ChannelScreen(
         webTabs = webTabs + (tab to WebTabState())
         YouTubeRepository.channelTab(loaded.url, web).fold(
             onSuccess = { webTabs = webTabs + (tab to WebTabState().plus(it)) },
-            onFailure = { webTabs = webTabs + (tab to WebTabState(state = FeedState.Error(it.message ?: "Something went wrong"))) }
+            onFailure = { webTabs = webTabs + (tab to WebTabState(state = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it)))) }
         )
     }
     LaunchedEffect(videoSort, page) {
@@ -164,7 +164,7 @@ fun ChannelScreen(
         }
         YouTubeRepository.channelTab(loaded.url, YouTubeWeb.ChannelTab.VIDEOS, token).fold(
             onSuccess = { sortedVideos = WebTabState().plus(it) },
-            onFailure = { sortedVideos = WebTabState(state = FeedState.Error(it.message ?: "Something went wrong")) }
+            onFailure = { sortedVideos = WebTabState(state = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it))) }
         )
     }
 
@@ -178,7 +178,7 @@ fun ChannelScreen(
                 playlistCursor = it
                 playlists = FeedState.Data(it.items)
             },
-            onFailure = { playlists = FeedState.Error(it.message ?: "Something went wrong") }
+            onFailure = { playlists = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it)) }
         )
     }
 

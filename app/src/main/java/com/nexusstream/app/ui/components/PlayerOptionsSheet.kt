@@ -296,7 +296,7 @@ fun PlayerOptionsSheet(
                                 .size(24.dp)
                         )
                     }
-                    is FeedState.Error -> item { Hint("Couldn't load download options: ${options.message}") }
+                    is FeedState.Error -> item { Hint("Couldn't load download options. ${options.message}") }
                     is FeedState.Data -> {
                         if (downloadState is DownloadState.Error) {
                             item { Hint("Last download failed: ${downloadState.message}") }

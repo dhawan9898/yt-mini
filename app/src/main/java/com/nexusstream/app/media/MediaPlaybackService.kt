@@ -431,7 +431,20 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
      * Plays a single media item (replaces queue with this item).
      */
     fun playMediaItem(item: MediaItemModel, startInVideoMode: Boolean = false) {
-        playQueue(listOf(item), 0, startInVideoMode = startInVideoMode) } fun retryPlayback() { val current = _playbackState.value.currentItem ?: _playbackState.value.queue.getOrNull(_playbackState.value.queueIndex) ?: return; loadTrack(current, startInVideoMode = currentMode == PlaybackMode.VIDEO, isRetry = true)
+        playQueue(listOf(item), 0, startInVideoMode = startInVideoMode)
+    }
+
+    /**
+     * The Retry button after a failure: fetches fresh stream links and continues where the video
+     * stopped, with the automatic retries available again.
+     */
+    fun retryPlayback() {
+        val state = _playbackState.value
+        val current = state.currentItem ?: state.queue.getOrNull(state.queueIndex) ?: return
+        retryCount = 0
+        lastErrorAtMs = 0L
+        val resumeAt = if (current.isLive) 0L else state.currentPositionMs.coerceAtLeast(0L)
+        loadTrack(current, startInVideoMode = currentMode == PlaybackMode.VIDEO, isRetry = true, requestedPositionMs = resumeAt)
     }
 
     private fun loadTrack(
@@ -547,7 +560,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
                 _playbackState.value = _playbackState.value.copy(
                     isResolving = false,
                     hasError = true,
-                    errorMessage = "Couldn't load stream: ${error.message ?: "unknown error"}"
+                    errorMessage = com.nexusstream.app.ui.components.FriendlyError.orFallback(error, "Couldn't load this video. Tap Retry to try again.")
                 )
                 return@launch
             }
@@ -623,7 +636,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             _playbackState.value = _playbackState.value.copy(
                 isResolving = false,
                 hasError = true,
-                errorMessage = "No playable stream was found for this video"
+                errorMessage = "No playable stream was found for this video. Tap Retry to try again."
             )
             return
         }
@@ -1253,7 +1266,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             val state = _playbackState.value
             _playbackState.value = state.copy(
                 hasError = true,
-                errorMessage = "Playback failed ($detail)"
+                errorMessage = com.nexusstream.app.ui.components.FriendlyError.playback(cause, error.errorCodeName)
             )
             if (state.queueIndex + 1 < state.queue.size) skipToNext()
         }

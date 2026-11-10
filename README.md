@@ -1,6 +1,7 @@
 # yt-mini (NexusStream)
 
 An ad-free Android client for YouTube and YouTube Music (Kotlin, Jetpack Compose, Media3).
+How it compares with the two official apps, feature by feature: [YOUTUBE_PARITY_REVIEW_AND_MIGRATION_ROADMAP.md](YOUTUBE_PARITY_REVIEW_AND_MIGRATION_ROADMAP.md).
 
 ## Where the data comes from
 

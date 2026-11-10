@@ -179,7 +179,7 @@ fun UploadScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                         }.onSuccess {
                             doneId = it
                             Toast.makeText(context, "Video uploaded", Toast.LENGTH_SHORT).show()
-                        }.onFailure { error = it.message ?: "The upload failed" }
+                        }.onFailure { error = com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "The upload failed") }
                     }
                 }
             ) { Text("Upload", fontSize = 16.sp) }
@@ -200,7 +200,7 @@ fun AccountFeedScreen(
     LaunchedEffect(route.browseId) {
         withContext(Dispatchers.IO) { runCatching { YouTubeWeb.explore(route.browseId).items } }
             .onSuccess { items = it }
-            .onFailure { error = it.message ?: "Couldn't load this page" }
+            .onFailure { error = com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't load this page") }
     }
     PageScaffold(title = route.title, onBack = nav.back, miniPlayer = miniPlayer) {
         val list = items

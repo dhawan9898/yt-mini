@@ -384,14 +384,7 @@ fun VideoWatchScreen(
             }
         }
 
-        if (playbackState.hasError) {
-            Text(
-                text = playbackState.errorMessage ?: "Playback error",
-                fontSize = 12.sp,
-                color = OriginalColors.Danger,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-            )
-        }
+        // Playback errors show over the video itself, with a Retry button (WatchPlayerViewport).
 
         val ambientMode by AppSettings.ambientMode.collectAsState()
         val sampledAmbient by FrameGrabber.ambient.collectAsState()
@@ -540,7 +533,7 @@ fun VideoWatchScreen(
                                 if (playbackState.isPlaying) playbackService.togglePlayPause()
                                 tvScope.launch {
                                     val result = withContext(Dispatchers.IO) { runCatching { com.nexusstream.app.data.TvLink.play(ids, 0, at) } }
-                                    Toast.makeText(context, result.fold({ "Playing on ${linkedTv?.name}" }, { it.message ?: "Couldn't reach the TV" }), Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, result.fold({ "Playing on ${linkedTv?.name}" }, { com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't reach the TV") }), Toast.LENGTH_SHORT).show()
                                 }
                             }
                             .padding(14.dp),
@@ -1098,7 +1091,7 @@ internal fun CommentsList(page: CommentsPage, sort: CommentsApi.Sort, onSort: (C
                                 )
                             ) + items
                         }.onFailure {
-                            Toast.makeText(context, it.message ?: "Couldn't post the comment", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't post the comment"), Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -1242,7 +1235,7 @@ private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
                                 scope.launch {
                                     withContext(Dispatchers.IO) { runCatching { CommentsApi.act(action ?: error("No action")) } }.onFailure {
                                         liked = !target
-                                        Toast.makeText(context, it.message ?: "Couldn't like the comment", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't like the comment"), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
@@ -1301,7 +1294,7 @@ private fun CommentRow(comment: CommentModel, isReply: Boolean = false) {
                                     text = text, likes = 0, date = "Just now", pinned = false
                                 )
                             }
-                            .onFailure { Toast.makeText(context, it.message ?: "Couldn't post the reply", Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(context, com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't post the reply"), Toast.LENGTH_SHORT).show() }
                     }
                 }
             }
@@ -1431,7 +1424,7 @@ private fun LiveChatSheet(start: com.nexusstream.app.data.LiveChat.Start, positi
             val result = withContext(Dispatchers.IO) { runCatching { com.nexusstream.app.data.LiveChat.poll(token.orEmpty(), start.replay, positionMs()) } }
             val page = result.getOrNull()
             if (page == null) {
-                error = result.exceptionOrNull()?.message ?: "Couldn't load the chat"
+                error = result.exceptionOrNull()?.let { com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't load the chat") } ?: "Couldn't load the chat"
                 kotlinx.coroutines.delay(5000)
                 continue
             }

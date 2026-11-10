@@ -253,7 +253,7 @@ private fun MusicPageHeader(
                     if (first == null) Toast.makeText(context, "Nothing to play", Toast.LENGTH_SHORT).show()
                     else onPlay(first, queue)
                 }
-                .onFailure { Toast.makeText(context, it.message ?: "Couldn't play this", Toast.LENGTH_SHORT).show() }
+                .onFailure { Toast.makeText(context, com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't play this"), Toast.LENGTH_SHORT).show() }
         }
     }
 

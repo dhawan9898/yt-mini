@@ -129,8 +129,8 @@ enum class AppScreen {
 /**
  * Root NexusStream App Shell:
  * - Tap the YouTube Premium / Music logo at the top to switch between YouTube and YT Music.
- * - Complete removal of Shorts and Games from feeds.
- * - Unlocked Premium features: Background playback, PiP, Ad-free, Lossless audio.
+ * - Games are left out of the feeds; Shorts have their own tab, as in the YouTube app.
+ * - Premium-style playback: background play, picture-in-picture, no ads.
  */
 @Composable
 fun NexusApp() {
@@ -297,14 +297,21 @@ fun NexusApp() {
         }
     }
 
-    val playVideo: (MediaItemModel, List<MediaItemModel>) -> Unit = { item, queue ->
-        // Playlists play in order; everywhere else the video plays alone and then continues
-        // with related videos (autoplay), like the original app.
-        val inPlaylist = backStack.lastOrNull() is Route.Playlist
-        val playQueue = if (inPlaylist) queue else listOf(item)
+    val playInOrder: (MediaItemModel, List<MediaItemModel>) -> Unit = { item, queue ->
+        val playQueue = queue.ifEmpty { listOf(item) }
         val idx = playQueue.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
         activeService?.playQueue(playQueue, idx, startInVideoMode = true)
         currentScreen = AppScreen.WATCH
+    }
+    val playVideo: (MediaItemModel, List<MediaItemModel>) -> Unit = { item, queue ->
+        // Playlists (YouTube's, Watch later, Liked videos and your own) play in order from the
+        // video tapped; everywhere else it plays alone and continues with related videos
+        // (autoplay), like the original app.
+        val inPlaylist = when (backStack.lastOrNull()) {
+            is Route.Playlist, is Route.WatchLater, is Route.Liked, is Route.LocalPlaylist -> true
+            else -> false
+        }
+        playInOrder(item, if (inPlaylist) queue else listOf(item))
     }
     val closePlayer: () -> Unit = {
         activeService?.closePlayback()
@@ -358,17 +365,24 @@ fun NexusApp() {
         }
     }
 
-    // "Take a break": after N minutes of continuous playback.
+    // "Remind me to take a break": after N minutes of watching. Like YouTube it counts time spent
+    // playing, so pausing for a moment no longer starts the count over.
     var showBreakDialog by remember { mutableStateOf(false) }
-    val isPlayingNow = playbackState?.isPlaying == true
-    LaunchedEffect(breakMinutes, isPlayingNow) {
-        if (breakMinutes > 0 && isPlayingNow) {
-            delay(breakMinutes * 60_000L)
-            showBreakDialog = true
+    val isPlayingNow by androidx.compose.runtime.rememberUpdatedState(playbackState?.isPlaying == true)
+    LaunchedEffect(breakMinutes) {
+        if (breakMinutes <= 0) return@LaunchedEffect
+        var watchedMs = 0L
+        while (true) {
+            delay(1_000L)
+            if (isPlayingNow && !showBreakDialog) watchedMs += 1_000L
+            if (watchedMs >= breakMinutes * 60_000L) {
+                watchedMs = 0L
+                showBreakDialog = true
+            }
         }
     }
 
-    CompositionLocalProvider(LocalPlaybackService provides activeService, LocalNav provides nav) {
+    CompositionLocalProvider(LocalPlaybackService provides activeService, LocalNav provides nav, LocalPlayInOrder provides playInOrder) {
     NexusTheme(
         dominantColor = currentItem?.dominantColor ?: Color(0xFF6C5CE7),
         secondaryColor = currentItem?.secondaryColor ?: Color(0xFFFF7675)
@@ -382,6 +396,7 @@ fun NexusApp() {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Screen Switcher
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    val modeStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
                     // Home stays composed under the pages and the player, so scroll positions,
                     // tabs and loaded feeds are still there when the player is minimised.
                     AnimatedContent(
@@ -393,6 +408,8 @@ fun NexusApp() {
                         },
                         label = "AppModeMorph"
                     ) { mode ->
+                        // Each app keeps its tab, topic and scroll position while the other is shown.
+                        modeStates.SaveableStateProvider(mode.name) {
                         when (mode) {
                             AppMode.YOUTUBE_VIDEO -> {
                                 YouTubeHomeScreen(
@@ -427,6 +444,7 @@ fun NexusApp() {
                                     pagesOpen = backStack.isNotEmpty()
                                 )
                             }
+                        }
                         }
                     }
 
@@ -482,29 +500,21 @@ fun NexusApp() {
                     PlayerSheet(visible = currentScreen != AppScreen.HOME && activeService != null) {
                         if (activeService != null) {
                             when (lastPlayerScreen) {
-                                AppScreen.PLAYER -> {
-                                if (activeService != null) {
-                                    MusicPlayerScreen(
-                                        playbackService = activeService,
-                                        onCollapse = { currentScreen = AppScreen.HOME },
-                                        onOpenPlaylist = nav.openMusicPlaylist,
-                                        onOpenArtist = nav.openMusicChannel
-                                    )
-                                }
-                                }
-                                else -> {
-                                if (activeService != null) {
-                                    VideoWatchScreen(
-                                        playbackService = activeService,
-                                        onCollapse = { currentScreen = AppScreen.HOME },
-                                        onSelectVideo = { item ->
-                                            activeService.playMediaItem(item, startInVideoMode = true)
-                                        },
-                                        onOpenChannel = { item -> nav.openChannelOf(item) },
-                                        onClose = closePlayer
-                                    )
-                                }
-                                }
+                                AppScreen.PLAYER -> MusicPlayerScreen(
+                                    playbackService = activeService,
+                                    onCollapse = { currentScreen = AppScreen.HOME },
+                                    onOpenPlaylist = nav.openMusicPlaylist,
+                                    onOpenArtist = nav.openMusicChannel
+                                )
+                                else -> VideoWatchScreen(
+                                    playbackService = activeService,
+                                    onCollapse = { currentScreen = AppScreen.HOME },
+                                    onSelectVideo = { item ->
+                                        activeService.playMediaItem(item, startInVideoMode = true)
+                                    },
+                                    onOpenChannel = { item -> nav.openChannelOf(item) },
+                                    onClose = closePlayer
+                                )
                             }
                         }
                     }

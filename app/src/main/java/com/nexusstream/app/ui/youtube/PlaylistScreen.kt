@@ -81,7 +81,7 @@ fun PlaylistScreen(
                 cursor = it.videos
                 page = FeedState.Data(it)
             },
-            onFailure = { page = FeedState.Error(it.message ?: "Something went wrong") }
+            onFailure = { page = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it)) }
         )
     }
 

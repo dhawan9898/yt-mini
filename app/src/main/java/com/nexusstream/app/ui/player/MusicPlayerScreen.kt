@@ -274,7 +274,7 @@ fun MusicPlayerScreen(
                         }
                         is FeedState.Error -> LyricsPanel(
                             lyrics = LyricsRepository.Lyrics(emptyList()),
-                            message = "Couldn't load lyrics (${l.message})",
+                            message = "Couldn't load lyrics. ${l.message}",
                             currentPositionMs = state.currentPositionMs,
                             onSeek = {}
                         )
@@ -291,7 +291,7 @@ fun MusicPlayerScreen(
                             CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
                         }
                         is FeedState.Error -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Couldn't load related music (${r.message})", color = DarkPalette.textSecondary, fontSize = 13.sp)
+                            Text("Couldn't load related music. ${r.message}", color = DarkPalette.textSecondary, fontSize = 13.sp)
                         }
                         is FeedState.Data -> RelatedPanel(
                             sections = r.value,
@@ -426,13 +426,22 @@ fun MusicPlayerScreen(
             }
         }
 
-        if (state.hasError) {
-            Text(
-                text = state.errorMessage ?: "Playback error",
-                fontSize = 12.sp,
-                color = com.nexusstream.app.ui.components.OriginalColors.Danger,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
+        if (state.hasError && !state.isResolving) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = state.errorMessage ?: "This song couldn't be played.",
+                    fontSize = 12.sp,
+                    color = com.nexusstream.app.ui.components.OriginalColors.Danger,
+                    maxLines = 2,
+                    modifier = Modifier.weight(1f)
+                )
+                androidx.compose.material3.TextButton(onClick = { playbackService.retryPlayback() }) {
+                    Text("Retry", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
 
         SeekBar(

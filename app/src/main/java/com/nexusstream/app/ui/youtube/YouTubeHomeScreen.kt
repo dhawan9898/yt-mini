@@ -104,6 +104,7 @@ import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.VideoCall
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.clickable
@@ -141,8 +142,8 @@ import kotlinx.coroutines.launch
 
 /**
  * YouTube home: Home feed (infinite scroll, pull-to-refresh, personalised with your
- * subscriptions and watch history), Subscriptions and You tabs, and a bottom nav.
- * Shorts and Games are intentionally not shown.
+ * subscriptions and watch history), Shorts, Subscriptions and You tabs, and a bottom nav.
+ * Games are intentionally not shown.
  */
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -163,8 +164,9 @@ fun YouTubeHomeScreen(
     /** Pages (search, channel...) cover this screen; Back belongs to them then. */
     pagesOpen: Boolean = false
 ) {
-    var selectedCategory by remember { mutableStateOf("All") }
-    var selectedTab by remember { mutableStateOf(0) }
+    // Saveable, so switching to YT Music and back returns to the same tab and topic.
+    var selectedCategory by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("All") }
+    var selectedTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
     val requestedTab by com.nexusstream.app.LaunchRequests.homeTab.collectAsState()
     LaunchedEffect(requestedTab) {
         requestedTab?.let { selectedTab = it; com.nexusstream.app.LaunchRequests.homeTab.value = null }
@@ -173,7 +175,7 @@ fun YouTubeHomeScreen(
     var forceRefresh by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
-    var cursor by remember { mutableStateOf(YouTubeRepository.cachedVideoFeed("All")) }
+    var cursor by remember { mutableStateOf(YouTubeRepository.cachedVideoFeed(selectedCategory)) }
     var feed by remember {
         mutableStateOf<FeedState<List<MediaItemModel>>>(
             cursor?.let { FeedState.Data(it.items) } ?: FeedState.Loading
@@ -186,6 +188,7 @@ fun YouTubeHomeScreen(
     // Loads page one. Cached feeds (kept until the app process ends) show instantly;
     // Retry and pull-to-refresh set forceRefresh to bypass the cache.
     val signedIn by GoogleAccount.signedIn.collectAsState()
+    val homeContext = LocalContext.current
     LaunchedEffect(selectedCategory, reloadKey, signedIn) {
         val force = forceRefresh
         forceRefresh = false
@@ -202,8 +205,9 @@ fun YouTubeHomeScreen(
                 feed = FeedState.Data(it.items)
             }
             .onFailure {
-                // Keep showing the old list if a pull-to-refresh fails.
-                if (feed !is FeedState.Data) feed = FeedState.Error(it.message ?: "Something went wrong")
+                // Keep showing the old list if a pull-to-refresh fails, but say why it didn't change.
+                if (feed !is FeedState.Data) feed = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it))
+                else if (force) Toast.makeText(homeContext, com.nexusstream.app.ui.components.FriendlyError.message(it), Toast.LENGTH_SHORT).show()
             }
         refreshing = false
     }
@@ -767,6 +771,10 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
                     nav.open(Route.AccountFeed("FEstorefront", "Your movies", "Movies and shows you buy or rent on YouTube show up here."))
                 }
             }
+        }
+        if (com.nexusstream.app.data.GoogleAccount.isSignedIn()) {
+            // YouTube's Create button: the upload page existed but nothing opened it.
+            item(key = "row_upload") { LibraryRow(Icons.Outlined.VideoCall, "Upload a video", null) { nav.open(Route.Upload) } }
         }
         item(key = "row_time") { LibraryRow(Icons.Outlined.Timer, "Time watched", null) { nav.open(Route.TimeWatched) } }
         item(key = "row_settings") { LibraryRow(Icons.Outlined.Settings, "Settings", null) { nav.open(Route.Settings) } }

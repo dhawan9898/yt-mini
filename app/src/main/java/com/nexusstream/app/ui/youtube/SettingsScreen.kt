@@ -456,7 +456,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                                         "You have the latest version"
                                     }
                                 },
-                                onFailure = { "Couldn't check: ${it.message}" }
+                                onFailure = { com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't check for updates") }
                             )
                         }
                     }
@@ -660,7 +660,7 @@ private fun TvLinkDialog(onDismiss: () -> Unit) {
                                 Toast.makeText(context, "Linked to ${it.name}", Toast.LENGTH_SHORT).show()
                                 onDismiss()
                             }
-                            .onFailure { error = it.message ?: "Couldn't link the TV" }
+                            .onFailure { error = com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't link the TV") }
                         busy = false
                     }
                 }
@@ -679,7 +679,7 @@ private fun AccountSwitcherDialog(onDismiss: () -> Unit) {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) { runCatching { AccountApi.accounts() } }
             .onSuccess { accounts = it }
-            .onFailure { error = it.message ?: "Couldn't load your accounts" }
+            .onFailure { error = com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't load your accounts") }
     }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,

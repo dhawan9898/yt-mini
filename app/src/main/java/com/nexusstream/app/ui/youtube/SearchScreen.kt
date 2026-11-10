@@ -155,7 +155,7 @@ fun SearchScreen(
                 cursor = it
                 results = FeedState.Data(it.items)
             },
-            onFailure = { results = FeedState.Error(it.message ?: "Something went wrong") }
+            onFailure = { results = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it)) }
         )
     }
 

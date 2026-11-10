@@ -232,11 +232,12 @@ private fun VideoListBody(
         modifier = Modifier.fillMaxSize()
     ) {
         item(key = "play_buttons") {
+            val playInOrder = com.nexusstream.app.ui.LocalPlayInOrder.current ?: onSelectVideo
             PlayButtons(
-                onPlayAll = { items.firstOrNull()?.let { onSelectVideo(it, items) } },
+                onPlayAll = { items.firstOrNull()?.let { playInOrder(it, items) } },
                 onShuffle = {
                     val shuffled = items.shuffled()
-                    shuffled.firstOrNull()?.let { onSelectVideo(it, shuffled) }
+                    shuffled.firstOrNull()?.let { playInOrder(it, shuffled) }
                 }
             )
         }
@@ -373,11 +374,12 @@ fun LocalPlaylistScreen(
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 12.dp), modifier = Modifier.fillMaxSize()) {
                 item(key = "play_buttons") {
+                    val playInOrder = com.nexusstream.app.ui.LocalPlayInOrder.current ?: onSelectVideo
                     PlayButtons(
-                        onPlayAll = { playlist.items.firstOrNull()?.let { onSelectVideo(it, playlist.items) } },
+                        onPlayAll = { playlist.items.firstOrNull()?.let { playInOrder(it, playlist.items) } },
                         onShuffle = {
                             val shuffled = playlist.items.shuffled()
-                            shuffled.firstOrNull()?.let { onSelectVideo(it, shuffled) }
+                            shuffled.firstOrNull()?.let { playInOrder(it, shuffled) }
                         }
                     )
                 }

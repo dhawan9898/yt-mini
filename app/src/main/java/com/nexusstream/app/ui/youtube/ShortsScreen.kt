@@ -141,7 +141,7 @@ fun ShortsScreen(
                 ShortsSession.items = it.items
                 ShortsSession.cursor = it
             },
-            onFailure = { feed = FeedState.Error(it.message ?: "Something went wrong") }
+            onFailure = { feed = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it)) }
         )
     }
 

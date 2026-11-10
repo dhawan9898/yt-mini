@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -495,6 +497,61 @@ fun WatchPlayerViewport(
                     .background(Color.Black.copy(alpha = 0.6f))
                     .padding(horizontal = 14.dp, vertical = 6.dp)
             )
+        }
+
+        // A failure the automatic retries could not fix: say so over the video and offer Retry,
+        // like YouTube's "An error occurred. Tap to retry." (it used to be a red line under the
+        // player with no way to try again).
+        if (state.hasError && !state.isResolving && controlsEnabled) {
+            PlaybackErrorOverlay(
+                message = state.errorMessage,
+                compact = !fullscreen,
+                onRetry = { playbackService.retryPlayback() },
+                modifier = Modifier.matchParentSize()
+            )
+        }
+    }
+}
+
+/** Dark panel over a video that failed to play, with the reason and a Retry button. */
+@Composable
+internal fun PlaybackErrorOverlay(message: String?, compact: Boolean, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.82f))
+            // Swallows taps so they don't toggle the (hidden) controls underneath.
+            .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {}
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Filled.ErrorOutline,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(if (compact) 28.dp else 40.dp)
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = message ?: "This video couldn't be played.",
+            color = Color.White,
+            fontSize = if (compact) 13.sp else 15.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            maxLines = 3,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.White)
+                .clickable(onClick = onRetry)
+                .padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Refresh, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Retry", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
     }
 }

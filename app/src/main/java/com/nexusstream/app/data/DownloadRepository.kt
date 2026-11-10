@@ -266,7 +266,7 @@ object DownloadRepository {
         } catch (e: Exception) {
             // Keep the partial files and pending entry so the user can resume.
             upsertPending(start.copy(bytesDone = bytesOnDisk(dir, start)))
-            setState(id, DownloadState.Error(e.message ?: "Download failed"))
+            setState(id, DownloadState.Error(com.nexusstream.app.ui.components.FriendlyError.orFallback(e, "Download failed")))
             return false
         }
     }

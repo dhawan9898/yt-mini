@@ -139,16 +139,16 @@ fun YTMusicHomeScreen(
     /** Pages (album, artist...) cover this screen; Back belongs to them then. */
     pagesOpen: Boolean = false
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearchActive by remember { mutableStateOf(false) }
-    var selectedMood by remember { mutableStateOf("") }
-    var selectedTab by remember { mutableStateOf(0) }
+    var searchQuery by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var isSearchActive by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var selectedMood by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var selectedTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
     var reloadKey by remember { mutableStateOf(0) }
-    var libraryTab by remember { mutableStateOf("") }
+    var libraryTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     val signedIn by GoogleAccount.signedIn.collectAsState()
-    var searchFilter by remember { mutableStateOf(YTMusicPages.SearchFilter.SONGS) }
+    var searchFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(YTMusicPages.SearchFilter.SONGS) }
     var musicSearch by remember { mutableStateOf<FeedState<YTMusicPages.Page>>(FeedState.Loading) }
-    var searchType by remember { mutableStateOf(SearchType.SONGS) }
+    var searchType by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(SearchType.SONGS) }
     var searchState by remember { mutableStateOf<FeedState<List<SearchResult>>>(FeedState.Loading) }
     // Back closes the search first, then returns to Home, before it leaves the app.
     androidx.activity.compose.BackHandler(enabled = (isSearchActive || selectedTab != 0) && !playerOpen && !pagesOpen) {

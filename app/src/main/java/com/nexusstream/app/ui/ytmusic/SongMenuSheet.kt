@@ -266,7 +266,7 @@ private fun CreditsSheet(item: MediaItemModel, creditsBrowseId: String?, onDismi
                     CircularProgressIndicator(color = OriginalColors.TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
                 }
                 result.isFailure -> Text(
-                    text = result.exceptionOrNull()?.message ?: "Couldn't load credits",
+                    text = result.exceptionOrNull()?.let { com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't load credits") } ?: "Couldn't load credits",
                     color = OriginalColors.TextSecondary,
                     fontSize = 14.sp,
                     modifier = Modifier.padding(20.dp)
