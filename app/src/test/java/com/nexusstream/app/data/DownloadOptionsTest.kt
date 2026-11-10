@@ -12,11 +12,12 @@ import org.schabi.newpipe.extractor.stream.VideoStream
 class DownloadOptionsTest {
     // Real YouTube itags: 137 = mp4/avc1 1080p30, 299 = mp4/avc1 1080p60, 248 = webm/vp9 1080p,
     // 136 = mp4/avc1 720p, 140 = m4a audio, 251 = webm/opus audio.
-    private fun video(itag: Int, url: String, format: MediaFormat): VideoStream =
+    private fun video(itag: Int, url: String, format: MediaFormat, resolution: String): VideoStream =
         VideoStream.Builder()
             .setId("v$itag")
             .setContent(url, true)
             .setMediaFormat(format)
+            .setResolution(resolution)
             .setIsVideoOnly(true)
             .setItagItem(ItagItem.getItag(itag))
             .build()
@@ -36,7 +37,7 @@ class DownloadOptionsTest {
     @Test
     fun anMp4VideoIsPairedWithTheBestM4aAudio() {
         val options = YouTubeRepository.mergedDownloadOptions(
-            listOf(video(137, "https://v/1080", MediaFormat.MPEG_4)),
+            listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, "1080p")),
             listOf(m4a, audio(140, "https://a/m4a-low", MediaFormat.M4A, 48))
         )
         val option = options.getValue(1080)
@@ -49,15 +50,15 @@ class DownloadOptionsTest {
     @Test
     fun noMatchingAudioMeansNoOption() {
         // An mp4 video needs m4a audio; webm audio cannot be muxed into it.
-        assertTrue(YouTubeRepository.mergedDownloadOptions(listOf(video(137, "https://v/1080", MediaFormat.MPEG_4)), listOf(opus)).isEmpty())
-        assertTrue(YouTubeRepository.mergedDownloadOptions(listOf(video(137, "https://v/1080", MediaFormat.MPEG_4)), emptyList()).isEmpty())
+        assertTrue(YouTubeRepository.mergedDownloadOptions(listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, "1080p")), listOf(opus)).isEmpty())
+        assertTrue(YouTubeRepository.mergedDownloadOptions(listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, "1080p")), emptyList()).isEmpty())
         assertTrue(YouTubeRepository.mergedDownloadOptions(emptyList(), listOf(m4a)).isEmpty())
     }
 
     @Test
     fun webmVideoUsesWebmAudio() {
         val option = YouTubeRepository.mergedDownloadOptions(
-            listOf(video(248, "https://v/webm1080", MediaFormat.WEBM)),
+            listOf(video(248, "https://v/webm1080", MediaFormat.WEBM, "1080p")),
             listOf(m4a, opus)
         ).getValue(1080)
         assertEquals("webm", option.extension)
@@ -67,7 +68,7 @@ class DownloadOptionsTest {
     @Test
     fun theHigherFrameRateWinsForTheSameHeight() {
         val options = YouTubeRepository.mergedDownloadOptions(
-            listOf(video(137, "https://v/30", MediaFormat.MPEG_4), video(299, "https://v/60", MediaFormat.MPEG_4)),
+            listOf(video(137, "https://v/30", MediaFormat.MPEG_4, "1080p"), video(299, "https://v/60", MediaFormat.MPEG_4, "1080p60")),
             listOf(m4a)
         )
         assertEquals(1, options.size)
@@ -78,7 +79,7 @@ class DownloadOptionsTest {
     @Test
     fun eachHeightGetsItsOwnOption() {
         val options = YouTubeRepository.mergedDownloadOptions(
-            listOf(video(137, "https://v/1080", MediaFormat.MPEG_4), video(136, "https://v/720", MediaFormat.MPEG_4)),
+            listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, "1080p"), video(136, "https://v/720", MediaFormat.MPEG_4, "720p")),
             listOf(m4a)
         )
         assertEquals(setOf(1080, 720), options.keys)
