@@ -12,15 +12,19 @@ import org.schabi.newpipe.extractor.stream.VideoStream
 class DownloadOptionsTest {
     // Real YouTube itags: 137 = mp4/avc1 1080p30, 299 = mp4/avc1 1080p60, 248 = webm/vp9 1080p,
     // 136 = mp4/avc1 720p, 140 = m4a audio, 251 = webm/opus audio.
-    private fun video(itag: Int, url: String, format: MediaFormat, resolution: String): VideoStream =
-        VideoStream.Builder()
+    // A static itag carries no codec, height or frame rate (they come from a real player response),
+    // so the test supplies them the way the extractor would.
+    private fun video(itag: Int, url: String, format: MediaFormat, height: Int, fps: Int, codec: String): VideoStream {
+        val item = ItagItem.getItag(itag).apply { setHeight(height); setFps(fps); setCodec(codec) }
+        return VideoStream.Builder()
             .setId("v$itag")
             .setContent(url, true)
             .setMediaFormat(format)
-            .setResolution(resolution)
+            .setResolution(if (fps > 30) "${height}p$fps" else "${height}p")
             .setIsVideoOnly(true)
-            .setItagItem(ItagItem.getItag(itag))
+            .setItagItem(item)
             .build()
+    }
 
     private fun audio(itag: Int, url: String, format: MediaFormat, bitrate: Int): AudioStream =
         AudioStream.Builder()
@@ -37,7 +41,7 @@ class DownloadOptionsTest {
     @Test
     fun anMp4VideoIsPairedWithTheBestM4aAudio() {
         val options = YouTubeRepository.mergedDownloadOptions(
-            listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, "1080p")),
+            listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, 1080, 30, "avc1.640028")),
             listOf(m4a, audio(140, "https://a/m4a-low", MediaFormat.M4A, 48))
         )
         val option = options.getValue(1080)
@@ -50,15 +54,15 @@ class DownloadOptionsTest {
     @Test
     fun noMatchingAudioMeansNoOption() {
         // An mp4 video needs m4a audio; webm audio cannot be muxed into it.
-        assertTrue(YouTubeRepository.mergedDownloadOptions(listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, "1080p")), listOf(opus)).isEmpty())
-        assertTrue(YouTubeRepository.mergedDownloadOptions(listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, "1080p")), emptyList()).isEmpty())
+        assertTrue(YouTubeRepository.mergedDownloadOptions(listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, 1080, 30, "avc1.640028")), listOf(opus)).isEmpty())
+        assertTrue(YouTubeRepository.mergedDownloadOptions(listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, 1080, 30, "avc1.640028")), emptyList()).isEmpty())
         assertTrue(YouTubeRepository.mergedDownloadOptions(emptyList(), listOf(m4a)).isEmpty())
     }
 
     @Test
     fun webmVideoUsesWebmAudio() {
         val option = YouTubeRepository.mergedDownloadOptions(
-            listOf(video(248, "https://v/webm1080", MediaFormat.WEBM, "1080p")),
+            listOf(video(248, "https://v/webm1080", MediaFormat.WEBM, 1080, 30, "vp9")),
             listOf(m4a, opus)
         ).getValue(1080)
         assertEquals("webm", option.extension)
@@ -68,7 +72,7 @@ class DownloadOptionsTest {
     @Test
     fun theHigherFrameRateWinsForTheSameHeight() {
         val options = YouTubeRepository.mergedDownloadOptions(
-            listOf(video(137, "https://v/30", MediaFormat.MPEG_4, "1080p"), video(299, "https://v/60", MediaFormat.MPEG_4, "1080p60")),
+            listOf(video(137, "https://v/30", MediaFormat.MPEG_4, 1080, 30, "avc1.640028"), video(299, "https://v/60", MediaFormat.MPEG_4, 1080, 60, "avc1.64002a")),
             listOf(m4a)
         )
         assertEquals(1, options.size)
@@ -79,7 +83,7 @@ class DownloadOptionsTest {
     @Test
     fun eachHeightGetsItsOwnOption() {
         val options = YouTubeRepository.mergedDownloadOptions(
-            listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, "1080p"), video(136, "https://v/720", MediaFormat.MPEG_4, "720p")),
+            listOf(video(137, "https://v/1080", MediaFormat.MPEG_4, 1080, 30, "avc1.640028"), video(136, "https://v/720", MediaFormat.MPEG_4, 720, 30, "avc1.4d401f")),
             listOf(m4a)
         )
         assertEquals(setOf(1080, 720), options.keys)
