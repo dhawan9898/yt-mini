@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,6 +42,21 @@ import coil.compose.AsyncImage
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.components.OriginalColors
 import com.nexusstream.app.ui.theme.bouncyClickable
+
+/**
+ * The channel picture for [item]: its own, or one already known for the channel, or (when neither)
+ * looked up once in the background, after which every card of that channel shows it.
+ */
+@Composable
+internal fun rememberChannelAvatar(item: MediaItemModel, fallback: String = ""): String {
+    val own = item.channelAvatarUrl.ifEmpty { fallback }
+    val known by com.nexusstream.app.data.ChannelAvatars.known.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(item.channelUrl, own) {
+        if (own.isNotEmpty()) com.nexusstream.app.data.ChannelAvatars.record(item.channelUrl, own)
+        else com.nexusstream.app.data.ChannelAvatars.request(item.channelUrl)
+    }
+    return own.ifEmpty { com.nexusstream.app.data.ChannelAvatars.key(item.channelUrl)?.let { known[it] }.orEmpty() }
+}
 
 /**
  * Large feed card: thumbnail, avatar, title, "channel ▷ views age", ⋮ menu.
@@ -80,9 +96,10 @@ internal fun YouTubeVideoCard(
                     .then(if (onChannelClick != null) Modifier.clickable(onClick = onChannelClick) else Modifier),
                 contentAlignment = Alignment.Center
             ) {
-                if (item.channelAvatarUrl.isNotEmpty()) {
+                val avatar = rememberChannelAvatar(item)
+                if (avatar.isNotEmpty()) {
                     AsyncImage(
-                        model = item.channelAvatarUrl,
+                        model = avatar,
                         contentDescription = item.artistOrChannel,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

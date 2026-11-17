@@ -565,6 +565,8 @@ fun VideoWatchScreen(
 
             // Channel row: avatar, name with subscriber count, Subscribe
             item(key = "channel-row") {
+                // The item's own picture, else the one the video's page gave, else looked up once.
+                val channelAvatar = rememberChannelAvatar(mediaItem, fallback = details?.channelAvatarUrl.orEmpty())
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -576,15 +578,22 @@ fun VideoWatchScreen(
                             .size(36.dp)
                             .clip(CircleShape)
                             .background(mediaItem.dominantColor)
-                            .clickable { onOpenChannel(mediaItem) },
+                            .clickable { onOpenChannel(mediaItem.copy(channelAvatarUrl = channelAvatar)) },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (mediaItem.channelAvatarUrl.isNotEmpty()) {
+                        if (channelAvatar.isNotEmpty()) {
                             AsyncImage(
-                                model = mediaItem.channelAvatarUrl,
+                                model = channelAvatar,
                                 contentDescription = mediaItem.artistOrChannel,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Text(
+                                text = mediaItem.artistOrChannel.take(1),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
                             )
                         }
                     }
@@ -617,7 +626,7 @@ fun VideoWatchScreen(
                             .clip(RoundedCornerShape(18.dp))
                             .background(if (isSubscribed) OriginalColors.Chip else OriginalColors.TextPrimary)
                             .clickable {
-                                LibraryRepository.toggleSubscribe(mediaItem.artistOrChannel, mediaItem.channelAvatarUrl, mediaItem.channelUrl)
+                                LibraryRepository.toggleSubscribe(mediaItem.artistOrChannel, channelAvatar, mediaItem.channelUrl)
                             }
                             .padding(horizontal = 16.dp, vertical = 9.dp)
                     ) {
@@ -1021,7 +1030,8 @@ private fun LazyListScope.relatedSection(
         YouTubeVideoCard(
             item = rec,
             onClick = { onSelectVideo(rec) },
-            inset = true,
+            // Edge to edge, like the related list under a video in the YouTube phone app.
+            inset = false,
             onChannelClick = rec.channelUrl.takeIf { it.isNotBlank() }?.let { { onOpenChannel(rec) } }
         )
     }

@@ -101,6 +101,7 @@ import com.nexusstream.app.data.LibraryRepository
 import com.nexusstream.app.media.MediaPlaybackService
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.model.PlaybackMode
+import com.nexusstream.app.ui.youtube.hostActivity
 import com.nexusstream.app.ui.components.OriginalColors
 import com.nexusstream.app.ui.player.MusicPlayerScreen
 import com.nexusstream.app.ui.theme.NexusTheme
@@ -281,6 +282,19 @@ fun NexusApp() {
     val activeService = playbackService
     val playbackState = activeService?.playbackState?.collectAsState()?.value
     val currentItem = playbackState?.currentItem
+
+    // Keep the screen awake while a video plays (watch page, fullscreen, mini player, Shorts), like
+    // YouTube. It is a window flag driven by the player's own state, so it does not depend on which
+    // video surface currently shows the picture; pausing, audio-only music or closing the player
+    // lets the screen time out normally again.
+    val keepAwake = playbackState?.isPlaying == true && playbackState.playbackMode == PlaybackMode.VIDEO
+    val hostWindow = remember(context) { context.hostActivity()?.window }
+    DisposableEffect(keepAwake, hostWindow) {
+        if (keepAwake) hostWindow?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            if (keepAwake) hostWindow?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     // Feeds "Listen again" and the You tab's history.
     LaunchedEffect(currentItem?.id) {

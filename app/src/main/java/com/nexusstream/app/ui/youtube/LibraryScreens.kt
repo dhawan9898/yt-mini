@@ -463,7 +463,10 @@ fun DownloadsScreen(
     val downloads by LibraryRepository.downloads.collectAsState()
     val pending by DownloadRepository.pending.collectAsState()
     val states by DownloadRepository.states.collectAsState()
-    val usedBytes = remember(downloads, pending) { DownloadRepository.totalBytesOnDisk(context) }
+    // Walking the download folder is disk work: do it off the main thread (it used to run during composition).
+    val usedBytes by androidx.compose.runtime.produceState(0L, downloads, pending) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { DownloadRepository.totalBytesOnDisk(context) }
+    }
     var confirmDeleteAll by remember { mutableStateOf(false) }
 
     PageScaffold(

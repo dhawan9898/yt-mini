@@ -187,7 +187,8 @@ internal fun MusicPageList(
                 contentPadding = LocalChromePadding.current.plus(bottom = 16.dp),
                 modifier = modifier.fillMaxSize()
             ) {
-                leading()
+                // Mood chips come first, right under the top bar, as in YT Music; then anything
+                // the caller adds (Listen again) and the page's shelves.
                 val chips = baseChips
                 if (showChips && chips.isNotEmpty()) {
                     item(key = "chips") {
@@ -199,6 +200,7 @@ internal fun MusicPageList(
                         )
                     }
                 }
+                leading()
                 header?.invoke(this, page, songs)
                 musicSections(
                     sections = sections,

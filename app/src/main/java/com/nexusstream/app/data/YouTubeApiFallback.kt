@@ -197,12 +197,28 @@ internal object YouTubeApiFallback {
     /** The video behind a watch link. */
     fun video(watchUrl: String): YouTubeDataApi.Video {
         val id = VIDEO_ID.find(watchUrl)?.groupValues?.get(1) ?: error("Not a video link")
-        return YouTubeDataApi.videos(listOf(id)).firstOrNull() ?: error("Video not found")
+        val video = YouTubeDataApi.videos(listOf(id)).firstOrNull() ?: error("Video not found")
+        // Opened from a link or notification: fetch the channel picture too, so the page has it.
+        prefetchAvatars(listOf(video))
+        return video
+    }
+
+    /** A channel's picture by its /channel/UC... URL (cached; 1 unit when not known yet). Null for other URLs. */
+    fun channelAvatar(channelUrl: String): String? {
+        val id = CHANNEL_ID.find(channelUrl)?.groupValues?.get(1) ?: return null
+        avatarCache[id]?.let { return it }
+        val avatar = YouTubeDataApi.channels(listOf(id)).firstOrNull()?.avatarUrl.orEmpty()
+        if (avatar.isNotEmpty()) avatarCache[id] = avatar
+        return avatar
     }
 
     fun details(v: YouTubeDataApi.Video, now: Long = System.currentTimeMillis()): VideoDetails {
-        val subscribers = runCatching { YouTubeDataApi.channels(listOf(v.channelId)).firstOrNull()?.subscriberCount }.getOrNull() ?: -1L
+        // One lookup gives both the subscriber count and the channel picture for the row under the video.
+        val channel = runCatching { YouTubeDataApi.channels(listOf(v.channelId)).firstOrNull() }.getOrNull()
+        channel?.avatarUrl?.takeIf { it.isNotEmpty() }?.let { avatarCache[v.channelId] = it }
+        val subscribers = channel?.subscriberCount ?: -1L
         return VideoDetails(
+            channelAvatarUrl = channel?.avatarUrl.orEmpty(),
             likes = v.likeCount,
             views = v.viewCount,
             uploadedText = if (v.publishedAtMs > 0) FeedParsing.relativeTime(v.publishedAtMs, now) else "",
@@ -222,7 +238,9 @@ internal object YouTubeApiFallback {
     fun moreFromChannel(v: YouTubeDataApi.Video, limit: Int = 12, now: Long = System.currentTimeMillis()): List<MediaItemModel> {
         if (v.channelId.length < 3 || !v.channelId.startsWith("UC")) return emptyList()
         val uploads = "UU" + v.channelId.substring(2)
-        return YouTubeDataApi.playlistVideos(uploads, max = 20).items
+        val items = YouTubeDataApi.playlistVideos(uploads, max = 20).items
+        prefetchAvatars(items)
+        return items
             .filter { it.id != v.id && isRegularVideo(it) }
             .take(limit)
             .map { toModel(it, now = now) }

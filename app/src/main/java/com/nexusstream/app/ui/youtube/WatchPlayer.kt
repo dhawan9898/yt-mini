@@ -1,7 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
 import com.nexusstream.app.ui.components.rememberSmoothPosition
-import com.nexusstream.app.ui.theme.frostedGlass
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -765,14 +764,16 @@ private fun AutoplayPill(on: Boolean, onClick: () -> Unit) {
         animationSpec = com.nexusstream.app.ui.theme.GlassMotion.bouncy(),
         label = "autoplayKnob"
     )
+    // YouTube's autoplay switch: a translucent white track with a white knob carrying play / pause.
     Box(
         modifier = Modifier
             .padding(horizontal = 6.dp)
-            .width(52.dp)
-            .height(28.dp)
-            .frostedGlass(CircleShape)
+            .width(48.dp)
+            .height(24.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = if (on) 0.45f else 0.3f))
             .clickable(onClickLabel = "Autoplay", onClick = onClick)
-            .padding(3.dp)
+            .padding(1.dp)
     ) {
         Box(
             modifier = Modifier
@@ -780,7 +781,7 @@ private fun AutoplayPill(on: Boolean, onClick: () -> Unit) {
                 .offset { androidx.compose.ui.unit.IntOffset(knobX.roundToPx(), 0) }
                 .size(22.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.9f)),
+                .background(Color.White),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -926,7 +927,7 @@ internal tailrec fun Context.hostActivity(): android.app.Activity? = when (this)
     else -> null
 }
 
-/** YouTube's round player button: a frosted glass disc behind a white icon, slightly shrinking while pressed. */
+/** YouTube's round player button: a translucent dark disc behind a white icon, slightly shrinking while pressed. */
 @Composable
 private fun PlayerCircleButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit, content: @Composable () -> Unit) {
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -940,7 +941,8 @@ private fun PlayerCircleButton(size: androidx.compose.ui.unit.Dp, onClick: () ->
         modifier = Modifier
             .size(size)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .frostedGlass(CircleShape, pressed)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = if (pressed) 0.55f else 0.35f))
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) { content() }

@@ -230,7 +230,11 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             }
         }
         createNotificationChannel()
+        // Started with startForegroundService, so Android requires startForeground() now; but with
+        // nothing playing yet there is nothing to show, so the placeholder is taken down at once
+        // (it used to sit in the status bar from app launch). Playback puts the real one up.
         startForegroundWithInitialNotification()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         initAdBlockPipeline()
         initExoPlayer()
         initMediaSession()

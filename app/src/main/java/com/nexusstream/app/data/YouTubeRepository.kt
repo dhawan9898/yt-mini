@@ -124,7 +124,9 @@ data class VideoDetails(
     val tags: List<String>,
     val related: List<MediaItemModel>,
     val chapters: List<Chapter> = emptyList(),
-    val storyboard: Storyboard? = null
+    val storyboard: Storyboard? = null,
+    /** The uploader's channel picture, for the row under the video when the item did not carry one. */
+    val channelAvatarUrl: String = ""
 )
 
 /** Sprite-sheet thumbnails shown while scrubbing the seek bar. */
@@ -909,6 +911,17 @@ object YouTubeRepository {
         youtube.suggestionExtractor.suggestionList(query).orEmpty()
     }
 
+    /**
+     * Just a channel's picture (1 API unit, or one channel page when scraping), for cards and the
+     * watch page when the feed that listed a video did not include it.
+     */
+    suspend fun channelAvatar(channelUrl: String): Result<String> = io {
+        apiFirst(
+            api = { YouTubeApiFallback.channelAvatar(channelUrl)?.takeIf { it.isNotEmpty() } },
+            scrape = { bestImage(ChannelInfo.getInfo(youtube, channelUrl).avatars) }
+        )
+    }
+
     /** Channel header plus first page of videos. [channelUrl] is a youtube.com/channel/... URL. */
     suspend fun channelPage(channelUrl: String, music: Boolean = false): Result<ChannelPage> = io {
         apiFirst(
@@ -1349,7 +1362,8 @@ object YouTubeRepository {
             base.copy(
                 related = extras.related.ifEmpty { runCatching { YouTubeApiFallback.moreFromChannel(video) }.getOrDefault(emptyList()) },
                 storyboard = extras.storyboard,
-                chapters = extras.chapters.ifEmpty { base.chapters }
+                chapters = extras.chapters.ifEmpty { base.chapters },
+                channelAvatarUrl = base.channelAvatarUrl.ifEmpty { extras.channelAvatarUrl }
             )
         } else {
             base.copy(related = runCatching { YouTubeApiFallback.moreFromChannel(video) }.getOrDefault(emptyList()))
@@ -1368,6 +1382,7 @@ object YouTubeRepository {
             subscribers = info.uploaderSubscriberCount,
             tags = info.tags.orEmpty(),
             related = relatedFor(info),
+            channelAvatarUrl = bestImage(info.uploaderAvatars),
             storyboard = info.previewFrames
                 .filter { it.frameWidth >= 100 }
                 .maxByOrNull { it.frameWidth }

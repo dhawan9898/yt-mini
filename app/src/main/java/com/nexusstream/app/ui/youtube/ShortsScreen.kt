@@ -437,9 +437,10 @@ private fun ShortPage(
                             .clip(CircleShape)
                             .background(item.dominantColor)
                     ) {
-                        if (item.channelAvatarUrl.isNotEmpty()) {
+                        val avatar = rememberChannelAvatar(item)
+                        if (avatar.isNotEmpty()) {
                             AsyncImage(
-                                model = item.channelAvatarUrl,
+                                model = avatar,
                                 contentDescription = item.artistOrChannel,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
