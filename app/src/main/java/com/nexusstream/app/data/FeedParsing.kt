@@ -48,6 +48,32 @@ object FeedParsing {
         .replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'")
         .replace("&amp;", "&")
 
+    /**
+     * The upload date as YouTube shows it ("6 months ago"). The extractor gives the watch page's date
+     * as an ISO timestamp ("2026-04-29T05:56:03-07:00"); text that is already relative passes through.
+     */
+    fun uploadText(textual: String?, nowMs: Long = System.currentTimeMillis()): String {
+        val text = textual?.trim().orEmpty()
+        if (!Regex("""^\d{4}-\d{2}-\d{2}""").containsMatchIn(text)) return text
+        val ms = runCatching { java.time.OffsetDateTime.parse(text).toInstant().toEpochMilli() }
+            .recoverCatching { java.time.Instant.parse(text).toEpochMilli() }
+            .recoverCatching { java.time.LocalDate.parse(text.take(10)).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli() }
+            .getOrNull() ?: return text
+        return relativeTime(ms, nowMs)
+    }
+
+    /**
+     * A large version of a cover for the now-playing screen. YouTube Music art (googleusercontent /
+     * ggpht) is served at the size its URL asks for ("=w60-h60-l90-rj"), and lists ask for a small one.
+     */
+    fun largeArtwork(url: String, size: Int = 1080): String {
+        if (!url.contains("googleusercontent.com") && !url.contains("ggpht.com")) return url
+        val sized = Regex("""=w\d+-h\d+[^/?#]*$""")
+        return if (sized.containsMatchIn(url)) url.replace(sized, "=w$size-h$size-l90-rj")
+        else if (!url.substringAfterLast('/').contains('=')) "$url=w$size-h$size-l90-rj"
+        else url
+    }
+
     /** "3 days ago" style text for a publish time. */
     fun relativeTime(publishedAtMs: Long, nowMs: Long): String {
         val seconds = ((nowMs - publishedAtMs) / 1000).coerceAtLeast(0)

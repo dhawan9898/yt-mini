@@ -397,6 +397,11 @@ object YouTubeRepository {
     /** The most recent StreamInfo, shared by playback, downloads and the watch page. */
     @Volatile
     private var cachedInfo: Pair<String, StreamInfo>? = null
+    @Volatile
+    private var cachedInfoAtMs = 0L
+    // Its stream links stop working after about six hours; past this age it is fetched again
+    // instead of handing the player links that are about to (or already did) expire.
+    private const val INFO_TTL_MS = 60 * 60_000L
 
     private val infoInFlight = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.CompletableFuture<StreamInfo>>()
 
@@ -406,7 +411,7 @@ object YouTubeRepository {
      */
     private fun streamInfo(watchUrl: String, forceRefresh: Boolean = false): StreamInfo {
         if (!forceRefresh) {
-            cachedInfo?.takeIf { it.first == watchUrl }?.let { return it.second }
+            cachedInfo?.takeIf { it.first == watchUrl && System.currentTimeMillis() - cachedInfoAtMs < INFO_TTL_MS }?.let { return it.second }
         } else {
             if (cachedInfo?.first == watchUrl) cachedInfo = null
         }
@@ -422,6 +427,7 @@ object YouTubeRepository {
         try {
             val info = StreamInfo.getInfo(youtube, watchUrl)
             cachedInfo = watchUrl to info
+            cachedInfoAtMs = System.currentTimeMillis()
             mine.complete(info)
             return info
         } catch (e: Throwable) {
@@ -1309,7 +1315,7 @@ object YouTubeRepository {
             secondaryColor = secondary,
             viewsOrPlays = formatCount(info.viewCount),
             channelAvatarUrl = bestImage(info.uploaderAvatars),
-            publishDate = info.textualUploadDate.orEmpty(),
+            publishDate = FeedParsing.uploadText(info.textualUploadDate),
             sourceUrl = watchUrl,
             channelUrl = info.uploaderUrl.orEmpty(),
             isLive = info.streamType == StreamType.LIVE_STREAM
@@ -1357,7 +1363,7 @@ object YouTubeRepository {
         return VideoDetails(
             likes = info.likeCount,
             views = info.viewCount,
-            uploadedText = info.textualUploadDate.orEmpty(),
+            uploadedText = FeedParsing.uploadText(info.textualUploadDate),
             description = info.description?.content.orEmpty(),
             subscribers = info.uploaderSubscriberCount,
             tags = info.tags.orEmpty(),
@@ -1702,7 +1708,7 @@ object YouTubeRepository {
             viewsOrPlays = formatCount(item.viewCount),
             contentType = if (isMusic) MediaContentType.MUSIC_TRACK else MediaContentType.YOUTUBE_VIDEO,
             channelAvatarUrl = channelAvatar ?: bestImage(item.uploaderAvatars),
-            publishDate = item.textualUploadDate.orEmpty(),
+            publishDate = FeedParsing.uploadText(item.textualUploadDate),
             sourceUrl = item.url,
             channelUrl = channelUrl ?: item.uploaderUrl.orEmpty(),
             isLive = item.streamType == StreamType.LIVE_STREAM

@@ -335,8 +335,16 @@ fun MusicPlayerScreen(
                                     .background(item.dominantColor)
                             ) {
                                 if (item.artworkUrl.isNotEmpty()) {
+                                    // The list's small cover shows at once; the sharp one replaces it.
+                                    val coverContext = androidx.compose.ui.platform.LocalContext.current
                                     AsyncImage(
-                                        model = item.artworkUrl,
+                                        model = remember(item.artworkUrl) {
+                                            coil.request.ImageRequest.Builder(coverContext)
+                                                .data(com.nexusstream.app.data.FeedParsing.largeArtwork(item.artworkUrl))
+                                                .placeholderMemoryCacheKey(item.artworkUrl)
+                                                .crossfade(true)
+                                                .build()
+                                        },
                                         contentDescription = item.title,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()

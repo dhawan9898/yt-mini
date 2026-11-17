@@ -128,7 +128,7 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
 
     // Real YouTube / YouTube Music data + stream resolution (no API key needed)
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.27.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 

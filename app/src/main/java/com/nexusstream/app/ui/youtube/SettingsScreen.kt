@@ -140,6 +140,8 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
     var checking by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<ReleaseInfo?>(null) }
+    // Download of an update: null when idle, 0..1 while it downloads.
+    var updateProgress by remember { mutableStateOf<Float?>(null) }
     var crashReport by remember { mutableStateOf(CrashReporter.lastReport(context)) }
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
@@ -450,7 +452,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                             release = result.getOrNull()
                             updateMessage = result.fold(
                                 onSuccess = { latest ->
-                                    if (UpdateChecker.isNewer(versionName, latest.version)) {
+                                    if (UpdateChecker.isNewer(versionName, latest.tag)) {
                                         "Version ${latest.tag} is available"
                                     } else {
                                         "You have the latest version"
@@ -462,13 +464,44 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                     }
                 }
             }
-            release?.takeIf { UpdateChecker.isNewer(versionName, it.version) }?.let { latest ->
+            release?.takeIf { UpdateChecker.isNewer(versionName, it.tag) }?.let { latest ->
                 item(key = "update_download") {
-                    ActionRow("Download ${latest.tag}", "Opens the APK in your browser; it installs over this app") {
-                        val target = latest.downloadUrl.ifBlank { latest.pageUrl }
-                        if (target.isNotBlank()) {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
+                    val progress = updateProgress
+                    val sizeMb = latest.sizeBytes.takeIf { it > 0 }?.let { " (%.0f MB)".format(it / 1_048_576.0) }.orEmpty()
+                    ActionRow(
+                        title = if (progress != null) "Downloading ${latest.tag}… ${(progress * 100).toInt()}%" else "Download and install ${latest.tag}",
+                        subtitle = if (progress != null) "Android's installer opens when the download is done"
+                            else "Installs over this app and keeps your library and settings$sizeMb"
+                    ) {
+                        when {
+                            progress != null -> Unit // already downloading
+                            latest.downloadUrl.isBlank() -> {
+                                // No APK attached to the release: its page is the best we can do.
+                                if (latest.pageUrl.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latest.pageUrl)))
+                            }
+                            !UpdateChecker.ensureInstallAllowed(context) ->
+                                updateMessage = "Allow yt-mini to install apps on the screen that opened, then tap Download again"
+                            else -> {
+                                updateProgress = 0f
+                                updateMessage = null
+                                scope.launch {
+                                    val result = UpdateChecker.downloadAndInstall(context, latest) { updateProgress = it }
+                                    updateProgress = null
+                                    updateMessage = result.fold(
+                                        onSuccess = { "Follow Android's installer to finish the update" },
+                                        onFailure = { com.nexusstream.app.ui.components.FriendlyError.orFallback(it, "Couldn't download the update") }
+                                    )
+                                }
+                            }
                         }
+                    }
+                    if (progress != null) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                            color = OriginalColors.TextPrimary,
+                            trackColor = OriginalColors.Chip
+                        )
                     }
                 }
             }

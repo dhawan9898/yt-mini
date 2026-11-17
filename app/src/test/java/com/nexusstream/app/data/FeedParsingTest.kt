@@ -75,4 +75,28 @@ class FeedParsingTest {
     fun futureTimesClampToJustNow() {
         assertEquals("just now", FeedParsing.relativeTime(2_000, 1_000))
     }
+
+    @Test
+    fun watchPageIsoDateBecomesRelative() {
+        val now = OffsetDateTime.parse("2026-11-17T12:00:00Z").toInstant().toEpochMilli()
+        assertEquals("6 months ago", FeedParsing.uploadText("2026-04-29T05:56:03-07:00", now))
+        assertEquals("2 days ago", FeedParsing.uploadText("2026-11-15", now))
+        // Already readable text is left alone.
+        assertEquals("3 weeks ago", FeedParsing.uploadText("3 weeks ago", now))
+        assertEquals("", FeedParsing.uploadText(null, now))
+    }
+
+    @Test
+    fun musicCoversAreAskedForLarge() {
+        assertEquals(
+            "https://lh3.googleusercontent.com/abc=w1080-h1080-l90-rj",
+            FeedParsing.largeArtwork("https://lh3.googleusercontent.com/abc=w60-h60-l90-rj")
+        )
+        assertEquals(
+            "https://yt3.ggpht.com/xyz=w1080-h1080-l90-rj",
+            FeedParsing.largeArtwork("https://yt3.ggpht.com/xyz")
+        )
+        // Video thumbnails are not resized this way.
+        assertEquals("https://i.ytimg.com/vi/id/hqdefault.jpg", FeedParsing.largeArtwork("https://i.ytimg.com/vi/id/hqdefault.jpg"))
+    }
 }

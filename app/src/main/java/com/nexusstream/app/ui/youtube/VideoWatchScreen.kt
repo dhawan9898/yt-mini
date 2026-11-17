@@ -544,8 +544,9 @@ fun VideoWatchScreen(
                 }
             }
 
-            // Transcript: the captions as text, tap a line to jump there
-            if (playbackState.availableSubtitles.isNotEmpty()) {
+            // Transcript: the captions as text, tap a line to jump there. Like YouTube, it is part of the
+            // opened description rather than a card of its own above the channel row.
+            if (isDescriptionExpanded && playbackState.availableSubtitles.isNotEmpty()) {
                 item(key = "transcript") {
                     Row(
                         modifier = Modifier

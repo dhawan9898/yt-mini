@@ -385,7 +385,8 @@ fun NexusApp() {
     CompositionLocalProvider(LocalPlaybackService provides activeService, LocalNav provides nav, LocalPlayInOrder provides playInOrder) {
     NexusTheme(
         dominantColor = currentItem?.dominantColor ?: Color(0xFF6C5CE7),
-        secondaryColor = currentItem?.secondaryColor ?: Color(0xFFFF7675)
+        secondaryColor = currentItem?.secondaryColor ?: Color(0xFFFF7675),
+        musicSide = currentMode == AppMode.YT_MUSIC
     ) {
         val shellBackground by animateColorAsState(
             targetValue = if (currentMode == AppMode.YT_MUSIC) OriginalColors.MusicBackground else OriginalColors.YouTubeBackground,

@@ -191,12 +191,14 @@ private fun robotoTypography(): Typography {
 fun NexusTheme(
     dominantColor: Color = Color(0xFF6C5CE7),
     secondaryColor: Color = Color(0xFFFF7675),
+    /** The YouTube Music side: always dark. */
+    musicSide: Boolean = false,
     content: @Composable () -> Unit
 ) {
     // Light / dark / follow the system, from Settings.
     val mode by AppSettings.themeMode.collectAsState()
     val systemDark = isSystemInDarkTheme()
-    val palette = paletteFor(mode, systemDark)
+    val palette = paletteFor(mode, systemDark, musicSide)
     SideEffect { ThemeState.palette = palette }
     SystemBarIcons(lightIcons = palette.isDark)
 

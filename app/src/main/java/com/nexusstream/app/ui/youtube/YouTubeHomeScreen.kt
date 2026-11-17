@@ -316,7 +316,9 @@ fun YouTubeHomeScreen(
             }
             }
             when (selectedTab) {
-                1 -> Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                // Shorts are black edge to edge, status bar included, with light status icons.
+                1 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black).statusBarsPadding()) {
+                    com.nexusstream.app.ui.theme.SystemBarIcons(lightIcons = true)
                     ShortsScreen(
                         playbackService = playbackService,
                         onOpenChannel = { nav.openChannelOf(it) },

@@ -166,6 +166,14 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     private var currentMode: PlaybackMode = PlaybackMode.AUDIO_ONLY
     private var isReceiverRegistered = false
     private var retryCount = 0
+    // Playback stopped because the device went offline: it resumes by itself when a network returns.
+    private var waitingForNetwork = false
+    // Fresh links fetched for an expired one on the current item (an expired link is not a real failure).
+    private var linkRefreshes = 0
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+    // Every stream source retries network hiccups patiently and expired links not at all.
+    @OptIn(UnstableApi::class)
+    private val loadPolicy = PatientLoadPolicy()
     /** When the last playback error happened; a long stretch without one starts the retries over. */
     private var lastErrorAtMs = 0L
 
@@ -207,6 +215,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
     override fun onCreate() {
         super.onCreate()
+        watchNetwork()
         AppSettings.init(this)
         com.nexusstream.app.data.LibraryRepository.init(this)
         // Settings -> defaults for playback (changes apply to the next video, not the current one).
@@ -322,7 +331,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             .setEnableDecoderFallback(true)
 
         exoPlayer = ExoPlayer.Builder(this, renderersFactory)
-            .setMediaSourceFactory(adBlockPipeline.createMediaSourceFactory())
+            .setMediaSourceFactory(adBlockPipeline.createMediaSourceFactory().setLoadErrorHandlingPolicy(loadPolicy))
             .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -434,6 +443,41 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         playQueue(listOf(item), 0, startInVideoMode = startInVideoMode)
     }
 
+    /** True when the device has a network that can reach the internet. */
+    private fun isOnline(): Boolean = runCatching {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return@runCatching false
+        caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }.getOrDefault(true)
+
+    /** Resumes playback that stopped for lack of a network as soon as one is back. */
+    private fun watchNetwork() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                serviceScope.launch {
+                    // Give the new network a moment to come up fully before asking YouTube again.
+                    delay(1_500L)
+                    if (!waitingForNetwork || !isOnline()) return@launch
+                    waitingForNetwork = false
+                    Log.i(TAG, "Network is back: resuming playback.")
+                    retryPlayback()
+                }
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(callback) }.onSuccess { networkCallback = callback }
+    }
+
+    /** Stops trying while offline and says so; [watchNetwork] picks it up again. */
+    private fun waitForNetwork() {
+        waitingForNetwork = true
+        _playbackState.value = _playbackState.value.copy(
+            isResolving = false,
+            hasError = true,
+            errorMessage = "You're offline. Playback continues when you're back online."
+        )
+    }
+
     /**
      * The Retry button after a failure: fetches fresh stream links and continues where the video
      * stopped, with the automatic retries available again.
@@ -443,6 +487,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         val current = state.currentItem ?: state.queue.getOrNull(state.queueIndex) ?: return
         retryCount = 0
         lastErrorAtMs = 0L
+        waitingForNetwork = false
         val resumeAt = if (current.isLive) 0L else state.currentPositionMs.coerceAtLeast(0L)
         loadTrack(current, startInVideoMode = currentMode == PlaybackMode.VIDEO, isRetry = true, requestedPositionMs = resumeAt)
     }
@@ -464,6 +509,8 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         currentResolved = null
         if (!isRetry) {
             retryCount = 0
+            linkRefreshes = 0
+            waitingForNetwork = false
             usingMuxedFallback = false
             // Shorts are short: progressive streams start sooner and match what was precached.
             dashDisabled = item.isShort
@@ -555,8 +602,19 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         exoPlayer.clearMediaItems()
         _playbackState.value = _playbackState.value.copy(isResolving = true)
         loadJob = serviceScope.launch {
-            val resolved = YouTubeRepository.resolveStream(item.sourceUrl, forceRefresh = isRetry).getOrElse { error ->
+            var attempt = YouTubeRepository.resolveStream(item.sourceUrl, forceRefresh = isRetry)
+            // A lookup that failed while the device was online gets one more try with fresh data
+            // (YouTube answers the odd request with an error); offline, it waits for the network.
+            if (attempt.isFailure && isOnline() && attempt.exceptionOrNull() !is IllegalStateException) {
+                delay(1_500L)
+                attempt = YouTubeRepository.resolveStream(item.sourceUrl, forceRefresh = true)
+            }
+            val resolved = attempt.getOrElse { error ->
                 Log.e(TAG, "Stream resolution failed for ${item.id}: ${error.message}", error)
+                if (!isOnline()) {
+                    waitForNetwork()
+                    return@launch
+                }
                 _playbackState.value = _playbackState.value.copy(
                     isResolving = false,
                     hasError = true,
@@ -619,7 +677,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
     ) {
         // Live stream: one HLS playlist, played from the live edge (no quality / caption choices).
         if (resolved.hlsUrl != null && (item.isLive || (resolved.audioOptions.isEmpty() && resolved.muxedUrl == null))) resolved.hlsUrl.let { hlsUrl ->
-            val hlsSource = HlsMediaSource.Factory(adBlockPipeline.createDataSourceFactory())
+            val hlsSource = HlsMediaSource.Factory(adBlockPipeline.createDataSourceFactory()).setLoadErrorHandlingPolicy(loadPolicy)
                 .createMediaSource(
                     MediaItem.Builder().setMediaId(item.id).setUri(hlsUrl).setMediaMetadata(metadata).build()
                 )
@@ -631,7 +689,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
         val (heightCap, audioCap) = qualityCaps()
         val audio = resolved.pickAudio(audioCap, preferredAudioTrackId)
-        if (audio == null) { val fallbackMuxed = resolved.muxedUrl; if (fallbackMuxed != null) { val source = ProgressiveMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory()).createMediaSource(MediaItem.Builder().setMediaId(item.id).setUri(fallbackMuxed).setMediaMetadata(metadata).build()); exoPlayer.setMediaSource(source, positionMs); exoPlayer.prepare(); exoPlayer.playWhenReady = playWhenReady; return }; if (resolved.hlsUrl != null) { val hlsSource = HlsMediaSource.Factory(adBlockPipeline.createDataSourceFactory()).createMediaSource(MediaItem.Builder().setMediaId(item.id).setUri(resolved.hlsUrl).setMediaMetadata(metadata).build()); exoPlayer.setMediaSource(hlsSource, positionMs); exoPlayer.prepare(); exoPlayer.playWhenReady = playWhenReady; return }
+        if (audio == null) { val fallbackMuxed = resolved.muxedUrl; if (fallbackMuxed != null) { val source = ProgressiveMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory()).setLoadErrorHandlingPolicy(loadPolicy).createMediaSource(MediaItem.Builder().setMediaId(item.id).setUri(fallbackMuxed).setMediaMetadata(metadata).build()); exoPlayer.setMediaSource(source, positionMs); exoPlayer.prepare(); exoPlayer.playWhenReady = playWhenReady; return }; if (resolved.hlsUrl != null) { val hlsSource = HlsMediaSource.Factory(adBlockPipeline.createDataSourceFactory()).setLoadErrorHandlingPolicy(loadPolicy).createMediaSource(MediaItem.Builder().setMediaId(item.id).setUri(resolved.hlsUrl).setMediaMetadata(metadata).build()); exoPlayer.setMediaSource(hlsSource, positionMs); exoPlayer.prepare(); exoPlayer.playWhenReady = playWhenReady; return }
             // Nothing playable came back: say so instead of leaving an endless spinner.
             _playbackState.value = _playbackState.value.copy(
                 isResolving = false,
@@ -661,7 +719,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             runCatching {
                 val xml = DashManifest.build(resolved.dashVideo, dashAudio, resolved.durationSec)
                 val manifest = DashManifestParser().parse(Uri.parse(item.sourceUrl), xml.byteInputStream())
-                DashMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory())
+                DashMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory()).setLoadErrorHandlingPolicy(loadPolicy)
                     .createMediaSource(manifest, MediaItem.Builder().setMediaId(item.id).setMediaMetadata(metadata).build())
             }.onFailure { Log.w(TAG, "DASH manifest failed: ${it.message}") }.getOrNull()
         }  else null
@@ -691,7 +749,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         dashActive = false
         clearDashConstraints()
 
-        val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory())
+        val factory = ProgressiveMediaSource.Factory(adBlockPipeline.createStreamingDataSourceFactory()).setLoadErrorHandlingPolicy(loadPolicy)
         val audioSource = factory.createMediaSource(
             MediaItem.Builder()
                 .setMediaId(item.id)
@@ -1185,6 +1243,31 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         lastErrorAtMs = now
         
         val cause = error.cause
+        val current0 = _playbackState.value.currentItem
+
+        // Offline: retrying now only burns the retries and then skips through the queue. Wait for
+        // the network instead (watchNetwork resumes from here).
+        if (!isOnline() && cause !is AdBlockedException) {
+            Log.i(TAG, "Playback error while offline (${error.errorCodeName}): waiting for the network.")
+            waitForNetwork()
+            return
+        }
+
+        // The stream link expired (403/410): fresh links fix it, it is not a failure of the stream.
+        if (PatientLoadPolicy.isExpiredLink(error) && linkRefreshes < 2 && current0 != null && current0.sourceUrl.isNotEmpty() && ::exoPlayer.isInitialized) {
+            linkRefreshes++
+            Log.i(TAG, "Stream link expired: fetching fresh links ($linkRefreshes).")
+            loadTrack(current0, startInVideoMode = currentMode == PlaybackMode.VIDEO, isRetry = true, requestedPositionMs = exoPlayer.currentPosition)
+            return
+        }
+
+        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && ::exoPlayer.isInitialized) {
+            // A live stream fell behind its window: jump back to the live edge.
+            exoPlayer.seekToDefaultPosition()
+            exoPlayer.prepare()
+            return
+        }
+
         if (cause is AdBlockedException) {
             Log.i(TAG, "Ad request intercepted cleanly. Resuming main playback stream.")
             // Resume or prepare next segment seamlessly
@@ -1423,6 +1506,10 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
 
     override fun onDestroy() {
         unregisterBecomingNoisyReceiver()
+        networkCallback?.let { cb ->
+            runCatching { (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).unregisterNetworkCallback(cb) }
+        }
+        networkCallback = null
         serviceScope.cancel()
         precacheScope.cancel()
         try {

@@ -18,10 +18,14 @@ class UpdateAndCrashTest {
 
     @Test
     fun newerMeansHigherBuildNumber() {
-        assertTrue(UpdateChecker.isNewer("1.0.37", 38))
-        assertFalse(UpdateChecker.isNewer("1.0.37", 37))
-        assertFalse(UpdateChecker.isNewer("1.0.37", 12))
-        assertTrue(UpdateChecker.isNewer("unknown", 1))
+        assertTrue(UpdateChecker.isNewer("1.0.37", "v1.0.38"))
+        assertFalse(UpdateChecker.isNewer("1.0.37", "v1.0.37"))
+        assertFalse(UpdateChecker.isNewer("1.0.37", "v1.0.12"))
+        // A new series: the last number alone would call 2.2.0 older than 2.1.15.
+        assertTrue(UpdateChecker.isNewer("2.1.15", "v2.2.0"))
+        assertFalse(UpdateChecker.isNewer("2.2.0", "v2.1.15"))
+        assertTrue(UpdateChecker.isNewer("unknown", "v1.0.1"))
+        assertFalse(UpdateChecker.isNewer("2.1.15", "latest"))
     }
 
     @Test
@@ -30,12 +34,13 @@ class UpdateAndCrashTest {
             {"tag_name":"v1.0.42","html_url":"https://github.com/x/y/releases/tag/v1.0.42",
              "assets":[
                {"name":"notes.txt","browser_download_url":"https://example.com/notes.txt"},
-               {"name":"NexusStream-v1.0.42.apk","browser_download_url":"https://example.com/NexusStream-v1.0.42.apk"}
+               {"name":"NexusStream-v1.0.42.apk","size":31000000,"browser_download_url":"https://example.com/NexusStream-v1.0.42.apk"}
              ]}
         """.trimIndent()
         val release = UpdateChecker.parseLatest(json)!!
         assertEquals(42, release.version)
         assertEquals("https://example.com/NexusStream-v1.0.42.apk", release.downloadUrl)
+        assertEquals(31_000_000L, release.sizeBytes)
         assertEquals("https://github.com/x/y/releases/tag/v1.0.42", release.pageUrl)
     }
 

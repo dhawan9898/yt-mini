@@ -339,6 +339,7 @@ private fun ShortPage(
     val liked by LibraryRepository.liked.collectAsState()
     val disliked by LibraryRepository.disliked.collectAsState()
     val saved by LibraryRepository.saved.collectAsState()
+    val subscriptions by LibraryRepository.subscriptions.collectAsState()
     var showSave by remember { mutableStateOf(false) }
     var showComments by remember { mutableStateOf(false) }
     // Once this short has really played, the thumbnail cover is removed for good (pausing keeps the frame).
@@ -452,8 +453,26 @@ private fun ShortPage(
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
+                    // Subscribe pill beside the channel name, as on YouTube Shorts.
+                    if (item.artistOrChannel.isNotBlank()) {
+                        val subscribed = subscriptions.any { it.name == item.artistOrChannel }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (subscribed) "Subscribed" else "Subscribe",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (subscribed) Color.White else Color.Black,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (subscribed) Color.White.copy(alpha = 0.2f) else Color.White)
+                                .clickable { LibraryRepository.toggleSubscribe(item.artistOrChannel, item.channelAvatarUrl, item.channelUrl) }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
