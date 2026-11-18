@@ -159,6 +159,19 @@ object InnerTube {
         return parse(postEndpoint(NEXT_ENDPOINT, extra))
     }
 
+    /**
+     * YouTube's own suggestions under a video (the watch page's side column), personalised for the
+     * signed-in account. Only the suggestion column is read, never the video's own info.
+     */
+    fun watchNext(videoId: String): Page = parseWatchNext(postEndpoint(NEXT_ENDPOINT, JSONObject().put("videoId", videoId)), videoId)
+
+    internal fun parseWatchNext(root: JSONObject, videoId: String): Page {
+        val secondary = root.optJSONObject("contents")?.optJSONObject("twoColumnWatchNextResults")
+            ?.optJSONObject("secondaryResults") ?: return Page(emptyList(), null)
+        val page = parse(secondary)
+        return Page(page.items.filter { it.id != videoId }, page.continuation)
+    }
+
     /** Extras from the web player response: loudness (Stable volume) and the watch-history pings. */
     class PlayerExtras(
         val loudnessDb: Double?,
@@ -430,18 +443,66 @@ object InnerTube {
                 parts.getJSONObject(j).optJSONObject("text")?.optString("content")?.let(lines::add)
             }
         }
-        val thumbs = l.optJSONObject("contentImage")?.optJSONObject("thumbnailViewModel")
-            ?.optJSONObject("image")?.optJSONArray("sources")
+        val thumbView = l.optJSONObject("contentImage")?.optJSONObject("thumbnailViewModel")
+        val thumbs = thumbView?.optJSONObject("image")?.optJSONArray("sources")
         val thumbnail = thumbs?.optJSONObject(thumbs.length() - 1)?.optString("url").orEmpty()
-        val durationText = l.toString().let { DURATION.find(it)?.value.orEmpty() }
+        // The duration (or "LIVE") is a badge on the thumbnail.
+        val badges = ArrayList<String>()
+        fun collectBadges(o: Any?) {
+            when (o) {
+                is JSONObject -> {
+                    o.optJSONObject("thumbnailBadgeViewModel")?.optString("text")?.takeIf { it.isNotEmpty() }?.let(badges::add)
+                    o.keys().forEach { collectBadges(o.opt(it)) }
+                }
+                is JSONArray -> for (i in 0 until o.length()) collectBadges(o.opt(i))
+            }
+        }
+        collectBadges(thumbView?.optJSONArray("overlays"))
+        val durationText = badges.firstOrNull { DURATION.matches(it.trim()) }.orEmpty()
+        val live = durationText.isEmpty() && badges.any { it.equals("LIVE", ignoreCase = true) }
+        val seconds = parseDuration(durationText)
+        if (!live && seconds in 1..60) return null // Shorts belong to the Shorts tab
+        // The channel picture and link sit on the avatar next to the title.
+        val decorated = meta?.optJSONObject("image")?.optJSONObject("decoratedAvatarViewModel")
+        val avatarSources = decorated?.optJSONObject("avatar")?.optJSONObject("avatarViewModel")
+            ?.optJSONObject("image")?.optJSONArray("sources")
+        val avatar = avatarSources?.optJSONObject(avatarSources.length() - 1)?.optString("url").orEmpty()
+            .let { if (it.startsWith("//")) "https:$it" else it }
+        val browse = decorated?.optJSONObject("rendererContext")?.optJSONObject("commandContext")
+            ?.optJSONObject("onTap")?.optJSONObject("innertubeCommand")?.optJSONObject("browseEndpoint")
+            ?: channelBrowseIn(rows)
+        val canonical = browse?.optString("canonicalBaseUrl").orEmpty()
+        val browseId = browse?.optString("browseId").orEmpty()
+        val channelUrl = when {
+            browseId.startsWith("UC") -> "https://www.youtube.com/channel/$browseId"
+            canonical.startsWith("/") -> "https://www.youtube.com$canonical"
+            else -> ""
+        }
         val published = lines.getOrNull(2).orEmpty()
+        // Related lists write the views as a bare "9.4M".
+        val views = lines.getOrNull(1).orEmpty().let { v -> if (v.isNotEmpty() && v.last().isLetterOrDigit() && !v.contains(' ')) "$v views" else v }
         return build(
             id = id, title = title, channel = lines.firstOrNull().orEmpty(), thumbnail = thumbnail,
-            avatar = "", seconds = parseDuration(durationText),
-            views = lines.getOrNull(1).orEmpty(), published = published,
-            channelUrl = "", live = false,
+            avatar = avatar, seconds = seconds,
+            views = views, published = published,
+            channelUrl = channelUrl, live = live,
             publishedAtMs = parseRelativeTime(published)
         )
+    }
+
+    /** The channel link on the channel name in a lockup's metadata rows, when the avatar has none. */
+    private fun channelBrowseIn(rows: JSONArray?): JSONObject? {
+        fun find(o: Any?): JSONObject? {
+            when (o) {
+                is JSONObject -> {
+                    o.optJSONObject("browseEndpoint")?.takeIf { it.optString("browseId").startsWith("UC") }?.let { return it }
+                    for (k in o.keys()) find(o.opt(k))?.let { return it }
+                }
+                is JSONArray -> for (i in 0 until o.length()) find(o.opt(i))?.let { return it }
+            }
+            return null
+        }
+        return find(rows)
     }
 
     private fun playlistPanelVideo(p: JSONObject): MediaItemModel? {

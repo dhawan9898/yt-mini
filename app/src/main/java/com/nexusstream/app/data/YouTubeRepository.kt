@@ -460,6 +460,15 @@ object YouTubeRepository {
     fun cachedVideoFeed(category: String): Paged<MediaItemModel>? =
         feedCache[category]?.value
 
+    /**
+     * True when the cached feed for [category] is older than [maxAgeMs]. YouTube's own Home changes
+     * through the day, so a feed kept since yesterday is refreshed when the app comes back.
+     */
+    fun isVideoFeedStale(category: String, maxAgeMs: Long = HOME_MAX_AGE_MS): Boolean =
+        feedCache[category]?.let { System.currentTimeMillis() - it.at > maxAgeMs } ?: false
+
+    private const val HOME_MAX_AGE_MS = 20 * 60_000L
+
     /** Cached music shelves for [mood], if loaded earlier in this process. */
     fun cachedMusicShelves(mood: String): List<MusicShelf>? =
         shelfCache[mood]?.value
@@ -1333,6 +1342,14 @@ object YouTubeRepository {
             channelUrl = info.uploaderUrl.orEmpty(),
             isLive = info.streamType == StreamType.LIVE_STREAM
         )
+    }
+
+    /**
+     * YouTube's own "Up next" list for a video (what the website and app show beside or under it,
+     * personalised when signed in). One quick request, so it is shown before [details] finishes.
+     */
+    suspend fun watchNext(videoId: String): Result<List<MediaItemModel>> = io {
+        InnerTube.watchNext(videoId).items.also { check(it.isNotEmpty()) { "No suggestions" } }
     }
 
     /** Likes, views, description, tags and related videos for the watch page. */

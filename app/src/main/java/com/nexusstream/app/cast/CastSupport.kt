@@ -33,6 +33,25 @@ object CastSupport {
         runCatching { CastContext.getSharedInstance(context.applicationContext) }.getOrNull()
 }
 
+/** The Cast picker and controller dialogs, built in an AppCompat dialog theme. */
+private object AppCompatCastDialogs : androidx.mediarouter.app.MediaRouteDialogFactory() {
+    override fun onCreateChooserDialogFragment() = CastChooserFragment()
+    override fun onCreateControllerDialogFragment() = CastControllerFragment()
+}
+
+private fun castDialogTheme(context: Context) = ContextThemeWrapper(context, androidx.appcompat.R.style.Theme_AppCompat_Dialog)
+
+// Named public classes (not anonymous ones), so Android can recreate an open dialog after rotation.
+class CastChooserFragment : androidx.mediarouter.app.MediaRouteChooserDialogFragment() {
+    override fun onCreateChooserDialog(context: Context, savedInstanceState: android.os.Bundle?) =
+        androidx.mediarouter.app.MediaRouteChooserDialog(castDialogTheme(context))
+}
+
+class CastControllerFragment : androidx.mediarouter.app.MediaRouteControllerDialogFragment() {
+    override fun onCreateControllerDialog(context: Context, savedInstanceState: android.os.Bundle?) =
+        androidx.mediarouter.app.MediaRouteControllerDialog(castDialogTheme(context))
+}
+
 /** The standard Cast button; hidden when Cast is not available on this device. */
 @Composable
 fun CastButton(modifier: Modifier = Modifier) {
@@ -45,6 +64,9 @@ fun CastButton(modifier: Modifier = Modifier) {
             val themed = ContextThemeWrapper(ctx, androidx.appcompat.R.style.Theme_AppCompat)
             MediaRouteButton(themed).also { button ->
                 runCatching { CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, button) }
+                // Its dialogs take their colours from the activity's (non-AppCompat) theme, where
+                // colorPrimary is unset and the picker crashed ("background can not be translucent").
+                button.dialogFactory = AppCompatCastDialogs
             }
         },
         modifier = modifier.size(48.dp)

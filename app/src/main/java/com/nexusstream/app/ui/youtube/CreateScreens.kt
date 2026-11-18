@@ -162,7 +162,7 @@ fun UploadScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
             doneId?.let { id ->
                 Text("Uploaded. YouTube is processing it now.", fontSize = 14.sp, color = OriginalColors.TextPrimary)
                 TextButton(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://studio.youtube.com/video/$id/edit")))
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://studio.youtube.com/video/$id/edit"))) }
                 }) { Text("Open in YouTube Studio") }
             }
             TextButton(

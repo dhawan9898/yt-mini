@@ -173,6 +173,8 @@ fun YouTubeHomeScreen(
     }
     var reloadKey by remember { mutableStateOf(0) }
     var forceRefresh by remember { mutableStateOf(false) }
+    /** A refresh the app started itself: the current list stays up until the new one arrives. */
+    var quietRefresh by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
     var cursor by remember { mutableStateOf(YouTubeRepository.cachedVideoFeed(selectedCategory)) }
@@ -198,18 +200,39 @@ fun YouTubeHomeScreen(
             feed = FeedState.Data(cached.items)
             return@LaunchedEffect
         }
-        if (!refreshing) feed = FeedState.Loading
+        val quiet = quietRefresh
+        quietRefresh = false
+        if (!refreshing && !quiet) feed = FeedState.Loading
         YouTubeRepository.videoFeedPaged(selectedCategory, personalChannels(), refresh = force)
             .onSuccess {
                 cursor = it
                 feed = FeedState.Data(it.items)
+                if (quiet) runCatching { listState.scrollToItem(0) }
             }
             .onFailure {
                 // Keep showing the old list if a pull-to-refresh fails, but say why it didn't change.
                 if (feed !is FeedState.Data) feed = FeedState.Error(com.nexusstream.app.ui.components.FriendlyError.message(it))
-                else if (force) Toast.makeText(homeContext, com.nexusstream.app.ui.components.FriendlyError.message(it), Toast.LENGTH_SHORT).show()
+                else if (force && !quiet) Toast.makeText(homeContext, com.nexusstream.app.ui.components.FriendlyError.message(it), Toast.LENGTH_SHORT).show()
             }
         refreshing = false
+    }
+
+    // Back in the app after a while: fresh recommendations, as the YouTube app does. Only when the
+    // feed is near the top, so it never replaces a list someone is in the middle of reading.
+    val homeLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(homeLifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START &&
+                selectedTab == 0 && feed is FeedState.Data && listState.firstVisibleItemIndex < 4 &&
+                YouTubeRepository.isVideoFeedStale(selectedCategory)
+            ) {
+                quietRefresh = true
+                forceRefresh = true
+                reloadKey++
+            }
+        }
+        homeLifecycle.lifecycle.addObserver(observer)
+        onDispose { homeLifecycle.lifecycle.removeObserver(observer) }
     }
 
     fun loadMore() {

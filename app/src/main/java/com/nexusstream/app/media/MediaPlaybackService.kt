@@ -265,8 +265,10 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         }
     }
 
+    // Downloads play from a file (no sourceUrl) but keep the video's id, so they resume too: a long
+    // video watched offline on a commute continues where it stopped, online or not.
     private fun resumable(item: MediaItemModel): Boolean =
-        item.sourceUrl.isNotEmpty() && !item.isShort && !item.isLive &&
+        item.id.length == 11 && !item.isShort && !item.isLive &&
             item.contentType == MediaContentType.YOUTUBE_VIDEO
 
     /** Remembers where the current video is, so opening it again resumes there. */
@@ -1424,11 +1426,25 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
+        safeStartForeground(initialNotification)
+    }
+
+    /**
+     * startForeground(), which Android 12+ refuses when the service was started from the
+     * background (the system's media-resume controls bind to it after a reboot, for instance).
+     * Refused, it must not take the service down: the notification is posted as an ordinary one
+     * and becomes the foreground one on the next play from the app.
+     */
+    private fun safeStartForeground(notification: android.app.Notification): Boolean = try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, initialNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
-            startForeground(NOTIFICATION_ID, initialNotification)
+            startForeground(NOTIFICATION_ID, notification)
         }
+        true
+    } catch (e: Exception) {
+        Log.w(TAG, "Foreground start refused: ${e.message}")
+        false
     }
 
     private fun updateForegroundNotification() {
@@ -1482,10 +1498,8 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             .build()
         updateWidget(item, isPlaying)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        if (!safeStartForeground(notification)) {
+            runCatching { androidx.core.app.NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification) }
         }
     }
 

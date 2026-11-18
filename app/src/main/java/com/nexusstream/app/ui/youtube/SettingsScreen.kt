@@ -477,7 +477,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                             progress != null -> Unit // already downloading
                             latest.downloadUrl.isBlank() -> {
                                 // No APK attached to the release: its page is the best we can do.
-                                if (latest.pageUrl.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latest.pageUrl)))
+                                if (latest.pageUrl.isNotBlank()) runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latest.pageUrl))) }
                             }
                             !UpdateChecker.ensureInstallAllowed(context) ->
                                 updateMessage = "Allow yt-mini to install apps on the screen that opened, then tap Download again"

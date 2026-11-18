@@ -8,7 +8,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,7 +21,7 @@ import com.nexusstream.app.ui.NexusApp
 import com.nexusstream.app.ui.theme.ThemeState
 import com.nexusstream.app.ui.theme.paletteFor
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     companion object {
         private var imageLoaderInstalled = false
         /** App shortcuts and widgets: open a page ("search", "subscriptions", "shorts", "music"). */

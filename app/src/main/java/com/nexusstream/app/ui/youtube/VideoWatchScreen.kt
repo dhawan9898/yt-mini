@@ -189,17 +189,35 @@ fun VideoWatchScreen(
     val mediaItem = playbackState.currentItem ?: return
 
     var details by remember(mediaItem.id) { mutableStateOf<VideoDetails?>(null) }
+    var detailsDone by remember(mediaItem.id) { mutableStateOf(false) }
     LaunchedEffect(mediaItem.id) {
         details = YouTubeRepository.details(mediaItem.watchUrl).getOrNull()
+        detailsDone = true
+    }
+    // YouTube's own "Up next" for this video (null while it loads, empty if it failed).
+    var youtubeNext by remember(mediaItem.id) { mutableStateOf<List<MediaItemModel>?>(null) }
+    LaunchedEffect(mediaItem.id) {
+        youtubeNext = YouTubeRepository.watchNext(mediaItem.id).getOrDefault(emptyList())
+    }
+    // YouTube's list first, the extractor's extra matches after it. Nothing is shown until YouTube's
+    // list answers, so the top of the list never jumps; the last home feed is only a last resort
+    // when both sources failed.
+    val realRelated = remember(mediaItem.id, details, youtubeNext, detailsDone) {
+        val own = youtubeNext
+        when {
+            own == null && !detailsDone -> emptyList()
+            own == null -> details?.related.orEmpty()
+            else -> own + details?.related.orEmpty()
+        }.distinctBy { it.id }.filter { it.id != mediaItem.id }
+    }
+    val relatedLoading = realRelated.isEmpty() && (youtubeNext == null || !detailsDone)
+    val recommendedVideos = remember(realRelated, relatedLoading) {
+        if (realRelated.isEmpty() && !relatedLoading) YouTubeRepository.lastVideoFeed.filter { it.id != mediaItem.id }
+        else realRelated
     }
     // Related videos are what autoplay continues with when this video ends.
-    LaunchedEffect(mediaItem.id, details) {
-        playbackService.setAutoplayQueue(details?.related.orEmpty())
-    }
-    // Real related videos when available, otherwise the last home feed.
-    val recommendedVideos = remember(mediaItem.id, details) {
-        details?.related?.takeIf { it.isNotEmpty() }
-            ?: YouTubeRepository.lastVideoFeed.filter { it.id != mediaItem.id }
+    LaunchedEffect(mediaItem.id, realRelated) {
+        playbackService.setAutoplayQueue(realRelated)
     }
 
     val context = LocalContext.current
@@ -272,7 +290,9 @@ fun VideoWatchScreen(
     // Landscape phones go fullscreen automatically; tablets / wide windows get a two-pane layout.
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val wide = configuration.screenWidthDp >= 840
+    // Side-by-side page only on tablets / unfolded foldables. A phone turned sideways is wide too,
+    // but there (as in the YouTube app) turning it means fullscreen.
+    val wide = configuration.screenWidthDp >= 840 && configuration.smallestScreenWidthDp >= 600
     val showFullscreen = isFullscreen || (landscape && !wide)
     var relatedOnlyChannel by remember(mediaItem.id) { mutableStateOf(false) }
 
@@ -819,6 +839,7 @@ fun VideoWatchScreen(
                 relatedSection(
                     channelName = mediaItem.artistOrChannel,
                     related = recommendedVideos,
+                    loading = relatedLoading,
                     onlyChannel = relatedOnlyChannel,
                     onToggleChannel = { relatedOnlyChannel = it },
                     onSelectVideo = onSelectVideo,
@@ -839,6 +860,7 @@ fun VideoWatchScreen(
             relatedSection(
                 channelName = mediaItem.artistOrChannel,
                 related = recommendedVideos,
+                loading = relatedLoading,
                 onlyChannel = relatedOnlyChannel,
                 onToggleChannel = { relatedOnlyChannel = it },
                 onSelectVideo = onSelectVideo,
@@ -963,7 +985,10 @@ fun VideoWatchScreen(
         }
     }
 
-    if (showTranscript) {
+    // The next video (autoplay) starts with no captions loaded yet: the sheet closes rather than
+    // reading an empty track list.
+    LaunchedEffect(mediaItem.id) { showTranscript = false }
+    if (showTranscript && playbackState.availableSubtitles.isNotEmpty()) {
         TranscriptSheet(
             tracks = playbackState.availableSubtitles,
             preferredTag = playbackState.selectedSubtitleTag,
@@ -1009,11 +1034,20 @@ fun VideoWatchScreen(
 private fun LazyListScope.relatedSection(
     channelName: String,
     related: List<MediaItemModel>,
+    loading: Boolean,
     onlyChannel: Boolean,
     onToggleChannel: (Boolean) -> Unit,
     onSelectVideo: (MediaItemModel) -> Unit,
     onOpenChannel: (MediaItemModel) -> Unit
 ) {
+    if (loading && related.isEmpty()) {
+        item(key = "related_loading") {
+            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = OriginalColors.TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+            }
+        }
+        return
+    }
     if (related.any { it.artistOrChannel == channelName }) {
         item(key = "related_chips") {
             val channelLabel = "From $channelName"
@@ -1364,8 +1398,8 @@ private fun TranscriptSheet(
     val defaultTrack = remember(tracks, preferredTag) {
         tracks.firstOrNull { it.languageTag == preferredTag }
             ?: tracks.firstOrNull { !it.autoGenerated && it.languageTag.startsWith(java.util.Locale.getDefault().language) }
-            ?: tracks.firstOrNull { !it.autoGenerated } ?: tracks.first()
-    }
+            ?: tracks.firstOrNull { !it.autoGenerated } ?: tracks.firstOrNull()
+    } ?: return
     var track by remember { mutableStateOf(defaultTrack) }
     var lines by remember(track) { mutableStateOf<FeedState<List<WatchExtras.TranscriptLine>>>(FeedState.Loading) }
     LaunchedEffect(track) {

@@ -108,7 +108,8 @@ fun LyricsView(
                     isActive = isActive,
                     isPast = isPast,
                     currentPositionMs = currentPositionMs,
-                    highlightColor = glassColors.primaryTint,
+                    // White, as YT Music sings the current line (the theme tint read as a link colour).
+                    highlightColor = Color.White,
                     onClick = { onSeekToTimestamp(line.startTimeMs) }
                 )
             }

@@ -291,7 +291,7 @@ fun ChannelScreen(
                             is FeedState.Data -> if (lists.value.isEmpty()) {
                                 item(key = "no_playlists") { OriginalEmptyState("No playlists", "This channel has no public playlists.", Modifier.height(240.dp)) }
                             } else {
-                                items(lists.value, key = { "pl_${it.url}" }) { playlist ->
+                                items(lists.value.distinctBy { it.url }, key = { "pl_${it.url}" }) { playlist ->
                                     PlaylistResultRow(playlist) { nav.openPlaylist(playlist.url, playlist.title) }
                                 }
                             }

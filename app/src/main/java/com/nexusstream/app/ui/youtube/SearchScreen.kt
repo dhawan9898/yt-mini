@@ -204,7 +204,8 @@ fun SearchScreen(
         val active = submitted
         if (active == null) {
             // Not searched yet: suggestions while typing, otherwise recent searches.
-            val rows = if (query.isBlank()) history else suggestions
+            // Distinct: list keys must be unique, and suggestions can repeat a history entry.
+            val rows = (if (query.isBlank()) history else suggestions).distinct()
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(rows, key = { "row_$it" }) { text ->
                     Row(

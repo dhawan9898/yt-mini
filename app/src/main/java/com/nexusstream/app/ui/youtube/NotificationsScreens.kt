@@ -157,7 +157,7 @@ private fun AccountNotificationsList(onSelectVideo: (MediaItemModel, List<MediaI
     LaunchedEffect(reload) {
         state = FeedState.Loading
         state = withContext(Dispatchers.IO) { runCatching { AccountApi.notifications() } }.toFeedState()
-        (state as? FeedState.Data)?.value?.let { items = it.items; next = it.continuation }
+        (state as? FeedState.Data)?.value?.let { items = it.items.distinctBy { n -> "${n.id}_${n.videoId}" }; next = it.continuation }
     }
     when (val s = state) {
         is FeedState.Loading -> OriginalLoading()
@@ -171,7 +171,7 @@ private fun AccountNotificationsList(onSelectVideo: (MediaItemModel, List<MediaI
                 loadingMore = true
                 scope.launch {
                     withContext(Dispatchers.IO) { runCatching { AccountApi.notifications(token) } }
-                        .onSuccess { page -> items = items + page.items; next = page.continuation?.takeIf { it != token } }
+                        .onSuccess { page -> items = (items + page.items).distinctBy { "${it.id}_${it.videoId}" }; next = page.continuation?.takeIf { it != token } }
                         .onFailure { next = null }
                     loadingMore = false
                 }

@@ -169,6 +169,14 @@ object AppSettings {
         }
     }
 
+    /** The SIM / network country, else the phone's region setting, as an upper-case code. */
+    private fun deviceCountry(context: Context): String? {
+        val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? android.telephony.TelephonyManager
+        return listOfNotNull(tm?.simCountryIso, tm?.networkCountryIso, java.util.Locale.getDefault().country)
+            .map { it.uppercase(java.util.Locale.ROOT) }
+            .firstOrNull { it.length == 2 }
+    }
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -182,7 +190,11 @@ object AppSettings {
         _autoplay.value = p.getBoolean("autoplay", true)
         _captionsByDefault.value = p.getBoolean("captions_default", false)
         _wifiOnlyDownloads.value = p.getBoolean("wifi_only_downloads", false)
-        _contentCountry.value = p.getString("country", "US") ?: "US"
+        // Until a country is picked in settings, the phone's own country (when it is in the list),
+        // so Home and trending match what the YouTube app shows here rather than the US feed.
+        val deviceCountry = runCatching { deviceCountry(context) }.getOrNull()
+            ?.takeIf { code -> ContentRegions.countries.any { it.first == code } } ?: "US"
+        _contentCountry.value = p.getString("country", deviceCountry) ?: deviceCountry
         _showDislikeCounts.value = p.getBoolean("dislike_counts", false)
         _sponsorBlockEnabled.value = p.getBoolean("sponsorblock_enabled", true)
         _ambientMode.value = p.getBoolean("ambient_mode", true)

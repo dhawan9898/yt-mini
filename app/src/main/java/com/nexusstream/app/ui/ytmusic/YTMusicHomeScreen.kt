@@ -594,9 +594,8 @@ private fun YTMusicHeader(
             }
 
             Row {
-                IconButton(onClick = { /* Cast */ }) {
-                    Icon(imageVector = Icons.Rounded.Cast, contentDescription = "Cast", tint = OriginalColors.TextPrimary)
-                }
+                // The real Cast button (device picker); it hides itself where Cast is unavailable.
+                com.nexusstream.app.cast.CastButton()
                 IconButton(onClick = onToggleSearch) {
                     Icon(imageVector = Icons.Rounded.Search, contentDescription = "Search", tint = OriginalColors.TextPrimary)
                 }
