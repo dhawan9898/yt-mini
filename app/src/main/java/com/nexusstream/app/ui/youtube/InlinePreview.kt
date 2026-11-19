@@ -120,10 +120,15 @@ object InlinePreview {
         loadingId = item.id
         // Resolved through the prefetch slot: opening the video afterwards starts at once.
         YouTubeRepository.prefetchStream(item.sourceUrl)
-        val resolved = YouTubeRepository.prefetchedStream(item.sourceUrl) ?: return
+        val resolved = YouTubeRepository.prefetchedStream(item.sourceUrl)
         if (loadingId != item.id) return
         // The combined stream (usually 360p) carries sound for "unmute"; else a small video-only one.
-        val url = resolved.muxedUrl ?: resolved.pickVideo(PREVIEW_MAX_HEIGHT)?.url ?: return
+        val url = resolved?.muxedUrl ?: resolved?.pickVideo(PREVIEW_MAX_HEIGHT)?.url
+        if (url == null) {
+            // Nothing to show: leave the thumbnail, and let a later rest on this card try again.
+            loadingId = null
+            return
+        }
         val factory = (pipeline ?: AdBlockMediaPipeline(context.applicationContext).also { pipeline = it })
             .createStreamingDataSourceFactory()
         val source = ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(url))

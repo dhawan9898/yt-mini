@@ -25,7 +25,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "2.1.0"
+        versionName = "3.0.0"
 
         buildConfigField("String", "YT_API_KEY", "\"${ytApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
 

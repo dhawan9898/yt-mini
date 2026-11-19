@@ -42,7 +42,7 @@ jobs:
         id: versioning
         run: |
           # Every push to main is its own stable release that increments the patch number:
-          # versionName in app/build.gradle.kts sets major.minor (2.1.0 -> v2.1.0, v2.1.1, v2.1.2 ...).
+          # versionName in app/build.gradle.kts sets major.minor (3.0.0 -> v3.0.0, v3.0.1, v3.0.2 ...).
           # Bump the minor in versionName to start a new series.
           BUILD_NUMBER=$(git rev-list --count HEAD)
           BASE_VERSION=$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -n 1)
@@ -95,6 +95,14 @@ jobs:
           name: "yt-mini v${{ env.VERSION_NAME }}"
           body: |
             ## yt-mini v${{ env.VERSION_NAME }}
+
+            ### New in 3.0: liquid glass
+            - Fluid touch everywhere: buttons, chips and cards sink under your finger and spring back instead of rippling, with a light tick when you change tabs or pick a topic.
+            - Clear glass buttons, chips and tiles; headers stay clear at the top of a page and frost over as content scrolls underneath.
+            - Pages slide in over the previous one with a parallax, and titles glide in.
+            - Videos and the player sit in rounded boxes; only the picture bounces when tapped.
+            - Silent previews on Home: the video in view plays muted, with a scrubber you can drag and a mute button; opening it continues from there.
+            - Stability: fixes for crashes with scrolling screenshots and Google sign-in pop-ups.
 
             ### Looks like YouTube now
             - Flat bottom bar (Home, Shorts, +, Subscriptions, You) with a Create sheet.

@@ -1118,7 +1118,12 @@ object YouTubeRepository {
         if (!initialized || watchUrl.isBlank()) return
         val now = System.currentTimeMillis()
         prefetched.entries.removeIf { now - it.value.atMs > PREFETCH_TTL_MS }
-        if (prefetched.size > 12) return
+        // Full: make room by dropping the oldest (feed previews add one per card they play).
+        while (prefetched.size > 12) {
+            val oldest = prefetched.entries.minByOrNull { it.value.atMs }?.key ?: break
+            if (oldest == watchUrl) break
+            prefetched.remove(oldest)
+        }
         prefetched.computeIfAbsent(watchUrl) {
             Prefetch(now, prefetchScope.async { fetchStream(watchUrl) })
         }
