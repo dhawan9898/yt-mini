@@ -42,6 +42,11 @@ class MainActivity : FragmentActivity() {
 
         // Liquid glass edge-to-edge transparent system bars
         enableEdgeToEdge()
+        // Compose's scrolling-screenshot support ("Capture more") can crash when the list
+        // changes mid-capture (LayoutNode detached); keep the system from searching our views.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            window.decorView.scrollCaptureHint = android.view.View.SCROLL_CAPTURE_HINT_EXCLUDE_DESCENDANTS
+        }
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // Settings and the theme must be ready before the first frame (no dark flash in light mode).

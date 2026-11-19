@@ -14,6 +14,8 @@ import com.nexusstream.app.data.SubtitleOption
 import com.nexusstream.app.LaunchRequests
 import com.nexusstream.app.VideoLaunch
 import com.nexusstream.app.ui.components.FrameGrabber
+import androidx.compose.ui.graphics.compositeOver
+import com.nexusstream.app.ui.theme.ThemeState
 import androidx.compose.foundation.lazy.itemsIndexed
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -301,7 +303,7 @@ fun VideoWatchScreen(
     // Cast: while a session is connected the video plays on the receiver.
     CastEffect(item = mediaItem, playbackService = playbackService, audioOnly = false)
     // The status bar sits over the black video area, whatever the theme is.
-    SystemBarIcons(lightIcons = true, includeNavigationBar = false)
+    SystemBarIcons(lightIcons = showFullscreen || ThemeState.palette.isDark, includeNavigationBar = false)
     BackHandler(enabled = isFullscreen) { isFullscreen = false }
     BackHandler(enabled = !isFullscreen, onBack = onCollapse)
 
@@ -373,11 +375,21 @@ fun VideoWatchScreen(
         // Video viewport on a black status-bar-height backdrop. Swipe down to minimize,
         // swipe up (or the player's fullscreen button) for fullscreen.
         if (!showFullscreen) {
+            // The video sits in a rounded box on the page, lit by its ambient glow.
+            val playerAmbient by AppSettings.ambientMode.collectAsState()
+            val playerGlow by FrameGrabber.ambient.collectAsState()
+            val backdropColor = if (playerAmbient) {
+                val glow = playerGlow?.let { Color(it) }
+                    ?: mediaItem.dominantColor.takeIf { it != Color.Unspecified && it != Color.Transparent && it != Color.Black }
+                    ?: Color(0xFF282828)
+                glow.copy(alpha = 0.28f).compositeOver(OriginalColors.YouTubeBackground)
+            } else OriginalColors.YouTubeBackground
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black)
+                    .background(backdropColor)
                     .statusBarsPadding()
+                    .padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 4.dp)
             ) {
                 WatchPlayerViewport(
                     playbackService = playbackService,
@@ -399,7 +411,8 @@ fun VideoWatchScreen(
                     onOpenCard = { c -> openExtraTarget(c.videoId, null, c.url, c.title) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(16f / 9f),
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(16.dp)),
                     topActions = { CastButton() }
                 )
             }
@@ -1065,8 +1078,6 @@ private fun LazyListScope.relatedSection(
         YouTubeVideoCard(
             item = rec,
             onClick = { onSelectVideo(rec) },
-            // Edge to edge, like the related list under a video in the YouTube phone app.
-            inset = false,
             onChannelClick = rec.channelUrl.takeIf { it.isNotBlank() }?.let { { onOpenChannel(rec) } }
         )
     }

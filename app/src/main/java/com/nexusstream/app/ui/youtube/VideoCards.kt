@@ -41,7 +41,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusstream.app.model.MediaItemModel
 import com.nexusstream.app.ui.components.OriginalColors
-import com.nexusstream.app.ui.theme.bouncyClickable
+import com.nexusstream.app.ui.theme.pressScale
+import androidx.compose.foundation.interaction.MutableInteractionSource
 
 /**
  * The channel picture for [item]: its own, or one already known for the channel, or (when neither)
@@ -66,21 +67,33 @@ internal fun rememberChannelAvatar(item: MediaItemModel, fallback: String = ""):
 internal fun YouTubeVideoCard(
     item: MediaItemModel,
     onClick: () -> Unit,
-    /** Inset, rounded thumbnail (used for "Up next"); the home feed is edge to edge. */
-    inset: Boolean = false,
+    /** Inset thumbnail in a rounded box (the default); false runs it edge to edge. */
+    inset: Boolean = true,
     onChannelClick: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
     removeLabel: String = "Remove",
+    /** This card plays its silent inline preview (Home feed). */
+    previewing: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    // The whole card is the tap target, but only the picture bounces; the text stays still.
+    val press = remember { MutableInteractionSource() }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .bouncyClickable(onClickLabel = "Play ${item.title}", pressedScale = 0.98f, onClick = onClick)
+            .clickable(
+                interactionSource = press,
+                indication = null,
+                onClickLabel = "Play ${item.title}",
+                onClick = {
+                    InlinePreview.handOff(item)
+                    onClick()
+                }
+            )
     ) {
-        Thumbnail(item, inset)
+        Thumbnail(item, inset, press = press, previewing = previewing)
 
         Row(
             modifier = Modifier
@@ -162,16 +175,17 @@ internal fun CompactVideoRow(
     removeLabel: String = "Remove"
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val press = remember { MutableInteractionSource() }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .bouncyClickable(onClickLabel = "Play ${item.title}", pressedScale = 0.98f, onClick = onClick)
+            .clickable(interactionSource = press, indication = null, onClickLabel = "Play ${item.title}", onClick = onClick)
             .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.Top
     ) {
         Box(modifier = Modifier.width(160.dp)) {
-            Thumbnail(item, inset = false, rounded = true)
+            Thumbnail(item, inset = false, rounded = true, press = press)
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -210,13 +224,22 @@ internal fun CompactVideoRow(
 }
 
 @Composable
-private fun Thumbnail(item: MediaItemModel, inset: Boolean, rounded: Boolean = false) {
+private fun Thumbnail(
+    item: MediaItemModel,
+    inset: Boolean,
+    rounded: Boolean = false,
+    press: MutableInteractionSource? = null,
+    previewing: Boolean = false
+) {
+    val previewId by InlinePreview.playingId.collectAsState()
+    val previewShown = previewing && previewId == item.id
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (inset) Modifier.padding(horizontal = 12.dp) else Modifier)
             .aspectRatio(16f / 9f)
-            .then(if (inset || rounded) Modifier.clip(RoundedCornerShape(if (rounded) 8.dp else 12.dp)) else Modifier)
+            .then(if (press != null) Modifier.pressScale(press, 0.96f) else Modifier)
+            .then(if (inset || rounded) Modifier.clip(RoundedCornerShape(if (rounded) 10.dp else 16.dp)) else Modifier)
             .background(OriginalColors.Chip)
     ) {
         if (item.artworkUrl.isNotEmpty()) {
@@ -227,8 +250,11 @@ private fun Thumbnail(item: MediaItemModel, inset: Boolean, rounded: Boolean = f
                 modifier = Modifier.fillMaxSize()
             )
         }
+        if (previewing) InlinePreviewLayer(item)
         // Some sources (channel RSS) don't report a duration; hide the badge rather than show 0:00.
-        if (item.isLive) {
+        if (previewShown) {
+            // The preview draws its own time left and scrubber.
+        } else if (item.isLive) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -256,7 +282,7 @@ private fun Thumbnail(item: MediaItemModel, inset: Boolean, rounded: Boolean = f
         }
         // Red bar along the bottom for a video left part way, like YouTube.
         val watched = remember(item.id) { com.nexusstream.app.data.WatchPositions.fraction(item.id) }
-        if (watched > 0f) {
+        if (watched > 0f && !previewShown) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)

@@ -144,6 +144,8 @@ import com.nexusstream.app.ui.components.OriginalFilterChips
 import com.nexusstream.app.ui.components.OriginalLoading
 import com.nexusstream.app.ui.components.OriginalMiniPlayer
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * YouTube home: Home feed (infinite scroll, pull-to-refresh, personalised with your
@@ -313,6 +315,47 @@ fun YouTubeHomeScreen(
     LaunchedEffect(feedAtTop, selectedTab) { if (feedAtTop && selectedTab == 0) scrollEdge.reset() }
     val pullState = rememberPullToRefreshState()
 
+    // Muted inline playback: the first card that comes to rest fully in view plays silently in
+    // place of its thumbnail, as in the YouTube app. Off while anything else plays or covers the
+    // feed, in the background, and with Data saver.
+    val dataSaver by com.nexusstream.app.data.AppSettings.dataSaver.collectAsState()
+    val homeResumed by homeLifecycle.lifecycle.currentStateFlow.collectAsState()
+    val previewAllowed = selectedTab == 0 && !playerOpen && !pagesOpen && !isPlaying && !dataSaver &&
+        homeResumed.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+    var previewId by remember { mutableStateOf<String?>(null) }
+    val currentFeed by androidx.compose.runtime.rememberUpdatedState(feed)
+    LaunchedEffect(previewAllowed) {
+        if (!previewAllowed) {
+            previewId = null
+            InlinePreview.stop()
+            return@LaunchedEffect
+        }
+        androidx.compose.runtime.snapshotFlow {
+            if (listState.isScrollInProgress) return@snapshotFlow null
+            val info = listState.layoutInfo
+            val top = with(density) { headerHeight.toPx() } - 4f
+            val bottom = info.viewportSize.height - with(density) { (NAV_BAR_SPACE + 8.dp).toPx() }
+            info.visibleItemsInfo.firstOrNull { cell ->
+                val y = cell.offset.y - info.viewportStartOffset
+                (cell.key as? String)?.startsWith("yt_") == true &&
+                    y >= top && y + cell.size.width * 9f / 16f <= bottom
+            }?.key as? String
+        }.distinctUntilChanged().collectLatest { key ->
+            if (key == null) {
+                previewId = null
+                InlinePreview.stop()
+                return@collectLatest
+            }
+            val id = key.removePrefix("yt_")
+            // A short pause, so a quick fling doesn't start videos it only flies past.
+            kotlinx.coroutines.delay(700)
+            val item = (currentFeed as? FeedState.Data)?.value?.firstOrNull { it.id == id } ?: return@collectLatest
+            previewId = id
+            runCatching { InlinePreview.play(homeContext, item) }
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { InlinePreview.stop() } }
+
     Row(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground)) {
     if (wide) com.nexusstream.app.ui.components.SideNavRail(navEntries, selectedTab, onSelect = selectTab)
     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -415,6 +458,7 @@ fun YouTubeHomeScreen(
                                             onClick = { onSelectVideo(video, visible) },
                                             onChannelClick = video.channelUrl.takeIf { it.isNotBlank() }
                                                 ?.let { { nav.openChannelOf(video) } },
+                                            previewing = previewAllowed && video.id == previewId,
                                             modifier = Modifier.animateItem()
                                         )
                                     }

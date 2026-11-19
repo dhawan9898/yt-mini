@@ -131,8 +131,19 @@ fun GoogleSignInScreen(nav: YouTubeNav) {
                                 return true
                             }
                             val transport = resultMsg?.obj as? WebView.WebViewTransport
-                            if (transport != null) {
-                                transport.webView = view
+                            if (transport != null && view != null) {
+                                // A WebView can't be its own popup: catch the popup's first URL in a
+                                // throwaway view and open it in the sign-in page instead.
+                                val parent = view
+                                val catcher = WebView(parent.context)
+                                catcher.webViewClient = object : WebViewClient() {
+                                    override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                        request?.url?.toString()?.let { parent.loadUrl(it) }
+                                        catcher.destroy()
+                                        return true
+                                    }
+                                }
+                                transport.webView = catcher
                                 resultMsg.sendToTarget()
                                 return true
                             }
