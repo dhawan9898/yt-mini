@@ -120,6 +120,10 @@ internal class AutoLibrary(
         return future
     }
 
+    private fun onMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) block() else android.os.Handler(Looper.getMainLooper()).post(block)
+    }
+
     /** Plays [ids] with the service's queue: the whole list the first one was browsed from. */
     fun play(ids: List<String>, startIndex: Int): Boolean {
         if (ids.isEmpty()) return true
@@ -132,8 +136,35 @@ internal class AutoLibrary(
         return true
     }
 
-    /** The session's player: controller commands that set items we served go to [play]. */
+    /**
+     * The session's player: controller commands that set items we served go to [play].
+     *
+     * The real player only ever holds the current video (the queue and autoplay live in the
+     * service), so on its own it reports no "next": Android 13+ builds the media notification's
+     * buttons from these commands, which left only previous and play/pause. Next and previous
+     * are always offered here and go to the service's queue. (Listeners are deliberately not
+     * wrapped: re-wrapping them stalled playback.)
+     */
     fun wrap(player: Player): Player = object : ForwardingPlayer(player) {
+        private val queueCommands = intArrayOf(
+            Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM
+        )
+
+        private fun withQueue(commands: Player.Commands): Player.Commands =
+            commands.buildUpon().addAll(*queueCommands).build()
+
+        override fun getAvailableCommands(): Player.Commands = withQueue(super.getAvailableCommands())
+        override fun isCommandAvailable(command: Int): Boolean = command in queueCommands || super.isCommandAvailable(command)
+        override fun hasNextMediaItem(): Boolean = true
+        override fun hasPreviousMediaItem(): Boolean = true
+
+        override fun seekToNext() = onMain {  service.skipToNext() }
+        override fun seekToNextMediaItem() = onMain {  service.skipToNext() }
+        override fun seekToPrevious() = onMain {  service.skipToPrevious() }
+        override fun seekToPreviousMediaItem() = onMain {  service.skipToPrevious() }
+
+
         override fun setMediaItems(mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long) {
             if (!play(mediaItems.map { it.mediaId }, startIndex)) super.setMediaItems(mediaItems, startIndex, startPositionMs)
         }

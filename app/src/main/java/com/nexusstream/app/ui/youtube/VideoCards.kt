@@ -313,8 +313,8 @@ internal fun videoMetaText(item: MediaItemModel): String {
     val views = item.viewsOrPlays.trim().let { v ->
         when {
             v.isEmpty() -> ""
+            v.contains("watching", ignoreCase = true) || v.contains("view", ignoreCase = true) || v.contains("play", ignoreCase = true) -> v
             item.isLive -> "$v watching"
-            v.contains("view", ignoreCase = true) || v.contains("play", ignoreCase = true) -> v
             else -> "$v views"
         }
     }

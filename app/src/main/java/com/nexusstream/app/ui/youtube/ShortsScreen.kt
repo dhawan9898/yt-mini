@@ -283,7 +283,7 @@ private fun ShortsPager(
             isActive = isActive,
             resolving = isActive && playback?.isResolving == true,
             // Only real playback counts (not buffering), so the thumbnail stays until the first frame.
-            playing = isActive && playback?.currentItem?.id == item.id && playback.isPlaying && !playback.isBuffering,
+            playing = isActive && playback?.currentItem?.id == item.id && playback.isPlaying && !playback.isBuffering && !playback.isResolving,
             buffering = isActive && playback?.currentItem?.id == item.id && playback.isBuffering,
             error = if (isActive && playback?.hasError == true) playback.errorMessage ?: "Couldn't play this short" else null,
             onRetry = {
@@ -355,22 +355,25 @@ private fun ShortPage(
             }
     ) {
         if (isActive && playbackService != null) {
-            // The whole picture is always shown, never cropped: vertical shorts fill the width,
-            // and the odd square or landscape clip gets black bars like on YouTube.
+            // Upright shorts cover the whole screen from the first frame, as on YouTube; the odd
+            // square or landscape clip is shown whole with black bars.
             VideoSurface(
                 player = playbackService.getPlayer(),
                 fill = false,
                 placeholderAspect = 9f / 16f,
+                fillWhenPortrait = true,
                 modifier = Modifier.fillMaxSize()
             )
         }
         // The thumbnail covers the picture until this short has started (and on pages that are not
         // playing), so the previous short's last frame is never shown.
         if (!started) {
+            // Cropped to fill: short thumbnails are wide images with the upright picture in the
+            // middle, which letterboxed looked like a small box before the video took over.
             AsyncImage(
                 model = item.artworkUrl,
                 contentDescription = item.title,
-                contentScale = ContentScale.Fit,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         }

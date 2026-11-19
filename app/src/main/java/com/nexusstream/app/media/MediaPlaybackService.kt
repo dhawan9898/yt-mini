@@ -359,8 +359,20 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
         autoLibrary = AutoLibrary(this, serviceScope)
         mediaSession = MediaLibraryService.MediaLibrarySession.Builder(this, autoLibrary.wrap(exoPlayer), autoLibrary)
             .setId("NexusStreamMediaSession")
+            // Tapping the media notification (or the lock-screen controls) opens the app.
+            .setSessionActivity(openAppIntent())
             .build()
     }
+
+    private fun openAppIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        0,
+        Intent(this, com.nexusstream.app.MainActivity::class.java)
+            .setAction(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibraryService.MediaLibrarySession? {
         return if (::mediaSession.isInitialized) mediaSession else null
@@ -1487,6 +1499,7 @@ class MediaPlaybackService : MediaLibraryService(), Player.Listener {
             .setContentText(item.artistOrChannel)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(isPlaying)
+            .setContentIntent(openAppIntent())
             .addAction(android.R.drawable.ic_media_previous, "Previous", prevIntent)
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", playPauseIntent)
             .addAction(android.R.drawable.ic_media_next, "Next", nextIntent)

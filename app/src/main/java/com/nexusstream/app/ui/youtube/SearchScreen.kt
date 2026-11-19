@@ -51,6 +51,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -92,6 +95,7 @@ import kotlinx.coroutines.launch
  * YouTube search: recent searches, live suggestions while typing, and typed results
  * (videos, channels, playlists) with type and length filters and infinite scroll.
  */
+@kotlin.OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
     nav: YouTubeNav,
@@ -112,11 +116,32 @@ fun SearchScreen(
     val history by LibraryRepository.searchHistory.collectAsState()
     val hidden by LibraryRepository.hidden.collectAsState()
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val focus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyGridState()
+    var confirmRemove by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    // The keyboard opens with the page, but only while nothing has been searched yet.
+    LaunchedEffect(Unit) { if (submitted == null) focus.requestFocus() }
+
+    fun dismissKeyboard() {
+        // Clearing focus (not only hiding the keyboard) keeps it from popping up again when the
+        // app comes back to the foreground.
+        focusManager.clearFocus()
+        keyboard?.hide()
+    }
+
+    // With the keyboard up, Back (button or gesture) closes the keyboard first.
+    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    androidx.activity.compose.BackHandler(enabled = imeVisible) { dismissKeyboard() }
+    // Editing the query of a search already made: Back returns to its results.
+    var lastSubmitted by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(submitted) { submitted?.let { lastSubmitted = it } }
+    androidx.activity.compose.BackHandler(enabled = !imeVisible && submitted == null && lastSubmitted != null) {
+        query = lastSubmitted.orEmpty()
+        submitted = lastSubmitted
+    }
 
     fun submit(text: String) {
         val trimmed = text.trim()
@@ -124,7 +149,7 @@ fun SearchScreen(
         query = trimmed
         submitted = trimmed
         LibraryRepository.addSearch(trimmed)
-        keyboard?.hide()
+        dismissKeyboard()
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     val voiceLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -180,15 +205,29 @@ fun SearchScreen(
         title = "Search",
         onBack = nav.back,
         miniPlayer = miniPlayer,
-        header = { SearchField(query, focus, { query = it; submitted = null }, { submit(query) }) },
-        actions = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = {
+        header = {
+            SearchField(
+                query = query,
+                focus = focus,
+                onChange = { query = it; submitted = null },
+                onSearch = { submit(query) },
+                // Tapping the query above the results goes back to editing it, as on YouTube.
+                onFocused = { if (submitted != null) submitted = null },
+                onClear = {
                     query = ""
                     submitted = null
                     focus.requestFocus()
-                }) {
-                    Icon(Icons.Rounded.Close, "Clear", tint = OriginalColors.TextPrimary)
+                }
+            )
+        },
+        actions = {
+            if (submitted != null && (type == SearchType.ALL || type == SearchType.VIDEOS)) {
+                IconButton(onClick = { showFilters = true }) {
+                    Icon(
+                        Icons.Outlined.Tune,
+                        if (filters.isDefault) "Search filters" else "Search filters (${filters.count})",
+                        tint = if (filters.isDefault) OriginalColors.TextPrimary else OriginalColors.Accent
+                    )
                 }
             }
             // Voice search: the system speech recognizer fills in and submits the query.
@@ -200,7 +239,12 @@ fun SearchScreen(
                     android.widget.Toast.makeText(context, "No voice recognition on this device", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }) {
-                Icon(Icons.Outlined.Mic, "Search with your voice", tint = OriginalColors.TextPrimary)
+                Box(
+                    modifier = Modifier.size(36.dp).clip(androidx.compose.foundation.shape.CircleShape).background(OriginalColors.Chip),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.Mic, "Search with your voice", tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
+                }
             }
         }
     ) {
@@ -211,10 +255,15 @@ fun SearchScreen(
             val rows = (if (query.isBlank()) history else suggestions).distinct()
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(rows, key = { "row_$it" }) { text ->
+                    val fromHistory = query.isBlank()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { submit(text) }
+                            .combinedClickable(
+                                onClick = { submit(text) },
+                                // Long-press a recent search to remove it, as on YouTube.
+                                onLongClick = if (fromHistory) ({ confirmRemove = text }) else null
+                            )
                             .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -233,14 +282,13 @@ fun SearchScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        if (query.isBlank()) {
-                            IconButton(onClick = { LibraryRepository.removeSearch(text) }) {
-                                Icon(Icons.Rounded.Close, "Remove", tint = OriginalColors.TextSecondary, modifier = Modifier.size(20.dp))
-                            }
-                        } else {
-                            IconButton(onClick = { query = text }) {
-                                Icon(Icons.Outlined.NorthWest, "Use suggestion", tint = OriginalColors.TextSecondary, modifier = Modifier.size(20.dp))
-                            }
+                        // Fills the box with this text to keep typing, on recent searches and suggestions alike.
+                        IconButton(onClick = {
+                            query = "$text "
+                            submitted = null
+                            focus.requestFocus()
+                        }) {
+                            Icon(Icons.Outlined.NorthWest, "Edit \"$text\"", tint = OriginalColors.TextSecondary, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -259,44 +307,37 @@ fun SearchScreen(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
+                // One row of chips, like YouTube's results: the result type, plus quick
+                // "Recently uploaded" and "Live"; everything else is in the filters sheet (top bar).
+                val recent = YouTubeWeb.SearchFilters(sort = YouTubeWeb.SortBy.UPLOAD_DATE)
+                val live = YouTubeWeb.SearchFilters(features = setOf(YouTubeWeb.Feature.LIVE))
+                val chipLabels = SearchType.video.map { it.label }.let { listOf(it.first()) + listOf("Recently uploaded", "Live") + it.drop(1) }
+                val selectedChip = when {
+                    type != SearchType.ALL -> type.label
+                    filters == recent -> "Recently uploaded"
+                    filters == live -> "Live"
+                    else -> "All"
+                }
                 OriginalFilterChips(
-                    labels = SearchType.video.map { it.label },
-                    selected = type.label,
-                    onSelect = { label -> type = SearchType.video.first { it.label == label } },
+                    labels = chipLabels,
+                    selected = selectedChip,
+                    onSelect = { label ->
+                        when (label) {
+                            "Recently uploaded" -> { type = SearchType.ALL; filters = recent }
+                            "Live" -> { type = SearchType.ALL; filters = live }
+                            else -> { type = SearchType.video.first { it.label == label }; filters = YouTubeWeb.SearchFilters() }
+                        }
+                    },
                     unselectedColor = OriginalColors.Chip
                 )
-                if (type == SearchType.ALL || type == SearchType.VIDEOS) {
-                    // Sort order is always one tap away, like YouTube's own results.
-                    OriginalFilterChips(
-                        labels = YouTubeWeb.SortBy.values().map { it.label },
-                        selected = filters.sort.label,
-                        onSelect = { label -> filters = filters.copy(sort = YouTubeWeb.SortBy.values().first { it.label == label }) },
-                        unselectedColor = OriginalColors.Chip
-                    )
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .glassTile(RoundedCornerShape(8.dp), fill = if (filters.isDefault) null else OriginalColors.TextPrimary)
-                            .clickable { showFilters = true }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Outlined.Tune, null, tint = if (filters.isDefault) OriginalColors.TextPrimary else OriginalColors.OnInverse, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            if (filters.isDefault) "Filters" else "Filters (${filters.count})",
-                            fontSize = 14.sp,
-                            color = if (filters.isDefault) OriginalColors.TextPrimary else OriginalColors.OnInverse
-                        )
-                    }
-                }
                 when (val state = results) {
                     is FeedState.Loading -> OriginalLoading()
                     is FeedState.Error -> OriginalError(state.message, onRetry = { reloadKey++ })
                     is FeedState.Data -> {
                         val visible = remember(state.value, hidden) {
-                            state.value.filter { result ->
+                            // Unique keys only: later pages can repeat a result, and a repeated
+                            // key crashes the list.
+                            state.value.distinctBy(::searchResultKey).filter { result ->
                                 when (result) {
                                     is SearchResult.Video ->
                                         result.item.id !in hidden.videoIds &&
@@ -321,13 +362,7 @@ fun SearchScreen(
                             ) {
                                 items(
                                     visible,
-                                    key = { result ->
-                                        when (result) {
-                                            is SearchResult.Video -> "v_${result.item.id}"
-                                            is SearchResult.Channel -> "c_${result.channel.url}"
-                                            is SearchResult.Playlist -> "p_${result.playlist.url}"
-                                        }
-                                    },
+                                    key = ::searchResultKey,
                                     // Channels and playlists use the whole row; videos share it.
                                     span = { result ->
                                         if (result is SearchResult.Video) GridItemSpan(1) else GridItemSpan(maxLineSpan)
@@ -359,6 +394,24 @@ fun SearchScreen(
     if (showFilters) {
         SearchFiltersSheet(filters, onApply = { filters = it; showFilters = false }, onDismiss = { showFilters = false })
     }
+    confirmRemove?.let { text ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmRemove = null },
+            title = { Text(text, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            text = { Text("Remove from search history?") },
+            confirmButton = {
+                TextButton(onClick = { LibraryRepository.removeSearch(text); confirmRemove = null }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text("Cancel") } },
+            containerColor = OriginalColors.Sheet
+        )
+    }
+}
+
+private fun searchResultKey(result: SearchResult): String = when (result) {
+    is SearchResult.Video -> "v_${result.item.id}"
+    is SearchResult.Channel -> "c_${result.channel.url}"
+    is SearchResult.Playlist -> "p_${result.playlist.url}"
 }
 
 @Composable
@@ -366,17 +419,20 @@ private fun RowScope.SearchField(
     query: String,
     focus: FocusRequester,
     onChange: (String) -> Unit,
-    onSearch: () -> Unit
+    onSearch: () -> Unit,
+    onFocused: () -> Unit,
+    onClear: () -> Unit
 ) {
-    Box(
+    Row(
         modifier = Modifier
             .weight(1f)
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
             .glassTile(RoundedCornerShape(20.dp))
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.CenterStart
+            .padding(start = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
         if (query.isEmpty()) {
             Text("Search YouTube", fontSize = 15.sp, color = OriginalColors.TextSecondary)
         }
@@ -391,7 +447,17 @@ private fun RowScope.SearchField(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focus)
+                .onFocusChanged { if (it.isFocused) onFocused() }
         )
+    }
+    // Clear, inside the box as on YouTube.
+    if (query.isNotEmpty()) {
+        IconButton(onClick = onClear) {
+            Icon(Icons.Rounded.Close, "Clear", tint = OriginalColors.TextPrimary, modifier = Modifier.size(20.dp))
+        }
+    } else {
+        Spacer(Modifier.width(16.dp))
+    }
     }
 }
 

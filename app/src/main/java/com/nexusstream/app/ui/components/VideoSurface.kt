@@ -78,7 +78,9 @@ fun VideoSurface(
     player: Player,
     fill: Boolean,
     modifier: Modifier = Modifier,
-    placeholderAspect: Float = 16f / 9f
+    placeholderAspect: Float = 16f / 9f,
+    /** Upright videos cover the box (Shorts); wider ones keep [fill]. */
+    fillWhenPortrait: Boolean = false
 ) {
     var size by remember(player) { mutableStateOf(player.videoSize) }
     DisposableEffect(player) {
@@ -113,7 +115,7 @@ fun VideoSurface(
         val containerWidth = with(density) { maxWidth.toPx() }
         val containerHeight = with(density) { maxHeight.toPx() }
         val aspect = videoAspect(size).takeIf { it > 0f } ?: placeholderAspect
-        val frame = fitVideoFrame(containerWidth, containerHeight, aspect, fill)
+        val frame = fitVideoFrame(containerWidth, containerHeight, aspect, fill || (fillWhenPortrait && aspect < 0.8f))
         Box(
             modifier = Modifier
                 .align(Alignment.Center)

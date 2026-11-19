@@ -59,6 +59,9 @@ class MainActivity : FragmentActivity() {
         installImageLoader()
 
         PipController.enter = { enterPictureInPictureIfSupported() }
+        // Android 12+: the system itself moves the playing video into PiP on the home gesture,
+        // which is more reliable (and smoother) than reacting to onUserLeaveHint.
+        PipController.onEligibilityChanged = { eligible -> runOnUiThread { updatePipParams(eligible) } }
         // Only the first launch: a recreated activity must not replay an old link.
         if (savedInstanceState == null) handleLaunchIntent(intent)
 
@@ -125,6 +128,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onDestroy() {
         PipController.enter = null
+        PipController.onEligibilityChanged = null
         PipController.canAutoEnter = false
         // Closing the app ends the Shorts session; a rotation or theme change keeps it.
         if (isFinishing) com.nexusstream.app.ui.youtube.ShortsSession.clear()
@@ -134,24 +138,40 @@ class MainActivity : FragmentActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         // Only a playing video on the watch page goes to PiP; music and browsing do not.
-        if (PipController.canAutoEnter) enterPictureInPictureIfSupported()
+        // Android 12+ enters on its own (auto-enter); older versions are started here.
+        if (PipController.canAutoEnter && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enterPictureInPictureIfSupported()
+    }
+
+    private fun pipParams(autoEnter: Boolean): PictureInPictureParams? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        // The window takes the video's shape (Shorts and vertical videos stand upright), within
+        // the limits Android allows for picture-in-picture.
+        val aspect = PipController.videoAspect.takeIf { it.isFinite() && it > 0f } ?: (16f / 9f)
+        val clamped = aspect.coerceIn(1f / 2.39f + 0.01f, 2.39f - 0.01f)
+        val builder = PictureInPictureParams.Builder().setAspectRatio(Rational((clamped * 1000).toInt(), 1000))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(autoEnter).setSeamlessResizeEnabled(true)
+        }
+        return builder.build()
+    }
+
+    private fun updatePipParams(autoEnter: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || isDestroyed) return
+        pipParams(autoEnter)?.let { runCatching { setPictureInPictureParams(it) } }
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         PipController.setInPip(isInPictureInPictureMode)
+        // Leaving PiP while the activity is stopped means the window was closed, not expanded.
+        if (!isInPictureInPictureMode && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            PipController.dismissed.tryEmit(Unit)
+        }
     }
 
     private fun enterPictureInPictureIfSupported() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // The window takes the video's shape (Shorts and vertical videos stand upright), within
-            // the limits Android allows for picture-in-picture.
-            val aspect = PipController.videoAspect.takeIf { it.isFinite() && it > 0f } ?: (16f / 9f)
-            val clamped = aspect.coerceIn(1f / 2.39f + 0.01f, 2.39f - 0.01f)
-            val aspectRatio = Rational((clamped * 1000).toInt(), 1000)
-            val params = PictureInPictureParams.Builder()
-                .setAspectRatio(aspectRatio)
-                .build()
+            val params = pipParams(PipController.canAutoEnter) ?: return
             try {
                 enterPictureInPictureMode(params)
             } catch (e: Exception) {

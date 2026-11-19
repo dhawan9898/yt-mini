@@ -395,8 +395,8 @@ fun YouTubeHomeScreen(
             }
             }
             when (selectedTab) {
-                // Shorts are black edge to edge, status bar included, with light status icons.
-                1 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black).statusBarsPadding()) {
+                // Shorts fill the whole screen, under the status bar too (light status icons), as on YouTube.
+                1 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                     com.nexusstream.app.ui.theme.SystemBarIcons(lightIcons = true)
                     ShortsScreen(
                         playbackService = playbackService,

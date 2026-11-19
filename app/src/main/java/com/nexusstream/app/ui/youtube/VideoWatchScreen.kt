@@ -284,11 +284,8 @@ fun VideoWatchScreen(
     }
     val inPip by PipController.isInPip.collectAsState()
 
-    // Leaving the app while a video plays on this page starts picture-in-picture.
-    DisposableEffect(playbackState.isPlaying, playbackState.playbackMode) {
-        PipController.canAutoEnter = playbackState.isPlaying && playbackState.playbackMode == PlaybackMode.VIDEO
-        onDispose { PipController.canAutoEnter = false }
-    }
+    // Whether leaving the app starts picture-in-picture is decided in NexusApp (it also covers the
+    // minimised player).
 
     // Landscape phones go fullscreen automatically; tablets / wide windows get a two-pane layout.
     val configuration = LocalConfiguration.current

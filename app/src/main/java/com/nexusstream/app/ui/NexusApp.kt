@@ -281,6 +281,33 @@ fun NexusApp() {
 
     val activeService = playbackService
     val playbackState = activeService?.playbackState?.collectAsState()?.value
+
+    // Picture-in-picture: leaving the app while a video plays (on the watch page or minimised,
+    // also while it is still loading) moves it into a floating window, as YouTube does. Not for
+    // Shorts or the music player.
+    val pipEligible = playbackState != null && activeService != null &&
+        playbackState.playbackMode == PlaybackMode.VIDEO && !playbackState.hasError &&
+        playbackState.currentItem?.isShort != true && currentScreen != AppScreen.PLAYER &&
+        (playbackState.isPlaying || playbackState.isBuffering || playbackState.isResolving)
+    androidx.compose.runtime.DisposableEffect(pipEligible) {
+        com.nexusstream.app.PipController.canAutoEnter = pipEligible
+        onDispose { com.nexusstream.app.PipController.canAutoEnter = false }
+    }
+    val inPip by com.nexusstream.app.PipController.isInPip.collectAsState()
+    // Entered PiP from the minimised player: coming back (expanding the window) opens the watch page.
+    var pipFromMini by remember { mutableStateOf(false) }
+    LaunchedEffect(inPip) {
+        if (inPip) pipFromMini = currentScreen == AppScreen.HOME
+        else if (pipFromMini) {
+            pipFromMini = false
+            if (activeService?.playbackState?.value?.currentItem != null) currentScreen = AppScreen.WATCH
+        }
+    }
+    LaunchedEffect(activeService) {
+        com.nexusstream.app.PipController.dismissed.collect {
+            activeService?.let { if (it.playbackState.value.isPlaying) it.togglePlayPause() }
+        }
+    }
     val currentItem = playbackState?.currentItem
 
     // Keep the screen awake while a video plays (watch page, fullscreen, mini player, Shorts), like
@@ -540,6 +567,18 @@ fun NexusApp() {
                         }
                     }
                 }
+            }
+        }
+
+        // In PiP with the player minimised, the little window shows only the video (the watch page
+        // draws its own PiP view when it is open).
+        if (inPip && currentScreen == AppScreen.HOME && activeService != null) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                com.nexusstream.app.ui.components.VideoSurface(
+                    player = activeService.getPlayer(),
+                    fill = false,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
 
