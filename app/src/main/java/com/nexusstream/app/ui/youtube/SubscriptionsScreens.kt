@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassButton as Button
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,7 +33,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Subscriptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -314,8 +315,8 @@ private fun SubscriptionsDiscoveryView(nav: YouTubeNav) {
                 if (!signedIn) {
                     Button(
                         onClick = { nav.open(Route.SignIn) },
-                        modifier = Modifier.weight(1f).height(44.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                        modifier = Modifier.weight(1f).height(44.dp).glassTile(RoundedCornerShape(22.dp), fill = Color.White),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         shape = RoundedCornerShape(22.dp)
                     ) {
                         Text("Sign In", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -323,8 +324,8 @@ private fun SubscriptionsDiscoveryView(nav: YouTubeNav) {
                 }
                 Button(
                     onClick = { filePicker.launch("*/*") },
-                    modifier = Modifier.weight(1f).height(44.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = OriginalColors.Chip),
+                    modifier = Modifier.weight(1f).height(44.dp).glassTile(RoundedCornerShape(22.dp)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                     shape = RoundedCornerShape(22.dp)
                 ) {
                     Icon(Icons.Rounded.FileUpload, null, modifier = Modifier.size(16.dp), tint = OriginalColors.TextPrimary)
@@ -333,8 +334,8 @@ private fun SubscriptionsDiscoveryView(nav: YouTubeNav) {
                 }
                 Button(
                     onClick = nav.openSearch,
-                    modifier = Modifier.weight(1f).height(44.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = OriginalColors.Chip),
+                    modifier = Modifier.weight(1f).height(44.dp).glassTile(RoundedCornerShape(22.dp)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                     shape = RoundedCornerShape(22.dp)
                 ) {
                     Icon(Icons.Rounded.Search, null, modifier = Modifier.size(16.dp), tint = OriginalColors.TextPrimary)
@@ -381,7 +382,7 @@ private fun SubscriptionsDiscoveryView(nav: YouTubeNav) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(18.dp))
-                        .background(if (isSubbed) OriginalColors.Chip else Color.White)
+                        .glassTile(RoundedCornerShape(18.dp), fill = if (isSubbed) null else Color.White)
                         .clickable {
                             LibraryRepository.toggleSubscribe(channel.first, channel.second, channel.third)
                         }
@@ -443,7 +444,7 @@ fun AllSubscriptionsScreen(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(18.dp))
-                                .background(OriginalColors.Chip)
+                                .glassTile(RoundedCornerShape(18.dp))
                                 .clickable { LibraryRepository.toggleSubscribe(sub.name, sub.avatarUrl, sub.channelUrl) }
                                 .padding(horizontal = 14.dp, vertical = 8.dp)
                         ) {

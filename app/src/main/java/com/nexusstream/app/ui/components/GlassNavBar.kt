@@ -43,6 +43,7 @@ import com.nexusstream.app.ui.theme.GlassMotion
 import com.nexusstream.app.ui.theme.GlassWeight
 import com.nexusstream.app.ui.theme.ThemeState
 import com.nexusstream.app.ui.theme.liquidGlass
+import com.nexusstream.app.ui.theme.selectionTick
 import androidx.compose.animation.animateColorAsState
 import dev.chrisbanes.haze.HazeState
 
@@ -60,7 +61,14 @@ fun GlassNavBar(
     modifier: Modifier = Modifier,
     backdrop: HazeState? = null
 ) {
-    val onSelectState by rememberUpdatedState(onSelect)
+    // A light tick each time the selection moves, as on an iOS tab bar or picker.
+    val view = androidx.compose.ui.platform.LocalView.current
+    val selectedState by rememberUpdatedState(selectedIndex)
+    val select: (Int) -> Unit = { index ->
+        if (index != selectedState) view.selectionTick()
+        onSelect(index)
+    }
+    val onSelectState by rememberUpdatedState(select)
     val dark = ThemeState.palette.isDark
     val shape = RoundedCornerShape(percent = 50)
     val ink = OriginalColors.TextPrimary
@@ -136,7 +144,7 @@ fun GlassNavBar(
                             indication = null,
                             role = Role.Tab,
                             onClickLabel = entry.label
-                        ) { onSelect(index) },
+                        ) { select(index) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
                 ) {

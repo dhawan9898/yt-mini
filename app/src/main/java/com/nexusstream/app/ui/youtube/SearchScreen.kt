@@ -1,5 +1,9 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassButton as Button
+import com.nexusstream.app.ui.theme.GlassTextButton as TextButton
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,7 +37,6 @@ import androidx.compose.material.icons.outlined.NorthWest
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -274,7 +277,7 @@ fun SearchScreen(
                         modifier = Modifier
                             .padding(horizontal = 12.dp, vertical = 4.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (filters.isDefault) OriginalColors.Chip else OriginalColors.TextPrimary)
+                            .glassTile(RoundedCornerShape(8.dp), fill = if (filters.isDefault) null else OriginalColors.TextPrimary)
                             .clickable { showFilters = true }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -370,7 +373,7 @@ private fun RowScope.SearchField(
             .weight(1f)
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
-            .background(OriginalColors.Chip)
+            .glassTile(RoundedCornerShape(20.dp))
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -520,9 +523,9 @@ private fun SearchFiltersSheet(initial: YouTubeWeb.SearchFilters, onApply: (YouT
             }
             item {
                 Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.End) {
-                    androidx.compose.material3.TextButton(onClick = { f = YouTubeWeb.SearchFilters() }) { Text("Reset") }
+                    TextButton(onClick = { f = YouTubeWeb.SearchFilters() }) { Text("Reset") }
                     Spacer(Modifier.width(8.dp))
-                    androidx.compose.material3.Button(onClick = { onApply(f) }) { Text("Apply") }
+                    Button(onClick = { onApply(f) }) { Text("Apply") }
                 }
             }
         }

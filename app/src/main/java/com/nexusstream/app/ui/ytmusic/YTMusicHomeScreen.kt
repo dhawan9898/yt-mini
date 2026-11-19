@@ -1,5 +1,11 @@
 package com.nexusstream.app.ui.ytmusic
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.edgeHairline
+import com.nexusstream.app.ui.theme.rememberScrollEdge
+import com.nexusstream.app.ui.theme.rememberScrollEdgeFrost
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.animation.core.tween
 import com.nexusstream.app.ui.theme.ThemeState
 import com.nexusstream.app.ui.theme.GlassMotion
@@ -60,7 +66,6 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -211,6 +216,9 @@ fun YTMusicHomeScreen(
     val backdrop = remember { HazeState() }
     val density = LocalDensity.current
     var headerHeight by remember { mutableStateOf(0.dp) }
+    // Clear glass over the ambient glow at the top, frosting over as shelves scroll under it.
+    val scrollEdge = rememberScrollEdge()
+    val frost = rememberScrollEdgeFrost(scrollEdge)
     val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomSpace = navBarInset + (if (wide) 0.dp else 76.dp) + (if (currentPlayingItem != null) 72.dp else 0.dp)
 
@@ -232,6 +240,7 @@ fun YTMusicHomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .glassBackdrop(backdrop)
+                .nestedScroll(scrollEdge.connection)
         ) {
             Box(
                 modifier = Modifier
@@ -360,7 +369,8 @@ fun YTMusicHomeScreen(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }
-                .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false)
+                .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false, clarity = 1f - frost)
+                .edgeHairline(frost)
                 .statusBarsPadding()
         ) {
             YTMusicHeader(
@@ -428,7 +438,7 @@ private fun ExploreButtons(nav: YouTubeNav, signedIn: Boolean) {
                     .fillMaxWidth()
                     .height(52.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(OriginalColors.MusicChip)
+                    .glassTile(RoundedCornerShape(8.dp))
                     .clickable { nav.open(Route.MusicBrowse(browseId, label)) }
                     .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -538,7 +548,7 @@ private fun YTMusicHeader(
                     .weight(1f)
                     .height(40.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(OriginalColors.MusicChip)
+                    .glassTile(RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterStart
             ) {

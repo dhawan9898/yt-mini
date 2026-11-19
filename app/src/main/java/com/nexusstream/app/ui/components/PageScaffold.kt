@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.components
 
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +17,6 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +51,17 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import dev.chrisbanes.haze.HazeState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.nexusstream.app.ui.theme.edgeHairline
+import com.nexusstream.app.ui.theme.rememberScrollEdge
+import com.nexusstream.app.ui.theme.rememberScrollEdgeFrost
 
 /** What a page needs to draw the docked mini-player. */
 class MiniPlayerHooks(
@@ -88,11 +99,16 @@ fun PageScaffold(
     val shownItem = remember { mutableStateOf<MediaItemModel?>(null) }.apply { if (playing != null) value = playing }.value
     val background = if (music) OriginalColors.MusicBackground else OriginalColors.YouTubeBackground
 
+    // The bar is clear glass while the page is at its top and frosts over (with a hairline) as
+    // the content scrolls underneath it, like iOS.
+    val scrollEdge = rememberScrollEdge()
+    val frost = rememberScrollEdgeFrost(scrollEdge)
     val topBar = @Composable { backdrop: HazeState?, barModifier: Modifier ->
         Row(
             modifier = barModifier
                 .fillMaxWidth()
-                .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false)
+                .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false, clarity = 1f - frost)
+                .edgeHairline(frost)
                 .statusBarsPadding()
                 .height(56.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -103,15 +119,7 @@ fun PageScaffold(
             if (header != null) {
                 header()
             } else {
-                Text(
-                    text = title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OriginalColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
+                PageTitle(title, Modifier.weight(1f))
             }
             actions()
         }
@@ -142,7 +150,7 @@ fun PageScaffold(
     if (!scrollsUnderChrome) {
         Column(modifier = modifier.fillMaxSize().background(background)) {
             topBar(null, Modifier)
-            Box(modifier = Modifier.weight(1f)) { content() }
+            Box(modifier = Modifier.weight(1f).nestedScroll(scrollEdge.connection)) { content() }
             bottomBar(null, Modifier)
         }
         return
@@ -153,13 +161,46 @@ fun PageScaffold(
     var topHeight by remember { mutableStateOf(0.dp) }
     var bottomHeight by remember { mutableStateOf(0.dp) }
     Box(modifier = modifier.fillMaxSize().background(background)) {
-        Box(modifier = Modifier.fillMaxSize().glassBackdrop(backdrop)) {
+        Box(modifier = Modifier.fillMaxSize().glassBackdrop(backdrop).nestedScroll(scrollEdge.connection)) {
             CompositionLocalProvider(LocalChromePadding provides PaddingValues(top = topHeight, bottom = bottomHeight)) {
                 content()
             }
         }
         topBar(backdrop, Modifier.align(Alignment.TopCenter).onSizeChanged { topHeight = with(density) { it.height.toDp() } })
         bottomBar(backdrop, Modifier.align(Alignment.BottomCenter).onSizeChanged { bottomHeight = with(density) { it.height.toDp() } })
+    }
+}
+
+/**
+ * A page title that glides in from the right as the page is pushed, and cross-fades (with a small
+ * slide) when it changes, like an iOS navigation bar title.
+ */
+@Composable
+private fun PageTitle(title: String, modifier: Modifier = Modifier) {
+    val arrival = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { arrival.animateTo(1f, spring(dampingRatio = 1f, stiffness = 260f)) }
+    val density = LocalDensity.current
+    AnimatedContent(
+        targetState = title,
+        transitionSpec = {
+            (fadeIn(GlassMotion.snappy()) + slideInHorizontally(GlassMotion.smooth()) { it / 8 }) togetherWith
+                (fadeOut(GlassMotion.snappy()) + slideOutHorizontally(GlassMotion.smooth()) { -it / 8 })
+        },
+        contentAlignment = Alignment.CenterStart,
+        label = "PageTitle",
+        modifier = modifier.graphicsLayer {
+            alpha = arrival.value
+            translationX = (1f - arrival.value) * with(density) { 28.dp.toPx() }
+        }
+    ) { text ->
+        Text(
+            text = text,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = OriginalColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

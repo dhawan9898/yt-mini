@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.player
 
+import com.nexusstream.app.ui.theme.GlassTextButton as TextButton
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import com.nexusstream.app.ui.theme.bouncyClickable
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbDown
@@ -58,7 +60,6 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -446,7 +447,7 @@ fun MusicPlayerScreen(
                     maxLines = 2,
                     modifier = Modifier.weight(1f)
                 )
-                androidx.compose.material3.TextButton(onClick = { playbackService.retryPlayback() }) {
+                TextButton(onClick = { playbackService.retryPlayback() }) {
                     Text("Retry", color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
             }

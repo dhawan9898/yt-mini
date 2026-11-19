@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassTextButton as TextButton
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -28,7 +30,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -106,7 +107,7 @@ fun UploadScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(OriginalColors.Chip)
+                    .glassTile(RoundedCornerShape(12.dp))
                     .clickable(enabled = !uploading) { picker.launch("video/*") }
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -144,7 +145,7 @@ fun UploadScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                         color = if (selected) Color.Black else OriginalColors.TextPrimary,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) Color.White else OriginalColors.Chip)
+                            .glassTile(RoundedCornerShape(8.dp), fill = if (selected) Color.White else null)
                             .clickable(enabled = !uploading) { privacy = p }
                             .padding(horizontal = 14.dp, vertical = 8.dp)
                     )

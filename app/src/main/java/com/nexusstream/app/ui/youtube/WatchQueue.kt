@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -18,7 +20,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,7 +56,7 @@ internal fun WatchQueueCard(
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(OriginalColors.Chip)
+            .glassTile(RoundedCornerShape(14.dp))
     ) {
         Row(
             modifier = Modifier

@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
 import com.nexusstream.app.ui.theme.LocalChromePadding
 import com.nexusstream.app.ui.theme.plus
 import androidx.compose.foundation.background
@@ -185,7 +186,7 @@ internal fun PillButton(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(if (filled) OriginalColors.TextPrimary else OriginalColors.Chip)
+            .glassTile(RoundedCornerShape(20.dp), fill = if (filled) OriginalColors.TextPrimary else null)
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.Center,

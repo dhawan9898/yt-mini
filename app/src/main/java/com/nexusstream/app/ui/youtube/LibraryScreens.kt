@@ -1,5 +1,8 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassTextButton as TextButton
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,10 +39,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -162,7 +163,7 @@ fun HistoryScreen(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .height(40.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(OriginalColors.Chip)
+                    .glassTile(RoundedCornerShape(20.dp))
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterStart
             ) {

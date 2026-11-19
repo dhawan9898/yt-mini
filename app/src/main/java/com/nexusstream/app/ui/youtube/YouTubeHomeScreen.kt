@@ -1,5 +1,11 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.edgeHairline
+import com.nexusstream.app.ui.theme.rememberScrollEdge
+import com.nexusstream.app.ui.theme.rememberScrollEdgeFrost
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import com.nexusstream.app.ui.theme.GlassMotion
 import com.nexusstream.app.ui.theme.GlassWeight
 import com.nexusstream.app.ui.theme.LocalChromePadding
@@ -68,7 +74,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -299,6 +304,13 @@ fun YouTubeHomeScreen(
     val backdrop = remember { HazeState() }
     val density = LocalDensity.current
     var headerHeight by remember { mutableStateOf(0.dp) }
+    // Clear glass at the top of the feed, frosting over as it scrolls under the header (iOS).
+    val scrollEdge = rememberScrollEdge()
+    val frost = rememberScrollEdgeFrost(scrollEdge)
+    LaunchedEffect(selectedCategory) { scrollEdge.reset() }
+    // Scrolled back to the top by code (tapping Home, a quiet refresh): clear the glass again.
+    val feedAtTop by remember { androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 } }
+    LaunchedEffect(feedAtTop, selectedTab) { if (feedAtTop && selectedTab == 0) scrollEdge.reset() }
     val pullState = rememberPullToRefreshState()
 
     Row(modifier = modifier.fillMaxSize().background(OriginalColors.YouTubeBackground)) {
@@ -319,6 +331,7 @@ fun YouTubeHomeScreen(
                 .fillMaxSize()
                 .glassBackdrop(backdrop)
                 .nestedScroll(scrollConnection)
+                .nestedScroll(scrollEdge.connection)
         ) {
             CompositionLocalProvider(
                 LocalChromePadding provides chrome,
@@ -438,7 +451,8 @@ fun YouTubeHomeScreen(
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }
-                    .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false)
+                    .liquidGlass(RectangleShape, backdrop, GlassWeight.Thick, rim = false, clarity = 1f - frost)
+                    .edgeHairline(frost)
                     .statusBarsPadding()
             ) {
                 YouTubeHeader(
@@ -688,7 +702,7 @@ private fun YouTab(nav: YouTubeNav, onSelectVideo: (MediaItemModel, List<MediaIt
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
-                        .background(if (signedIn) OriginalColors.Chip else Color.White)
+                        .glassTile(RoundedCornerShape(16.dp), fill = if (signedIn) null else Color.White)
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Text(

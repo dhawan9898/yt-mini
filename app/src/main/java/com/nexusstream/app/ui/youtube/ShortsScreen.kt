@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.unit.Dp
@@ -37,7 +38,6 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect

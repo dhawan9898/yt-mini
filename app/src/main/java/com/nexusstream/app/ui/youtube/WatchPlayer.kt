@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import com.nexusstream.app.ui.components.rememberSmoothPosition
 import android.content.Context
 import android.content.ContextWrapper
@@ -66,7 +67,6 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect

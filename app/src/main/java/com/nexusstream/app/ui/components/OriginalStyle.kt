@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.components
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -28,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material3.IconButton
 import kotlin.math.abs
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.setValue
@@ -55,6 +56,7 @@ import com.nexusstream.app.ui.theme.GlassMotion
 import com.nexusstream.app.ui.theme.GlassWeight
 import com.nexusstream.app.ui.theme.bouncyClickable
 import com.nexusstream.app.ui.theme.liquidGlass
+import com.nexusstream.app.ui.theme.selectionTick
 import com.nexusstream.app.ui.theme.pressScale
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -102,6 +104,7 @@ fun OriginalFilterChips(
     leadingIcon: ImageVector? = null,
     onLeadingClick: () -> Unit = {}
 ) {
+    val view = androidx.compose.ui.platform.LocalView.current
     LazyRow(
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -112,8 +115,7 @@ fun OriginalFilterChips(
                 Box(
                     modifier = Modifier
                         .size(32.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(unselectedColor)
+                        .glassTile(RoundedCornerShape(10.dp))
                         .clickable(onClick = onLeadingClick),
                     contentAlignment = Alignment.Center
                 ) {
@@ -123,10 +125,11 @@ fun OriginalFilterChips(
         }
         items(labels) { label ->
             val isSelected = label == selected
-            val background by animateColorAsState(
-                targetValue = if (isSelected) OriginalColors.TextPrimary else unselectedColor,
+            // Clear glass, filling with tinted glass when selected.
+            val selectedness by animateFloatAsState(
+                targetValue = if (isSelected) 1f else 0f,
                 animationSpec = GlassMotion.snappy(),
-                label = "ChipBackground"
+                label = "ChipFill"
             )
             val textColor by animateColorAsState(
                 targetValue = if (isSelected) OriginalColors.OnInverse else OriginalColors.TextPrimary,
@@ -136,9 +139,14 @@ fun OriginalFilterChips(
             Box(
                 modifier = Modifier
                     .heightIn(min = 32.dp)
-                    .bouncyClickable(pressedScale = 0.94f) { onSelect(label) }
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(background)
+                    .bouncyClickable(pressedScale = 0.94f) {
+                        if (!isSelected) view.selectionTick()
+                        onSelect(label)
+                    }
+                    .glassTile(
+                        RoundedCornerShape(10.dp),
+                        fill = if (selectedness > 0.02f) OriginalColors.TextPrimary.copy(alpha = selectedness) else null
+                    )
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -395,7 +403,7 @@ fun OriginalError(message: String, onRetry: () -> Unit, modifier: Modifier = Mod
             modifier = Modifier
                 .bouncyClickable(onClick = onRetry)
                 .clip(RoundedCornerShape(18.dp))
-                .background(OriginalColors.TextPrimary)
+                .glassTile(RoundedCornerShape(18.dp), fill = OriginalColors.TextPrimary)
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
             Text(text = "Retry", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = OriginalColors.OnInverse)

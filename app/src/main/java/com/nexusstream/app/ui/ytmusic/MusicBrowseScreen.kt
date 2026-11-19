@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.ytmusic
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import com.nexusstream.app.ui.theme.LocalChromePadding
 import com.nexusstream.app.ui.theme.plus
 import android.widget.Toast
@@ -32,7 +34,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -382,7 +383,7 @@ private fun MusicPageHeader(
                     }
                 }
                 Box(
-                    modifier = Modifier.size(64.dp).clip(CircleShape).background(OriginalColors.TextPrimary)
+                    modifier = Modifier.size(64.dp).glassTile(CircleShape, fill = OriginalColors.TextPrimary)
                         .clickable { play(header.playlistId, shuffle = false) },
                     contentAlignment = Alignment.Center
                 ) {
@@ -404,8 +405,7 @@ private fun MusicPageHeader(
 private fun PillButton(icon: ImageVector?, label: String, filled: Boolean = false, onClick: () -> Unit) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .then(if (filled) Modifier.background(OriginalColors.TextPrimary) else Modifier.border(1.dp, OriginalColors.Divider, RoundedCornerShape(50)))
+            .glassTile(RoundedCornerShape(50), fill = if (filled) OriginalColors.TextPrimary else null)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -423,7 +423,7 @@ private fun PillButton(icon: ImageVector?, label: String, filled: Boolean = fals
 private fun RoundIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(44.dp).clip(CircleShape).background(OriginalColors.MusicChip)
+        modifier = Modifier.size(44.dp).glassTile(CircleShape)
     ) {
         Icon(icon, label, tint = OriginalColors.TextPrimary)
     }

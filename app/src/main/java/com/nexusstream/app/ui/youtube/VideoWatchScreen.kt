@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.animation.core.Animatable
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -53,7 +55,6 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -496,7 +497,7 @@ fun VideoWatchScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(OriginalColors.Chip)
+                            .glassTile(RoundedCornerShape(14.dp))
                             .clickable { showChapters = true }
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -528,7 +529,7 @@ fun VideoWatchScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(OriginalColors.Chip)
+                            .glassTile(RoundedCornerShape(14.dp))
                             .clickable { showChat = true }
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -546,7 +547,7 @@ fun VideoWatchScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(OriginalColors.Chip)
+                            .glassTile(RoundedCornerShape(14.dp))
                             .clickable {
                                 val ids = listOf(mediaItem.id) + playbackState.queue.drop(playbackState.queueIndex + 1).map { it.id }.filter { it != mediaItem.id }
                                 val at = playbackState.currentPositionMs / 1000
@@ -573,7 +574,7 @@ fun VideoWatchScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(OriginalColors.Chip)
+                            .glassTile(RoundedCornerShape(14.dp))
                             .clickable { showTranscript = true }
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -644,7 +645,7 @@ fun VideoWatchScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(18.dp))
-                            .background(if (isSubscribed) OriginalColors.Chip else OriginalColors.TextPrimary)
+                            .glassTile(RoundedCornerShape(18.dp), fill = if (isSubscribed) null else OriginalColors.TextPrimary)
                             .clickable {
                                 LibraryRepository.toggleSubscribe(mediaItem.artistOrChannel, channelAvatar, mediaItem.channelUrl)
                             }
@@ -674,7 +675,7 @@ fun VideoWatchScreen(
                         modifier = Modifier
                             .height(36.dp)
                             .clip(RoundedCornerShape(18.dp))
-                            .background(OriginalColors.Chip),
+                            .glassTile(RoundedCornerShape(18.dp)),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
@@ -782,7 +783,7 @@ fun VideoWatchScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(OriginalColors.Chip)
+                        .glassTile(RoundedCornerShape(14.dp))
                         .clickable { showComments = true }
                         .padding(14.dp)
                 ) {
@@ -1543,7 +1544,7 @@ private fun WatchActionChip(
         modifier = Modifier
             .height(36.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(OriginalColors.Chip)
+            .glassTile(RoundedCornerShape(18.dp))
             .clickable(onClickLabel = description, onClick = onClick)
             .padding(horizontal = if (label == null) 10.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically

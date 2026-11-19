@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.ytmusic
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -165,7 +166,7 @@ private fun ShelfTitle(section: YTMusicApi.Section, onMore: (() -> Unit)?) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(OriginalColors.MusicChip)
+                    .glassTile(RoundedCornerShape(50))
                     .clickable(onClick = onMore)
                     .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
@@ -198,7 +199,7 @@ private fun NavButtonTile(button: YTMusicApi.NavButton, modifier: Modifier, onCl
         modifier = modifier
             .height(48.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(OriginalColors.MusicChip)
+            .glassTile(RoundedCornerShape(6.dp))
             .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {

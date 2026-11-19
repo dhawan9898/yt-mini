@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.GlassTextButton as TextButton
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -556,7 +557,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 }
             },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
+                TextButton(onClick = {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, "yt-mini playback self-test\n$text")
@@ -565,7 +566,7 @@ fun SettingsScreen(nav: YouTubeNav, miniPlayer: MiniPlayerHooks) {
                 }) { Text("Share", color = LinkBlue) }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { selfTestReport = null }) {
+                TextButton(onClick = { selfTestReport = null }) {
                     Text("Close", color = OriginalColors.TextSecondary)
                 }
             }
@@ -683,7 +684,7 @@ private fun TvLinkDialog(onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(
+            TextButton(
                 enabled = !busy && code.count { it.isDigit() } >= 6,
                 onClick = {
                     busy = true
@@ -699,7 +700,7 @@ private fun TvLinkDialog(onDismiss: () -> Unit) {
                 }
             ) { Text(if (busy) "Linking..." else "Link") }
         },
-        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
@@ -764,6 +765,6 @@ private fun AccountSwitcherDialog(onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Close") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }

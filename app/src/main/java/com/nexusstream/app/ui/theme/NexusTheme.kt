@@ -187,6 +187,7 @@ private fun robotoTypography(): Typography {
 /**
  * Root theme for NexusStream.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun NexusTheme(
     dominantColor: Color = Color(0xFF6C5CE7),
@@ -278,9 +279,21 @@ fun NexusTheme(
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = robotoTypography(),
-            content = content
-        )
+            typography = robotoTypography()
+        ) {
+            // Liquid touch feel: every clickable sinks under a glass sheen instead of rippling, and
+            // the few Material controls that keep their own ripple get only a faint glass glow.
+            CompositionLocalProvider(
+                androidx.compose.foundation.LocalIndication provides LiquidIndication,
+                androidx.compose.material3.LocalRippleConfiguration provides androidx.compose.material3.RippleConfiguration(
+                    color = palette.text,
+                    rippleAlpha = androidx.compose.material.ripple.RippleAlpha(
+                        draggedAlpha = 0.06f, focusedAlpha = 0.06f, hoveredAlpha = 0.04f, pressedAlpha = 0.07f
+                    )
+                ),
+                content = content
+            )
+        }
     }
 }
 

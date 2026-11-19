@@ -1,5 +1,7 @@
 package com.nexusstream.app.ui.components
 
+import com.nexusstream.app.ui.theme.glassTile
+import com.nexusstream.app.ui.theme.GlassIconButton as IconButton
 import android.annotation.SuppressLint
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -40,7 +42,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
@@ -461,7 +462,7 @@ private fun SheetButtons(secondary: Pair<String, () -> Unit>?, primary: Pair<Str
             color = OriginalColors.OnInverse,
             modifier = Modifier
                 .clip(RoundedCornerShape(18.dp))
-                .background(OriginalColors.TextPrimary)
+                .glassTile(RoundedCornerShape(18.dp), fill = OriginalColors.TextPrimary)
                 .clickable(onClick = primary.second)
                 .padding(horizontal = 16.dp, vertical = 9.dp)
         )

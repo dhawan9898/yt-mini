@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui.youtube
 
+import com.nexusstream.app.ui.theme.glassTile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -381,7 +382,7 @@ private fun ChannelHeader(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(18.dp))
-                    .background(if (subscribed) OriginalColors.Chip else OriginalColors.TextPrimary)
+                    .glassTile(RoundedCornerShape(18.dp), fill = if (subscribed) null else OriginalColors.TextPrimary)
                     .clickable(onClick = onToggleSubscribe)
                     .padding(horizontal = 20.dp, vertical = 9.dp)
             ) {
@@ -462,7 +463,7 @@ private fun PostCard(post: YouTubeWeb.Post, onOpenVideo: (MediaItemModel) -> Uni
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(OriginalColors.Chip)
+            .glassTile(RoundedCornerShape(12.dp))
             .padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

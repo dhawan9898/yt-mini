@@ -1,5 +1,6 @@
 package com.nexusstream.app.ui
 
+import com.nexusstream.app.ui.theme.GlassTextButton as TextButton
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -65,7 +66,6 @@ import com.nexusstream.app.notifications.NotificationHelper
 import com.nexusstream.app.notifications.BackgroundJobs
 import com.nexusstream.app.data.YouTubeRepository
 import com.nexusstream.app.LaunchRequests
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import com.nexusstream.app.ui.youtube.SearchScreen
 import com.nexusstream.app.ui.youtube.UploadScreen
@@ -412,9 +412,13 @@ fun NexusApp() {
                 // Screen Switcher
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     val modeStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+                    // How far each stacked page is from covering what is under it (0 = fully in,
+                    // 1 = off screen), so the layer underneath can recede as a page slides over it.
+                    val pageOffsets = remember { androidx.compose.runtime.mutableStateMapOf<Int, Float>() }
                     // Home stays composed under the pages and the player, so scroll positions,
                     // tabs and loaded feeds are still there when the player is minimised.
                     AnimatedContent(
+                        modifier = Modifier.underPage(pageOffsets, -1),
                         targetState = currentMode,
                         transitionSpec = {
                             // YouTube <-> YT Music: a soft cross-dissolve with a little depth.
@@ -468,6 +472,8 @@ fun NexusApp() {
                         backStack.forEachIndexed { index, route ->
                             key(index, route) {
                                 PageTransition(
+                                    index = index,
+                                    offsets = pageOffsets,
                                     closing = index == closingIndex,
                                     dragProgress = if (index == backStack.lastIndex) backProgress else 0f,
                                     onClosed = {
@@ -573,6 +579,8 @@ fun NexusApp() {
  */
 @Composable
 private fun PageTransition(
+    index: Int,
+    offsets: androidx.compose.runtime.snapshots.SnapshotStateMap<Int, Float>,
     closing: Boolean,
     dragProgress: Float,
     onClosed: () -> Unit,
@@ -593,7 +601,11 @@ private fun PageTransition(
         if (dragProgress > 0f) offset.snapTo(dragProgress * 0.9f)
         else if (offset.value > 0f) offset.animateTo(0f, spring(dampingRatio = 1f, stiffness = 380f, visibilityThreshold = 0.002f))
     }
-    Box(modifier = Modifier.fillMaxSize()) {
+    LaunchedEffect(index) {
+        androidx.compose.runtime.snapshotFlow { offset.value }.collect { offsets[index] = it }
+    }
+    androidx.compose.runtime.DisposableEffect(index) { onDispose { offsets.remove(index) } }
+    Box(modifier = Modifier.fillMaxSize().underPage(offsets, index)) {
         // Shade over the page underneath, fading as this page slides away.
         Box(
             modifier = Modifier
@@ -610,6 +622,15 @@ private fun PageTransition(
                 }
         ) { content() }
     }
+}
+
+/**
+ * The iOS parallax: while the page above layer [index] covers it, this layer slides a quarter of
+ * the way to the left, and comes back as that page is swiped or animated away.
+ */
+private fun Modifier.underPage(offsets: Map<Int, Float>, index: Int): Modifier = graphicsLayer {
+    val above = offsets[index + 1]
+    translationX = if (above == null) 0f else -(1f - above) * 0.25f * size.width
 }
 
 /** The player sheet's entrance and exit: up from the bottom with a slight spring, down and out. */

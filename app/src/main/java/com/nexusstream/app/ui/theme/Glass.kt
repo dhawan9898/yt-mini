@@ -20,6 +20,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -87,13 +88,21 @@ fun Modifier.liquidGlass(
     backdrop: HazeState? = null,
     weight: GlassWeight = GlassWeight.Regular,
     elevation: Dp = 0.dp,
-    rim: Boolean = true
+    rim: Boolean = true,
+    /**
+     * 0 = the usual tinted glass, 1 = clear glass (blur only, a whisper of tint). Bars use it for
+     * the iOS "scroll edge" look: clear at rest, frosting over as content scrolls under them.
+     */
+    clarity: Float = 0f
 ): Modifier {
     val p = ThemeState.palette
-    val style = remember(p, weight) {
+    // Quantised so a fading bar rebuilds its style a few dozen times, not every frame.
+    val clear = (clarity.coerceIn(0f, 1f) * 24).toInt() / 24f
+    val style = remember(p, weight, clear) {
+        val tintAlpha = (p.glassTint.alpha * weight.tintScale).coerceAtMost(1f) * (1f - 0.8f * clear)
         HazeStyle(
             backgroundColor = p.background,
-            tint = HazeTint(p.glassTint.copy(alpha = (p.glassTint.alpha * weight.tintScale).coerceAtMost(1f))),
+            tint = HazeTint(p.glassTint.copy(alpha = tintAlpha)),
             blurRadius = weight.blur,
             noiseFactor = if (p.isDark) 0.05f else 0.03f,
             fallbackTint = HazeTint(p.glassFallback)
@@ -111,8 +120,8 @@ fun Modifier.liquidGlass(
         m = m.shadow(elevation, shape, clip = false, ambientColor = shadow, spotColor = shadow)
     }
     m = m.clip(shape)
-    m = if (backdrop != null) m.hazeChild(backdrop, style) else m.background(p.glassFallback)
-    m = m.drawBehind { drawSheen(highlight) }
+    m = if (backdrop != null) m.hazeChild(backdrop, style) else m.background(p.glassFallback.copy(alpha = p.glassFallback.alpha * (1f - clear)))
+    m = m.drawBehind { drawSheen(highlight.copy(alpha = highlight.alpha * (1f - clear))) }
     if (rim) m = m.border(0.75.dp, rimBrush, shape)
     return m
 }
@@ -130,6 +139,34 @@ fun Modifier.frostedGlass(shape: Shape, pressed: Boolean = false, strength: Floa
         Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.34f), Color.White.copy(alpha = 0.06f), Color.White.copy(alpha = 0.14f))),
         shape
     )
+
+/**
+ * A liquid glass button, chip or tile. Without [fill] it is clear glass: a whisper of tint you can
+ * see through, a glossy top sheen and a bright specular rim. With [fill] (a primary button, a
+ * selected chip) it is tinted glass: that colour, very slightly see-through, with the same sheen
+ * and rim. Press feedback comes from the app's [LiquidIndication].
+ */
+fun Modifier.glassTile(shape: Shape, fill: Color? = null): Modifier {
+    val p = ThemeState.palette
+    val dark = p.isDark
+    val body = fill?.let { it.copy(alpha = it.alpha * 0.9f) }
+        ?: p.text.copy(alpha = if (dark) 0.085f else 0.05f)
+    val sheen = when {
+        fill != null -> Color.White.copy(alpha = if (dark) 0.22f else 0.16f)
+        dark -> Color.White.copy(alpha = 0.07f)
+        else -> Color.White.copy(alpha = 0.55f)
+    }
+    val rim = if (dark) {
+        listOf(Color.White.copy(alpha = 0.26f), Color.White.copy(alpha = 0.04f), Color.White.copy(alpha = 0.12f))
+    } else {
+        listOf(Color.White.copy(alpha = 0.95f), Color.Black.copy(alpha = 0.03f), Color.Black.copy(alpha = 0.09f))
+    }
+    return this
+        .clip(shape)
+        .background(body)
+        .drawBehind { drawSheen(sheen) }
+        .border(0.75.dp, Brush.verticalGradient(rim), shape)
+}
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSheen(color: Color) {
     if (color.alpha <= 0f) return
@@ -172,6 +209,58 @@ fun Modifier.bouncyClickable(
     val interaction = remember { MutableInteractionSource() }
     return pressScale(interaction, pressedScale)
         .clickable(interactionSource = interaction, indication = null, onClickLabel = onClickLabel, role = role, onClick = onClick)
+}
+
+/**
+ * Tracks how far the content under a glass bar has scrolled, from the scroll deltas that pass
+ * through [connection] (attach it with `Modifier.nestedScroll`). [frost] goes from 0 (content at
+ * the top: the bar is clear) to 1 (content under the bar: it frosts and shows its hairline).
+ */
+class ScrollEdge internal constructor(private val thresholdPx: Float) {
+    private var scrolled by androidx.compose.runtime.mutableFloatStateOf(0f)
+
+    /** 0..1, unanimated; read it through [rememberScrollEdgeFrost] for a smooth fade. */
+    val rawFrost: Float get() = (scrolled / thresholdPx).coerceIn(0f, 1f)
+
+    val connection = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+        override fun onPostScroll(
+            consumed: androidx.compose.ui.geometry.Offset,
+            available: androidx.compose.ui.geometry.Offset,
+            source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+        ): androidx.compose.ui.geometry.Offset {
+            scrolled = (scrolled - consumed.y).coerceAtLeast(0f)
+            // Pulled down with nothing left to scroll: the list is at its top.
+            if (available.y > 0f) scrolled = 0f
+            return androidx.compose.ui.geometry.Offset.Zero
+        }
+    }
+
+    /** For content that scrolls by code (e.g. back to the top on refresh). */
+    fun reset() { scrolled = 0f }
+}
+
+@Composable
+fun rememberScrollEdge(threshold: Dp = 28.dp): ScrollEdge {
+    val px = with(LocalDensity.current) { threshold.toPx() }
+    return remember(px) { ScrollEdge(px) }
+}
+
+/** [ScrollEdge.rawFrost], eased with a soft spring. */
+@Composable
+fun rememberScrollEdgeFrost(edge: ScrollEdge): Float {
+    val frost by animateFloatAsState(edge.rawFrost, GlassMotion.smooth(), label = "ScrollEdgeFrost")
+    return frost
+}
+
+/** A hairline under a bar that fades in with [alpha] (0..1). */
+fun Modifier.edgeHairline(alpha: Float): Modifier = drawBehind {
+    if (alpha <= 0f) return@drawBehind
+    val color = ThemeState.palette.divider
+    drawRect(
+        color = color.copy(alpha = color.alpha * alpha),
+        topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - 0.75.dp.toPx()),
+        size = Size(size.width, 0.75.dp.toPx())
+    )
 }
 
 /** True where windows can blur what is behind them (Android 12+ with cross-window blur on). */
